@@ -259,7 +259,7 @@ export async function submitToGateway(order: StandingOrder): Promise<string> {
 export async function gatewayTransfer(transferId: string): Promise<{ state: "pending" | "delivered" | "failed"; txHash?: Hex }> {
   const res = await fetch(`${gateway.apiUrl}/v1/transfer/${transferId}`).catch(() => null);
   if (res === null || !res.ok) return { state: "pending" };
-  const body = (await res.json()) as { status?: string; transactionHash?: Hex };
+  const body = (await res.json().catch(() => ({}))) as { status?: string; transactionHash?: Hex };
   if (body.status === "confirmed" || body.status === "finalized") return { state: "delivered", txHash: body.transactionHash };
   if (body.status === "failed" || body.status === "expired") return { state: "failed" };
   return { state: "pending" };
