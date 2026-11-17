@@ -1,4 +1,15 @@
-import { isAddress, zeroAddress } from "viem";
+import {
+  encodeAbiParameters,
+  encodeEventTopics,
+  isAddress,
+  keccak256,
+  parseAbiParameters,
+  toHex,
+  zeroAddress,
+  type Address,
+  type Log,
+} from "viem";
+import { ardoiseEventsAbi } from "@/lib/abi";
 import {
   NO_DEBT_HEALTH,
   PaymentFailed,
@@ -22,24 +33,54 @@ export interface MockPosition {
   liquidationThreshold: bigint;
 }
 
+/** A payment made before the page opened, replayed to seed the account. */
+export interface MockPayment {
+  /** Days before now; 0 counts toward today's cap like a new payment. */
+  daysAgo: number;
+  venueId: string;
+  amount: bigint;
+  maxFee: bigint;
+  destinationDomain: number;
+  payee: Address;
+  memo: string;
+}
+
 /** Starting state of a mock account. */
 export interface MockOptions {
   /** Position per venue id. A venue without a position cannot be borrowed from. */
   positions: Record<string, MockPosition>;
+  /** Past payments; their borrowed amounts add to the positions' debt. */
+  history: MockPayment[];
   minHealthFactor: bigint;
   perPaymentCap: bigint;
   dailyCap: bigint;
 }
 
-// A small demo account: $250 of cirBTC on each venue, $100 already borrowed
-// on Aave V4. Thresholds are the real ones for cirBTC: 78% collateral factor
-// on the Aave V4 Main Spoke, 86% LLTV on the Morpho market. The guard keeps
-// the health factor above 1.25.
+// The project's dedicated test wallet, already public in docs/roadmap.md.
+const DEMO_PAYEE: Address = "0xdf41621b35b0c3512d1177DE1423747900fC7a77";
+
+// A small demo account: $250 of cirBTC on each venue and two past payments
+// on Aave V4 that add up to $100 of debt. Thresholds are the real ones for
+// cirBTC: 78% collateral factor on the Aave V4 Main Spoke, 86% LLTV on the
+// Morpho market. The guard keeps the health factor above 1.25, the minimum
+// suggested for deployment (roadmap B1, MarginGuard tests).
 export const DEFAULT_MOCK: MockOptions = {
   positions: {
-    "aave-v4": { collateralUsd: 250n * WAD, debtUsd: 100n * WAD, liquidationThreshold: (78n * WAD) / 100n },
+    "aave-v4": { collateralUsd: 250n * WAD, debtUsd: 0n, liquidationThreshold: (78n * WAD) / 100n },
     morpho: { collateralUsd: 250n * WAD, debtUsd: 0n, liquidationThreshold: (86n * WAD) / 100n },
   },
+  history: [
+    {
+      daysAgo: 3,
+      venueId: "aave-v4",
+      amount: 59_946_052n,
+      maxFee: 53_948n,
+      destinationDomain: 6,
+      payee: DEMO_PAYEE,
+      memo: "Design invoice #41",
+    },
+    { daysAgo: 1, venueId: "aave-v4", amount: 40_000_000n, maxFee: 0n, destinationDomain: 26, payee: DEMO_PAYEE, memo: "Hosting, November" },
+  ],
   minHealthFactor: (125n * WAD) / 100n,
   perPaymentCap: 100_000_000n,
   dailyCap: 300_000_000n,
@@ -61,6 +102,8 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
   );
   let spentToday = 0n;
   const lines: DebtLine[] = [];
+  const logs: Log[] = [];
+  const blockTimes = new Map<bigint, number>();
 
   const healthFactor = (p: MockPosition, debt: bigint) =>
     debt === 0n ? NO_DEBT_HEALTH : (p.collateralUsd * p.liquidationThreshold) / debt;
@@ -107,6 +150,55 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     return base;
   }
 
+  // Applies a payment to the position and emits the Paid log pay() would.
+  function record(request: PaymentRequest, venue: Venue, borrowed: bigint, at: number): DebtLine {
+    positionOf(venue.id).debtUsd += usdcToUsd(borrowed);
+    const line: DebtLine = {
+      id: BigInt(lines.length + 1),
+      venue,
+      principal: borrowed,
+      repaid: 0n,
+      accruedInterest: 0n,
+      rateBps: venue.rateBps,
+      destinationDomain: request.destinationDomain,
+      openedAt: at,
+      payee: payeeToBytes32(request.payee),
+      memo: request.memo,
+    };
+    lines.push(line);
+    const blockNumber = BigInt(logs.length + 1);
+    blockTimes.set(blockNumber, at);
+    logs.push({
+      address: MOCK_ACCOUNT,
+      topics: encodeEventTopics({ abi: ardoiseEventsAbi, eventName: "Paid", args: { lineId: line.id, venue: venue.address } }) as Log["topics"],
+      data: encodeAbiParameters(PAID_DATA, [
+        request.amount,
+        request.maxFee,
+        borrowed,
+        venue.rateBps,
+        request.destinationDomain,
+        line.payee,
+        request.memo,
+      ]),
+      blockNumber,
+      blockHash: keccak256(toHex(`block ${blockNumber}`)),
+      transactionHash: keccak256(toHex(`payment ${line.id}`)),
+      transactionIndex: 0,
+      logIndex: 0,
+      removed: false,
+    });
+    return line;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  for (const past of options.history) {
+    const venue = venues.find((v) => v.id === past.venueId);
+    if (!venue || !positions.has(venue.id)) continue;
+    const borrowed = past.amount + past.maxFee;
+    if (past.daysAgo === 0) spentToday += borrowed;
+    record(past, venue, borrowed, now - past.daysAgo * 86_400);
+  }
+
   return {
     simulated: true,
     health: async (venueId) => health(venueId),
@@ -114,29 +206,20 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     caps: async () => ({ perPayment: options.perPaymentCap, daily: options.dailyCap, spentToday }),
     lines: async () => [...lines],
     quote: async (request) => quote(request),
+    events: async () => ({ account: MOCK_ACCOUNT, logs: [...logs], blockTimes: new Map(blockTimes) }),
     pay: async (request) => {
       const q = quote(request);
       if (q.error) throw new PaymentFailed(q.error);
-      const venue = q.venue!;
-      positionOf(venue.id).debtUsd += usdcToUsd(q.borrow);
       spentToday += q.borrow;
-      const line: DebtLine = {
-        id: BigInt(lines.length + 1),
-        venue,
-        principal: q.borrow,
-        repaid: 0n,
-        accruedInterest: 0n,
-        rateBps: venue.rateBps,
-        destinationDomain: request.destinationDomain,
-        openedAt: Math.floor(Date.now() / 1000),
-        payee: payeeToBytes32(request.payee),
-        memo: request.memo,
-      };
-      lines.push(line);
-      return line;
+      return record(request, q.venue!, q.borrow, Math.floor(Date.now() / 1000));
     },
   };
 }
+
+// Stand-in address for the account that emits the mock's logs.
+const MOCK_ACCOUNT: Address = "0x000000000000000000000000000000000000a4d0";
+// Non-indexed fields of IArdoise.Paid, in order.
+const PAID_DATA = parseAbiParameters("uint256, uint256, uint256, uint32, uint32, bytes32, string");
 
 function minBigint(a: bigint, b: bigint): bigint {
   return a < b ? a : b;

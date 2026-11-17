@@ -1,4 +1,4 @@
-import { PayScreen } from "@/components/PayScreen";
+import { AccountScreen } from "@/components/AccountScreen";
 import { arcClient } from "@/lib/arc";
 import { network } from "@/lib/network";
 import { readVenueRates } from "@/lib/venues";
@@ -7,8 +7,8 @@ import { readVenueRates } from "@/lib/venues";
 export const dynamic = "force-dynamic";
 
 /**
- * Home page: the pay screen, fed with live venue rates from Arc mainnet, and
- * the status of the Arc network the app is set to.
+ * Home page: the pay screen and the statement, fed with live venue rates
+ * from Arc mainnet, and the status of the Arc network the app is set to.
  */
 export default async function Home() {
   const [venues, blockNumber, chainId] = await Promise.all([
@@ -31,7 +31,7 @@ export default async function Home() {
         </p>
       </header>
       {venues ? (
-        <PayScreen venues={venues} />
+        <AccountScreen venues={venues} />
       ) : (
         <p className="text-red-600">Could not read the lending rates from Arc mainnet. Try again in a moment.</p>
       )}

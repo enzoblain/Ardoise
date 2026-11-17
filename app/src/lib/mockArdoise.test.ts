@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { PaymentFailed, WAD, marginFromHealth, type PaymentRequest, type Venue } from "@/lib/ardoise";
 import { DEFAULT_MOCK, createMockArdoise } from "@/lib/mockArdoise";
 
-const AAVE: Venue = { id: "aave-v4", name: "Aave V4", rateBps: 310, available: 40_000_000n * 1_000_000n };
-const MORPHO: Venue = { id: "morpho", name: "Morpho", rateBps: 398, available: 15_000_000n * 1_000_000n };
+const AAVE: Venue = { id: "aave-v4", address: "0xB843bdC3a87A05E77E07Df9FE48928b3A34b134d", name: "Aave V4", rateBps: 310, available: 40_000_000n * 1_000_000n };
+const MORPHO: Venue = { id: "morpho", address: "0x34CD04070dD72b14E241112F6d83812Df5Af7fCD", name: "Morpho", rateBps: 398, available: 15_000_000n * 1_000_000n };
 const PAYEE = "0xdf41621b35b0c3512d1177DE1423747900fC7a77";
 
 function request(amount: number, overrides: Partial<PaymentRequest> = {}): PaymentRequest {
@@ -35,10 +35,10 @@ describe("mock Ardoise account", () => {
   it("returns the debt line and updates that venue's position and the caps", async () => {
     const account = createMockArdoise([AAVE, MORPHO]);
     const line = await account.pay(request(20, { memo: "design work" }));
-    expect(line).toMatchObject({ id: 1n, principal: 20_054_508n, rateBps: 310, destinationDomain: 6, memo: "design work" });
+    expect(line).toMatchObject({ id: 3n, principal: 20_054_508n, rateBps: 310, destinationDomain: 6, memo: "design work" });
     expect(line.venue.id).toBe("aave-v4");
     expect(line.payee).toBe("0x000000000000000000000000df41621b35b0c3512d1177de1423747900fc7a77");
-    expect(await account.lines()).toEqual([line]);
+    expect((await account.lines()).at(-1)).toEqual(line);
     expect((await account.caps()).spentToday).toBe(20_054_508n);
     expect((await account.health("aave-v4")).debtUsd).toBe(100n * WAD + 20_054_508n * 10n ** 12n);
     expect((await account.health("morpho")).debtUsd).toBe(0n);
@@ -51,13 +51,14 @@ describe("mock Ardoise account", () => {
     expect(quote.venue?.id).toBe("aave-v4");
     expect(quote.error).toEqual({ code: "PaymentRefused", allowed: 56_000_000n });
     await expect(account.pay(request(60))).rejects.toBeInstanceOf(PaymentFailed);
-    expect(await account.lines()).toHaveLength(0);
+    expect(await account.lines()).toHaveLength(2);
   });
 
   it("enforces the per-payment and daily caps", async () => {
     const account = createMockArdoise([AAVE], {
       ...DEFAULT_MOCK,
       positions: { "aave-v4": { collateralUsd: 10_000n * WAD, debtUsd: 0n, liquidationThreshold: (78n * WAD) / 100n } },
+      history: [],
       dailyCap: 150_000_000n,
     });
     expect((await account.quote(request(100))).error?.code).toBe("CapExceeded");
@@ -71,6 +72,22 @@ describe("mock Ardoise account", () => {
     const noPosition = createMockArdoise([AAVE, MORPHO], { ...DEFAULT_MOCK, positions: { morpho: DEFAULT_MOCK.positions.morpho } });
     expect((await noPosition.quote(request(20))).venue?.id).toBe("morpho");
     expect((await createMockArdoise([dryAave]).quote(request(20))).error?.code).toBe("NoVenueAvailable");
+  });
+
+  it("seeds $100 of past debt on Aave from its history, outside today's cap", async () => {
+    const account = createMockArdoise([AAVE, MORPHO]);
+    expect((await account.health("aave-v4")).debtUsd).toBe(100n * WAD);
+    expect((await account.caps()).spentToday).toBe(0n);
+    const { logs } = await account.events();
+    expect(logs).toHaveLength(2);
+  });
+
+  it("counts same-day history toward today's cap", async () => {
+    const account = createMockArdoise([AAVE], {
+      ...DEFAULT_MOCK,
+      history: [{ ...DEFAULT_MOCK.history[1], daysAgo: 0 }],
+    });
+    expect((await account.caps()).spentToday).toBe(40_000_000n);
   });
 
   it("rejects an invalid or zero payee", async () => {

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { isAddress, parseUnits, type Address } from "viem";
 import {
   PaymentFailed,
   marginFromHealth,
+  type ArdoiseClient,
   type DebtLine,
   type PaymentError,
   type PaymentQuote,
@@ -12,7 +13,6 @@ import {
 } from "@/lib/ardoise";
 import { computeMaxFee, fetchFeeSchedule, type IrisFee } from "@/lib/fees";
 import { formatBps, formatUsdc } from "@/lib/format";
-import { createMockArdoise } from "@/lib/mockArdoise";
 import { chainByDomain, network, type PayoutChain } from "@/lib/network";
 import { MarginGauge } from "@/components/MarginGauge";
 import { RateComparison } from "@/components/RateComparison";
@@ -27,12 +27,19 @@ const DESTINATIONS: PayoutChain[] = [network.base, network.arc];
  * payment would borrow from, the margin on that venue before and after, and
  * the CCTP fee, then sends the payment through the account client.
  *
+ * @param props.account Account client the payment goes through.
  * @param props.venues Venues with their live rates, read on the server.
+ * @param props.onPaid Called after each successful payment.
  */
-export function PayScreen({ venues }: { venues: Venue[] }) {
-  // The mock keeps its state in memory for as long as the page is open.
-  const account = useMemo(() => createMockArdoise(venues), [venues]);
-
+export function PayScreen({
+  account,
+  venues,
+  onPaid,
+}: {
+  account: ArdoiseClient;
+  venues: Venue[];
+  onPaid: () => void;
+}) {
   const [amountText, setAmountText] = useState("20");
   const [destination, setDestination] = useState<PayoutChain>(network.base);
   const [payee, setPayee] = useState("");
@@ -113,6 +120,7 @@ export function PayScreen({ venues }: { venues: Venue[] }) {
       });
       setReceipt(line);
       setPaymentCount((n) => n + 1);
+      onPaid();
     } catch (e) {
       if (e instanceof PaymentFailed) setRefusal(e.reason);
       else setFailure((e as Error).message || "The payment could not be sent.");
