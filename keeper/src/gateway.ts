@@ -368,6 +368,14 @@ const MAX_RETRY_MS = 3_600_000;
  */
 const IN_FLIGHT_DEADLINE_MS = 30 * 60_000;
 
+/**
+ * How long an account is held after a submission whose answer was lost
+ * (timeout, server error): Gateway may have accepted it, and the forwarder
+ * mints within seconds, so the next passes must see that balance before
+ * drawing again.
+ */
+const UNCERTAIN_HOLD_MS = 2 * 60_000;
+
 /** A refusal meaning the order can never be used again. */
 const SPENT = /already (been )?used|already exists|duplicate|salt/i;
 
@@ -387,6 +395,8 @@ export class GatewayFunder {
   /** Orders used for good, keyed by depositor and salt so two owners' salts never collide. */
   private readonly used = new Set<string>();
   private readonly retries = new Map<string, { count: number; retryAt: number }>();
+  /** Accounts not to fund before a given time, after a submission with no answer. */
+  private readonly heldUntil = new Map<Address, number>();
   private readonly lastLogged = new Map<string, string>();
   private readonly fetchImpl: Fetch;
   private readonly now: () => number;
@@ -414,6 +424,8 @@ export class GatewayFunder {
       return;
     }
     if (shortfall <= 0n) return;
+    const held = this.heldUntil.get(account);
+    if (held !== undefined && this.now() < held) return;
 
     let orders: StandingOrder[];
     try {
@@ -461,6 +473,11 @@ export class GatewayFunder {
           this.used.add(key);
           this.options.log(`account ${account}: standing order ${salt} already used: ${message}`);
           continue;
+        }
+        // No answer: Gateway may have accepted it. Draw nothing more for
+        // this account until the next passes have seen the balance.
+        if (!(error instanceof GatewayRefusal)) {
+          this.heldUntil.set(account, this.now() + UNCERTAIN_HOLD_MS);
         }
         const count = (this.retries.get(key)?.count ?? 0) + 1;
         const delay = Math.min(FIRST_RETRY_MS * 2 ** (count - 1), MAX_RETRY_MS);

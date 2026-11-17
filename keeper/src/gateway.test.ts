@@ -234,6 +234,20 @@ test("does not hang when Gateway never answers", async () => {
   assert.ok(logs.some((line) => line.includes("not used") && line.includes("retrying")));
 });
 
+test("holds the account after a submission with no answer, then draws again", async () => {
+  const hanging: Fetch = (_url, init) =>
+    new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
+  const { instance, logs, clock } = funder(hanging, [order(5n * USDC), order(5n * USDC)]);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  const attempts = logs.filter((line) => line.includes("not used")).length;
+  clock.now = 60_000;
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  assert.equal(logs.filter((line) => line.includes("not used")).length, attempts, "held: no second order");
+  clock.now = 3 * 60_000;
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  assert.ok(logs.filter((line) => line.includes("not used")).length > attempts, "drawn again after the hold");
+});
+
 test("gives up on a transfer that is never delivered", async () => {
   const gateway = fakeGateway();
   const { instance, logs, clock } = funder(gateway.fetchImpl, [order(5n * USDC), order(5n * USDC)]);

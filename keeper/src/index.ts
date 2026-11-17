@@ -60,15 +60,19 @@ async function main(): Promise<void> {
   );
 
   const ordersFile = config.gatewayOrdersFile;
+  // The file is read on every funding attempt; report each bad entry once.
+  const reportedEntries = new Set<number>();
   const gateway =
     ordersFile === null
       ? undefined
       : new GatewayFunder({
           network: GATEWAY_MAINNET,
           loadOrders: async () =>
-            parseOrders(JSON.parse(await readFile(ordersFile, "utf8")), (index) =>
-              log(`standing order ${index} in ${ordersFile} is malformed, skipped`),
-            ),
+            parseOrders(JSON.parse(await readFile(ordersFile, "utf8")), (index) => {
+              if (reportedEntries.has(index)) return;
+              reportedEntries.add(index);
+              log(`standing order ${index} in ${ordersFile} is malformed, skipped`);
+            }),
           log,
           dryRun: walletClient === null,
         });
