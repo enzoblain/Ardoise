@@ -6,7 +6,8 @@ import { arc } from "viem/chains";
  *
  * Watches Arc mainnet blocks. The repay-only logic (task B2 in
  * docs/roadmap.md) hooks into `onBlock`; until then the keeper only proves
- * it can follow the chain.
+ * it can follow the chain. Over HTTP viem polls (about every 4 s) and calls
+ * `onBlock` once per poll with the latest block, not once per Arc block.
  */
 const client = createPublicClient({
   chain: arc,
