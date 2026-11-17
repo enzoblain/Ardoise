@@ -9,9 +9,9 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)** (
 The full project brief lives outside this repository, in the team's Obsidian vault:
 `/Users/enzoblain/Obsidian/Hackathons/Événements/2026-11-20 UBC/Projet.md`
 
-The task breakdown (who does what, when, on which branch) is in this repository: [`docs/roadmap.md`](docs/roadmap.md).
+Read it at the start of every session. It defines the scope, the work plan, the demo script, the submission checklist and the decision log. The vault notes are written in French; everything written in this repository must be in English. When a decision changes the scope, the stack or the targeted tracks, tell the user so the note can be updated.
 
-Read both at the start of every session, and work only on the task you were given in the roadmap. When a task changes status, update its row in `docs/roadmap.md` in the same pull request. It defines the scope, the work plan, the demo script, the submission checklist and the decision log. The vault notes are written in French; everything written in this repository must be in English. When a decision changes the scope, the stack or the targeted tracks, tell the user so the note can be updated.
+The task breakdown for the hackathon (who does what, when, on which branch) is in this repository: [`docs/roadmap.md`](docs/roadmap.md). Read it at the start of every session too, and work only on the task you were given there. When a task changes status, update its row in `docs/roadmap.md` in the same pull request. It is not the README *Roadmap* section, which describes what would come after the hackathon.
 
 ## Stack and commands
 
