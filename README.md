@@ -78,7 +78,7 @@ set -a && source .env && set +a
 
 ```
 contracts/   Solidity contracts (Foundry); for now the frozen interfaces in src/interfaces/
-app/         Next.js + viem front end: pay screen (simulated account, live rates), cross-chain payment tracking page
+app/         Next.js + viem front end: pay screen and statement (simulated account, live rates), cross-chain payment tracking page
 keeper/      Node keeper; for now follows Arc mainnet blocks
 docs/        Roadmap and contract interfaces (api.md)
 ```
