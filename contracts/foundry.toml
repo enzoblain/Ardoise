@@ -7,6 +7,9 @@ script = "script"
 solc_version = "0.8.30"
 optimizer = true
 optimizer_runs = 200
+# The Paid event carries every statement field, which exceeds the legacy
+# pipeline's stack limit; the IR pipeline compiles it.
+via_ir = true
 
 # Arc mainnet (chain id 5042). The URL comes from the environment so that
 # keyed RPC endpoints never land in the repository.

@@ -67,6 +67,7 @@ interface IArdoise {
     event CapsUpdated(uint256 perPayment, uint256 daily);
 
     /// @notice Thrown when the caller is not the account owner.
+    /// @param caller The caller.
     error NotOwner(address caller);
 
     /// @notice Thrown when the guard allows less than the payment needs.
@@ -79,7 +80,7 @@ interface IArdoise {
     /// @param remaining Amount still available under the binding cap.
     error CapExceeded(uint256 amount, uint256 remaining);
 
-    /// @notice Thrown when no venue can lend the requested amount.
+    /// @notice Thrown when no venue has enough liquidity for the requested amount.
     /// @param amount Amount that could not be borrowed, fees included.
     error NoVenueAvailable(uint256 amount);
 
@@ -91,7 +92,8 @@ interface IArdoise {
     /// @param lineId The repaid line.
     error LineAlreadyRepaid(uint256 lineId);
 
-    /// @notice Thrown when a payee is zero, or is not a valid EVM address for a payment on Arc.
+    /// @notice Thrown when a payee is zero, or is not a valid EVM address (upper 12 bytes zero) for
+    /// a payment to an EVM chain such as Arc or Base.
     /// @param payee The rejected payee.
     error InvalidPayee(bytes32 payee);
 
@@ -103,16 +105,17 @@ interface IArdoise {
     /// @return The owner's wallet.
     function owner() external view returns (address);
 
-    /// @notice Guard consulted before every payment.
+    /// @notice Guard consulted before every payment, read from the factory.
     /// @return The guard.
     function guard() external view returns (IGuard);
 
-    /// @notice Venues the account can borrow from, in no particular order.
+    /// @notice Venues the account can borrow from, in no particular order, read from the factory.
     /// @return The venue adapters.
     function venues() external view returns (IVenue[] memory);
 
     /// @notice Venue `pay()` would use for `amount`: the lowest `rate()` among the venues whose
-    /// `available()` covers `amount` and whose guard check allows it.
+    /// `available()` covers `amount`. The guard is checked afterwards, so a margin that is too
+    /// low surfaces as `PaymentRefused`, not as `NoVenueAvailable`.
     /// @param amount Amount to borrow, fees included.
     /// @return venue Chosen venue; reverts with `NoVenueAvailable` if none qualifies.
     function bestVenue(uint256 amount) external view returns (IVenue venue);
@@ -121,7 +124,7 @@ interface IArdoise {
     /// @dev Owner only, non-reentrant. Borrows `amount + maxFee`; with CCTP the payee receives at
     /// least `amount` (the unused part of `maxFee` reaches the payee too). Caps apply to
     /// `amount + maxFee`. Reverts with `NotOwner`, `InvalidPayee` (zero, or upper 12 bytes not
-    /// zero on Arc), `CapExceeded`, `NoVenueAvailable` or `PaymentRefused`.
+    /// zero on an EVM chain), `CapExceeded`, `NoVenueAvailable` or `PaymentRefused`.
     /// @param amount Amount the payee must receive, in USDC.
     /// @param destinationDomain CCTP domain of the payee's chain, `ARC_DOMAIN()` for Arc.
     /// @param payee Payee address as bytes32 (left-padded EVM address).

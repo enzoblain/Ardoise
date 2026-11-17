@@ -74,16 +74,16 @@ Left to do on mainnet: one passkey transaction (needs a live client key and a Ga
 | # | Task | When | Depends on | Branch | Files | Done when | Status |
 |---|------|------|------------|--------|-------|-----------|--------|
 | A1 | `AaveV4Adapter` (rate, liquidity, health after, borrow, repay) + tests | Wed 11/18 morning | 0.1, 0.3, 0.4 | `feat/aave-adapter` | `contracts/src/venues/AaveV4Adapter.sol`, tests | Tests pass; a real borrow of a few dollars on mainnet | ⬜ |
-| A2 | `ArdoiseAccount`: `pay()` picks the venue, calls `IGuard.checkMargin`, borrows, sends (on Arc, or to another chain through CCTP fast transfer with Circle's forwarder, see the 0.2 results), enforces per-payment and daily caps | Wed 11/18 midday | A1, 0.2 | `feat/ardoise-account` | `contracts/src/ArdoiseAccount.sol`, tests | `pay()` borrows and pays on mainnet | ⬜ |
+| A2 | `ArdoiseAccount`: `pay()` picks the venue, calls `IGuard.checkMargin`, borrows, sends (on Arc, or to another chain through CCTP fast transfer with Circle's forwarder, see the 0.2 results), enforces per-payment and daily caps, public `sweep()`; plus `ArdoiseFactory` (account registry, venue list, guard) | Wed 11/18 midday | A1, 0.2 | `feat/ardoise-account` | `contracts/src/ArdoiseAccount.sol`, `contracts/src/ArdoiseFactory.sol`, tests | `pay()` borrows and pays on mainnet | ⬜ |
 | A3 | Debt ledger (amount, venue, rate, payee, memo, accrued interest) + events | Wed 11/18 afternoon | A2 | `feat/debt-ledger` | `contracts/src/` (ledger), tests | One line per payment, readable by the app | ⬜ |
-| A4 | Mainnet deployment of account, venues and ledger; addresses in `contracts/deployments.md` | Wed 11/18 evening | A3 | `chore/deploy-mainnet` | `contracts/script/`, `contracts/deployments.md` | Contracts verified on the Arc explorer | ⬜ |
+| A4 | Mainnet deployment of the factory, venues and ledger (factory first, then adapters, then `setVenues`); addresses in `contracts/deployments.md` | Wed 11/18 evening | A3 | `chore/deploy-mainnet` | `contracts/script/`, `contracts/deployments.md` | Contracts verified on the Arc explorer | ⬜ |
 
 ## Track B — Position guard · Hugo, account H2
 
 | # | Task | When | Depends on | Branch | Files | Done when | Status |
 |---|------|------|------------|--------|-------|-----------|--------|
 | B1 | Margin check before each payment (refuse or reduce below the threshold), implementing `IGuard` | Wed 11/18 morning | 0.3, 0.4 | `feat/margin-check` | `contracts/src/guard/`, tests | A payment over the threshold is refused in tests | ⬜ |
-| B2 | Keeper that can only repay, plus a public `sweep()` (a plain USDC `transfer()` runs no recipient code) | Wed 11/18 afternoon | B1 | `feat/keeper` | `keeper/`, repay function in `contracts/src/guard/` | Debt goes down after a keeper-triggered repayment | ⬜ |
+| B2 | Keeper that can only repay: it watches accounts (`AccountCreated`) and calls the public `IArdoise.sweep()` implemented in A2 (a plain USDC `transfer()` runs no recipient code) | Wed 11/18 afternoon | B1, A2 | `feat/keeper` | `keeper/` | Debt goes down after a keeper-triggered repayment | ⬜ |
 | B3 | Bitcoin price-drop simulator, labelled as a simulation (no local Arc fork: native USDC breaks there) | Thu 11/19 morning | B1, B2 | `feat/price-sim` | `contracts/src/guard/` or `keeper/` | The "BTC drops → payment refused → repayment" demo runs | ⬜ |
 | B5 | Mainnet deployment of the guard; keeper running against mainnet; guard address in `contracts/deployments.md` (coordinate with H1) | Wed 11/18 evening | B2, A4 | `chore/deploy-guard` | `contracts/script/` (guard script only), `keeper/` config | `pay()` on mainnet calls the deployed guard | ⬜ |
 | B4 | (if time allows) deleveraging from a Gateway balance; otherwise a one-click user repayment | Thu 11/19 | B2 | `feat/gateway-deleverage` | `keeper/` | Repayment funded from Base, or fallback agreed | ⬜ |
