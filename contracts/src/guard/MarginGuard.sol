@@ -12,11 +12,26 @@ import {IVenue} from "../interfaces/IVenue.sol";
 /// adapter's `healthAfter`, so it reads the same oracle and risk parameters as the venue itself.
 /// It relies on `healthAfter(user, x)` being non-increasing in `x`, which holds for any venue
 /// where more debt against the same collateral cannot improve the health factor.
+///
+/// Simulation: for the demo, the owner can make the guard reason as if the collateral price
+/// had dropped by `simulatedDropBps`. A health factor is risk-adjusted collateral over debt, so
+/// with a single collateral asset a price drop of x% scales it by (1 - x%); the guard rounds
+/// down once more than the venue would, so it is never more permissive than a real drop. The
+/// simulation only changes Ardoise's own decisions (`checkMargin`, `simulatedHealth`): it never
+/// touches the venue, its oracle or the user's real position, and nobody can be liquidated
+/// because of it. `simulatedDropBps`, `setSimulatedDrop`, `simulatedHealth` and
+/// `SimulationUpdated` are additions of this implementation, not part of `IGuard`.
 contract MarginGuard is IGuard {
     /// @notice Health factor at which the venue liquidates (WAD). Thresholds must stay above it.
     uint256 public constant LIQUIDATION_HEALTH_FACTOR = 1e18;
 
-    /// @notice Address allowed to change the thresholds.
+    /// @notice Largest simulated price drop, in basis points (90%).
+    /// @dev A 100% drop would make every health factor 0 and the required one infinite.
+    uint256 public constant MAX_SIMULATED_DROP_BPS = 9_000;
+
+    uint256 private constant BPS = 10_000;
+
+    /// @notice Address allowed to change the thresholds and the simulation.
     /// @dev Immutable on purpose: the factory can point accounts to a new guard, so replacing
     /// the admin means redeploying rather than carrying ownership-transfer logic here.
     address public immutable owner;
@@ -27,6 +42,19 @@ contract MarginGuard is IGuard {
     /// @inheritdoc IGuard
     uint256 public targetHealthFactor;
 
+    /// @notice Simulated drop of the collateral price, in basis points; 0 when the simulation
+    /// is off, which is the normal state.
+    uint256 public simulatedDropBps;
+
+    /// @dev Health factor the venue must report for a payment to pass: `minHealthFactor`
+    /// without simulation, scaled up by the simulated drop otherwise. Stored so that the safe
+    /// path of `checkMargin` reads one slot, with or without simulation.
+    uint256 private _requiredHealthFactor;
+
+    /// @notice Emitted when the simulated price drop changes.
+    /// @param dropBps New simulated drop in basis points (0 = simulation off).
+    event SimulationUpdated(uint256 dropBps);
+
     /// @notice Thrown when an address other than `owner` calls an admin function.
     /// @param caller The caller.
     error NotOwner(address caller);
@@ -36,6 +64,10 @@ contract MarginGuard is IGuard {
     /// @param minHealthFactor Rejected minimum health factor (WAD).
     /// @param targetHealthFactor Rejected target health factor (WAD).
     error InvalidThresholds(uint256 minHealthFactor, uint256 targetHealthFactor);
+
+    /// @notice Thrown when the simulated drop exceeds `MAX_SIMULATED_DROP_BPS`.
+    /// @param dropBps Rejected drop in basis points.
+    error InvalidSimulatedDrop(uint256 dropBps);
 
     /// @notice Thrown when the owner passed to the constructor is the zero address.
     error ZeroOwner();
@@ -64,6 +96,38 @@ contract MarginGuard is IGuard {
         _setThresholds(minHealthFactor_, targetHealthFactor_);
     }
 
+    /// @notice Turns the price-drop simulation on (`dropBps > 0`) or off (`dropBps == 0`).
+    /// @dev For demonstrations only. Reverts with `NotOwner` if the caller is not `owner` and
+    /// with `InvalidSimulatedDrop` above `MAX_SIMULATED_DROP_BPS`. Emits `SimulationUpdated`.
+    /// @param dropBps Simulated drop of the collateral price in basis points (2_000 = -20%).
+    function setSimulatedDrop(uint256 dropBps) external {
+        if (msg.sender != owner) revert NotOwner(msg.sender);
+        if (dropBps > MAX_SIMULATED_DROP_BPS) revert InvalidSimulatedDrop(dropBps);
+        simulatedDropBps = dropBps;
+        _updateRequiredHealthFactor();
+        emit SimulationUpdated(dropBps);
+    }
+
+    /// @notice Health factor of `user` on `venue` as the guard sees it: the venue's own health
+    /// factor, scaled down by the simulated price drop when the simulation is on.
+    /// @dev The app's margin gauge and the keeper read this so that they show and act on the
+    /// same number as `checkMargin`. Reverts if the venue's `health` reverts.
+    /// @param venue Venue to read.
+    /// @param user Owner of the position.
+    /// @return healthFactor Health factor (WAD), `type(uint256).max` without debt.
+    function simulatedHealth(IVenue venue, address user) external view returns (uint256 healthFactor) {
+        // The collateral and debt values are not needed here.
+        // forge-lint: disable-next-line(unused-return)
+        (healthFactor,,) = venue.health(user);
+        uint256 dropBps = simulatedDropBps;
+        if (dropBps == 0 || healthFactor == type(uint256).max) return healthFactor;
+        uint256 kept = BPS - dropBps;
+        // Split so that a very large health factor (tiny debt) cannot overflow: the first term
+        // is exact, since it multiplies a whole number of BPS.
+        // forge-lint: disable-next-line(divide-before-multiply)
+        return (healthFactor / BPS) * kept + (healthFactor % BPS) * kept / BPS;
+    }
+
     /// @inheritdoc IGuard
     /// @dev A safe payment costs a single `healthAfter` call, which is the only path that
     /// matters for gas: `pay()` reverts whenever the answer is lower than `amount`, so the
@@ -74,7 +138,9 @@ contract MarginGuard is IGuard {
     function checkMargin(address user, IVenue venue, uint256 amount) external view returns (uint256 allowed) {
         if (amount == 0) return 0;
 
-        uint256 minHf = minHealthFactor;
+        // Under a simulated drop, "scaled health >= minimum" is the same test as "health >=
+        // minimum scaled up", so the simulation costs nothing per projection.
+        uint256 minHf = _requiredHealthFactor;
         if (venue.healthAfter(user, amount) >= minHf) return amount;
 
         // A position already under the threshold (or without collateral, where the venue
@@ -109,6 +175,14 @@ contract MarginGuard is IGuard {
         }
         minHealthFactor = minHealthFactor_;
         targetHealthFactor = targetHealthFactor_;
+        _updateRequiredHealthFactor();
         emit ThresholdsUpdated(minHealthFactor_, targetHealthFactor_);
+    }
+
+    /// @dev Recomputes the health factor the venue must report. For a venue health `h` and a
+    /// drop `d`, `h * (BPS - d) / BPS >= min` holds exactly when `h >= ceil(min * BPS / (BPS - d))`.
+    function _updateRequiredHealthFactor() private {
+        uint256 kept = BPS - simulatedDropBps;
+        _requiredHealthFactor = (minHealthFactor * BPS + kept - 1) / kept;
     }
 }
