@@ -53,8 +53,7 @@ export function PayScreen({ venues }: { venues: Venue[] }) {
   const amount = parseAmount(amountText);
   const payeeValid = isAddress(payee);
   const schedule = schedules[destination.key];
-  const maxFee =
-    amount === undefined || schedule === undefined ? undefined : schedule === null ? 0n : computeMaxFee(schedule, amount);
+  const maxFee = amount === undefined || schedule === undefined ? undefined : feeFor(schedule, amount);
 
   useEffect(() => {
     account.minHealthFactor().then(setMinHealthFactor);
@@ -62,11 +61,16 @@ export function PayScreen({ venues }: { venues: Venue[] }) {
 
   // The schedule only depends on the route, so it is fetched once per chain.
   useEffect(() => {
+    setFeeError(undefined);
     if (destination.key in schedules) return;
     let current = true;
-    setFeeError(undefined);
     fetchFeeSchedule(destination)
-      .then((fees) => current && setSchedules((s) => ({ ...s, [destination.key]: fees })))
+      .then((fees) => {
+        // Reject a schedule without a fast transfer here, where the error can
+        // be shown, rather than when the fee is computed during render.
+        if (fees) computeMaxFee(fees, 0n);
+        if (current) setSchedules((s) => ({ ...s, [destination.key]: fees }));
+      })
       .catch((e: Error) => current && setFeeError(e.message));
     return () => {
       current = false;
@@ -270,6 +274,11 @@ function Receipt({ line, simulated, onNew }: { line: DebtLine; simulated: boolea
       </button>
     </div>
   );
+}
+
+// `null` is the Arc schedule: a plain transfer, no fee.
+function feeFor(schedule: IrisFee[] | null, amount: bigint): bigint {
+  return schedule === null ? 0n : computeMaxFee(schedule, amount);
 }
 
 function parseAmount(text: string): bigint | undefined {
