@@ -11,6 +11,8 @@ The full project brief lives outside this repository, in the team's Obsidian vau
 
 Read it at the start of every session. It defines the scope, the work plan, the demo script, the submission checklist and the decision log. The vault notes are written in French; everything written in this repository must be in English. When a decision changes the scope, the stack or the targeted tracks, tell the user so the note can be updated.
 
+The task breakdown for the hackathon (who does what, when, on which branch) is in this repository: [`docs/roadmap.md`](docs/roadmap.md). Read it at the start of every session too, and work only on the task you were given there. When a task changes status, update its row in `docs/roadmap.md` in the same pull request. It is not the README *Roadmap* section, which describes what would come after the hackathon.
+
 ## Stack and commands
 
 - Stack: Solidity (Foundry) on Arc mainnet (chain id 5042), Aave V4 and Morpho as lending venues, Circle CCTP / Gateway, Next.js + viem front end, Node keeper
@@ -114,7 +116,7 @@ The repository contains only what is needed to build, run, test and understand t
 
 - No dependencies, build output, caches, logs, coverage reports, OS or editor files. They belong in `.gitignore`.
 - No files over 5 MB (the hook blocks them). Compress images; link to videos instead of committing them.
-- No scratch files: personal notes, temporary scripts, debug output, agent plans, `test.js`, `old_*`, `*_copy`, `*_v2`, backup files. Delete them before committing.
+- No scratch files: personal notes, temporary scripts, debug output, agent plans (the shared `docs/roadmap.md` is the only plan kept in the repository), `test.js`, `old_*`, `*_copy`, `*_v2`, backup files. Delete them before committing.
 - No dead code: remove unused files, functions, dependencies and commented-out blocks instead of leaving them.
 - No unused boilerplate from templates or scaffolding (default logos, sample pages, placeholder tests).
 - Keep a clear folder structure, described in the README.
