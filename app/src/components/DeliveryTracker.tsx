@@ -10,6 +10,11 @@ import {
 import { chainByDomain, network, txUrl } from "@/lib/network";
 
 const POLL_MS = 2_000;
+// A hash Iris does not know may be a typo or a same-chain payment, so back
+// off instead of hitting the rate-limited API every 2 s, and give up after a
+// while.
+const NOT_FOUND_MAX_MS = 30_000;
+const NOT_FOUND_GIVE_UP_MS = 10 * 60_000;
 
 /**
  * Live status of a cross-chain payment: sent on Arc, attested by Circle,
@@ -22,10 +27,13 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
   const [delivery, setDelivery] = useState<Delivery>();
   const [seconds, setSeconds] = useState<number>();
   const [error, setError] = useState<string>();
+  const [gaveUp, setGaveUp] = useState(false);
 
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
+    let delay = POLL_MS;
 
     async function poll() {
       try {
@@ -34,14 +42,25 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
         setDelivery(next);
         setError(undefined);
         if (next.stage === "delivered") {
-          setSeconds(await measureDeliverySeconds(next));
+          const s = await measureDeliverySeconds(next);
+          if (!stopped) setSeconds(s);
           return;
         }
         if (next.stage === "failed") return;
+        if (next.stage === "not_found") {
+          if (Date.now() - startedAt > NOT_FOUND_GIVE_UP_MS) {
+            setGaveUp(true);
+            return;
+          }
+          delay = Math.min(delay * 2, NOT_FOUND_MAX_MS);
+        } else {
+          delay = POLL_MS;
+        }
       } catch (e) {
-        if (!stopped) setError((e as Error).message);
+        if (stopped) return;
+        setError((e as Error).message);
       }
-      timer = setTimeout(poll, POLL_MS);
+      if (!stopped) timer = setTimeout(poll, delay);
     }
 
     poll();
@@ -66,7 +85,7 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
           href={txUrl(network.arc, sourceTxHash)}
         />
         <Step
-          done={stage === "delivering" || stage === "delivered"}
+          done={stage === "delivering" || stage === "delivered" || stage === "failed"}
           active={stage === undefined || stage === "not_found" || stage === "attesting"}
           label="Attested by Circle (CCTP)"
           detail={delivery?.delayReason ? `Delayed: ${delivery.delayReason}` : undefined}
@@ -82,9 +101,11 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
               : undefined
           }
           detail={
-            stage === "delivered" && seconds !== undefined
-              ? `${seconds} s after it was sent`
-              : undefined
+            stage === "failed"
+              ? "Circle's forwarder could not mint. The signed message can still be minted by hand on the destination chain."
+              : stage === "delivered" && seconds !== undefined
+                ? `${seconds} s after it was sent`
+                : undefined
           }
         />
       </ol>
@@ -104,8 +125,10 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
 
       {stage === "not_found" && (
         <p className="text-sm opacity-70">
-          Waiting for Circle to index the transfer. A same-chain payment on{" "}
-          {network.arc.label} never shows up here.
+          {gaveUp
+            ? "Circle has no cross-chain transfer for this transaction. Check the hash; "
+            : "Waiting for Circle to index the transfer. "}
+          A same-chain payment on {network.arc.label} never shows up here.
         </p>
       )}
       {error && <p className="text-sm text-red-600">Could not reach Circle: {error}</p>}

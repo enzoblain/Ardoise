@@ -20,7 +20,7 @@ function irisMessage(overrides: Record<string, unknown> = {}) {
           },
         },
         delayReason: null,
-        forwardState: "CONFIRMED",
+        forwardState: "COMPLETE",
         forwardTxHash: MINT,
         destinationMintTxHash: MINT,
         ...overrides,
@@ -69,8 +69,18 @@ describe("parseIrisResponse", () => {
   });
 
   it("uses the forwarder transaction when no mint hash is reported", () => {
-    const body = irisMessage({ destinationMintTxHash: null });
-    expect(parseIrisResponse(BURN, body).mintTxHash).toBe(MINT);
+    for (const forwardState of ["COMPLETE", "CONFIRMED"]) {
+      const body = irisMessage({ forwardState, destinationMintTxHash: null });
+      expect(parseIrisResponse(BURN, body)).toMatchObject({
+        stage: "delivered",
+        mintTxHash: MINT,
+      });
+    }
+  });
+
+  it("reports delivered when a failed forward was minted by hand", () => {
+    const body = irisMessage({ forwardState: "FAILED", forwardTxHash: null });
+    expect(parseIrisResponse(BURN, body).stage).toBe("delivered");
   });
 
   it("reports failed when the forwarder fails", () => {

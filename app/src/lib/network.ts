@@ -11,7 +11,6 @@ export interface PayoutChain {
   chain: Chain;
   /** CCTP domain id, the same on mainnet and testnet. */
   cctpDomain: number;
-  explorerUrl: string;
 }
 
 interface Network {
@@ -31,14 +30,12 @@ const NETWORKS: Record<NetworkName, Network> = {
       label: "Arc Testnet",
       chain: arcTestnet,
       cctpDomain: 26,
-      explorerUrl: "https://explorer.testnet.arc.io",
     },
     base: {
       key: "base",
       label: "Base Sepolia",
       chain: baseSepolia,
       cctpDomain: 6,
-      explorerUrl: "https://sepolia.basescan.org",
     },
   },
   mainnet: {
@@ -49,14 +46,12 @@ const NETWORKS: Record<NetworkName, Network> = {
       label: "Arc",
       chain: arc,
       cctpDomain: 26,
-      explorerUrl: "https://explorer.arc.io",
     },
     base: {
       key: "base",
       label: "Base",
       chain: base,
       cctpDomain: 6,
-      explorerUrl: "https://basescan.org",
     },
   },
 };
@@ -64,13 +59,23 @@ const NETWORKS: Record<NetworkName, Network> = {
 /**
  * Network selected by `NEXT_PUBLIC_ARDOISE_NETWORK`.
  *
- * Defaults to testnet: the team builds on Arc Testnet and switches to
- * mainnet for the venue adapters and the demo (see docs/roadmap.md).
+ * Defaults to testnet when unset: the team builds on Arc Testnet and switches
+ * to mainnet for the venue adapters and the demo (see docs/roadmap.md).
+ *
+ * @throws If the variable is set to anything other than `testnet` or
+ *   `mainnet`, so a typo cannot silently point a mainnet build at testnet.
  */
-export const network: Network =
-  NETWORKS[
-    process.env.NEXT_PUBLIC_ARDOISE_NETWORK === "mainnet" ? "mainnet" : "testnet"
-  ];
+export const network: Network = selectNetwork(
+  process.env.NEXT_PUBLIC_ARDOISE_NETWORK,
+);
+
+function selectNetwork(value: string | undefined): Network {
+  if (!value) return NETWORKS.testnet;
+  if (value === "testnet" || value === "mainnet") return NETWORKS[value];
+  throw new Error(
+    `NEXT_PUBLIC_ARDOISE_NETWORK must be "testnet" or "mainnet", got "${value}"`,
+  );
+}
 
 /**
  * Finds the payout chain for a CCTP domain id.
@@ -91,5 +96,5 @@ export function chainByDomain(domain: number): PayoutChain | undefined {
  * @returns The transaction page on that chain's explorer.
  */
 export function txUrl(chain: PayoutChain, hash: Hex): string {
-  return `${chain.explorerUrl}/tx/${hash}`;
+  return `${chain.chain.blockExplorers?.default.url}/tx/${hash}`;
 }

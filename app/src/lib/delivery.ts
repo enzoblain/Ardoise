@@ -10,7 +10,7 @@ export type DeliveryStage =
   /** Attested; waiting for the mint on the destination chain. */
   | "delivering"
   | "delivered"
-  /** Circle's forwarder could not submit the mint. */
+  /** Circle's forwarder could not submit the mint and nobody minted since. */
   | "failed";
 
 /** Delivery status of one cross-chain payment, as read from Iris. */
@@ -67,8 +67,10 @@ export function parseIrisResponse(sourceTxHash: Hex, body: unknown): Delivery {
   const mintTxHash = pickMintTx(message);
 
   let stage: DeliveryStage;
-  if (message.forwardState === "FAILED") stage = "failed";
-  else if (mintTxHash) stage = "delivered";
+  // A mint wins over a failed forwarder: someone may have relayed the signed
+  // message by hand after the forwarder gave up.
+  if (mintTxHash) stage = "delivered";
+  else if (message.forwardState === "FAILED") stage = "failed";
   else if (message.status === "complete") stage = "delivering";
   else stage = "attesting";
 
