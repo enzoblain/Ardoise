@@ -49,13 +49,24 @@ The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadca
 
 Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`, `factory.guard()` = zero address, `adapter.rate()` = 310 bps, `adapter.available()` = 26.32M USDC (the Main Spoke draw cap is the binding limit).
 
-**No guard is set yet**, so `pay()` reverts with `GuardNotSet()`. Repayments and `sweep()` already work. The guard is deployed and set in task B5 (see below).
+> [!WARNING]
+> **Payments are not live yet.** No guard is set, so every `pay()` reverts with `GuardNotSet()`; repayments and `sweep()` already work. The items below are pending. When they are done, update this section and run the checks that follow.
 
 ### Pending
 
-- **Guard (B5):** deploy `MarginGuard(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7, 1.25e18, 1.5e18)` once B3 (price-drop simulation) is merged, then call `factory.setGuard(guard)` from the factory admin, and add the guard to the table above.
-- **Demo account:** owned by the project test wallet, which holds the cirBTC collateral on the Main Spoke and has already authorized the Taker and Giver position managers. It needs `factory.createAccount()` and `Taker.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)` for this adapter (see docs/api.md, *One-time user setup on Aave V4*).
-- **Keeper:** set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD` and `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009`.
+- [ ] **Guard (B5):** deploy `MarginGuard(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7, 1.25e18, 1.5e18)` once B3 (price-drop simulation) is merged, then call `factory.setGuard(guard)` from the factory admin, verify it on Sourcify, and add it to the table above.
+- [ ] **Demo account:** owned by the project test wallet, which holds the cirBTC collateral on the Main Spoke and has already authorized the Taker and Giver position managers. It needs `factory.createAccount()` and `Taker.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)` for this adapter (see docs/api.md, *One-time user setup on Aave V4*).
+- [ ] **Keeper:** set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD` and `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009`.
+
+### Checks once B5 is done
+
+Read-only, against `https://rpc.mainnet.arc.io`, comparing with the A4 state above:
+
+- [ ] `factory.guard()` returns the deployed `MarginGuard`, and `guard.minHealthFactor()` / `targetHealthFactor()` return `1.25e18` / `1.5e18`.
+- [ ] `factory.venues()` still returns `[0x38B564d0b3d57216A34d83FbF08DE48744567b38]` and `factory.admin()` the project wallet: B5 must not redeploy the factory or the adapter.
+- [ ] `factory.accountOf(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7)` returns the demo account, and `Taker.borrowAllowance(MainSpoke, 0, demoWallet, AaveV4Adapter)` is not zero.
+- [ ] `guard.checkMargin(demoWallet, AaveV4Adapter, 1e6)` returns `1e6` while the demo position is healthy.
+- [ ] A first `pay()` from the demo account succeeds on mainnet (record its explorer link here), then the keeper finds the account from block 31777009.
 
 ## How to redeploy
 
