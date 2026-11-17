@@ -214,9 +214,10 @@ contract MarginGuardTest is Test {
 
     // --- simulation ---
 
-    function test_simulation_isOffByDefault() public view {
+    function test_simulation_isOffByDefault() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
         assertEq(guard.simulatedDropBps(), 0);
-        assertEq(guard.simulatedHealth(venue, user), type(uint256).max);
+        assertEq(guard.simulatedHealth(venue, user), venue.healthAfter(user, 0));
     }
 
     function test_simulation_refusesPreviouslySafePayment() public {
@@ -246,10 +247,12 @@ contract MarginGuardTest is Test {
 
     function test_simulation_turningItOffRestoresTheRealAnswer() public {
         venue.setPosition(user, COLLATERAL_USD, 5_000 * USDC);
-        vm.startPrank(owner);
+        vm.prank(owner);
         guard.setSimulatedDrop(3_000);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 0);
+
+        vm.prank(owner);
         guard.setSimulatedDrop(0);
-        vm.stopPrank();
         assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 1_000 * USDC);
     }
 
@@ -261,6 +264,34 @@ contract MarginGuardTest is Test {
         vm.stopPrank();
         // 8,000 * 0.78 / 1.3 = 4,800 USDC of debt allowed, 4,000 already owed.
         assertEq(guard.checkMargin(user, venue, 2_000 * USDC), 800 * USDC);
+    }
+
+    function test_simulation_appliesToThresholdsSetBeforeIt() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
+        vm.startPrank(owner);
+        guard.setThresholds(1.3e18, 1.6e18);
+        guard.setSimulatedDrop(2_000);
+        vm.stopPrank();
+        assertEq(guard.checkMargin(user, venue, 2_000 * USDC), 800 * USDC);
+    }
+
+    function test_simulation_boundaryIsExact() public {
+        // -20% allows 4,992 USDC of debt: the last base unit passes, one more does not.
+        vm.prank(owner);
+        guard.setSimulatedDrop(2_000);
+        assertEq(guard.checkMargin(user, venue, 4_992 * USDC), 4_992 * USDC);
+        assertEq(guard.checkMargin(user, venue, 4_992 * USDC + 1), 4_992 * USDC);
+
+        venue.setPosition(user, COLLATERAL_USD, 4_992 * USDC);
+        assertEq(guard.simulatedHealth(venue, user), MIN_HF);
+        assertEq(guard.checkMargin(user, venue, 1), 0);
+    }
+
+    function test_simulation_atTheMaximumDrop() public {
+        // -90%: 1,000 USD of collateral allows 780 / 1.25 = 624 USDC of debt.
+        vm.prank(owner);
+        guard.setSimulatedDrop(9_000);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 624 * USDC);
     }
 
     function test_simulation_safePaymentStillCostsOneProjection() public {

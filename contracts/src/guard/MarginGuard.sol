@@ -15,8 +15,11 @@ import {IVenue} from "../interfaces/IVenue.sol";
 ///
 /// Simulation: for the demo, the owner can make the guard reason as if the collateral price
 /// had dropped by `simulatedDropBps`. A health factor is risk-adjusted collateral over debt, so
-/// with a single collateral asset a price drop of x% scales it by (1 - x%); the guard rounds
-/// down once more than the venue would, so it is never more permissive than a real drop. The
+/// with a single collateral asset a price drop of x% scales it by (1 - x%), up to rounding
+/// dust. With several collateral assets it means "every collateral dropped by x%", which is
+/// stricter than a drop of one of them. The simulation is global: the guard is shared by every
+/// account of the factory, so a non-zero drop restricts everyone until the owner resets it. It
+/// can only make the guard stricter, never pass a payment the real guard would refuse. The
 /// simulation only changes Ardoise's own decisions (`checkMargin`, `simulatedHealth`): it never
 /// touches the venue, its oracle or the user's real position, and nobody can be liquidated
 /// because of it. `simulatedDropBps`, `setSimulatedDrop`, `simulatedHealth` and
@@ -87,8 +90,9 @@ contract MarginGuard is IGuard {
     /// @notice Changes the margin thresholds.
     /// @dev Reverts with `NotOwner` if the caller is not `owner` and with `InvalidThresholds`
     /// unless `targetHealthFactor_ > minHealthFactor_ > 1e18`. Emits `ThresholdsUpdated`.
-    /// There is no upper bound: the owner is trusted, and a minimum set too high refuses every
-    /// payment of every account until it is corrected.
+    /// There is no meaningful upper bound: the owner is trusted, and a minimum set too high
+    /// refuses every payment of every account until it is corrected. Values above about 1e73
+    /// revert with an arithmetic panic.
     /// @param minHealthFactor_ New minimum health factor after a payment (WAD).
     /// @param targetHealthFactor_ New health factor the keeper repays back to (WAD).
     function setThresholds(uint256 minHealthFactor_, uint256 targetHealthFactor_) external {
@@ -110,8 +114,10 @@ contract MarginGuard is IGuard {
 
     /// @notice Health factor of `user` on `venue` as the guard sees it: the venue's own health
     /// factor, scaled down by the simulated price drop when the simulation is on.
-    /// @dev The app's margin gauge and the keeper read this so that they show and act on the
-    /// same number as `checkMargin`. Reverts if the venue's `health` reverts.
+    /// @dev The app's margin gauge reads this to show the number `checkMargin` reasons on.
+    /// It is derived from the venue's `health`, while `checkMargin` uses `healthAfter`; an
+    /// adapter may round the two a few wei apart, so a gauge exactly at the minimum does not
+    /// guarantee that a payment passes. Reverts if the venue's `health` reverts.
     /// @param venue Venue to read.
     /// @param user Owner of the position.
     /// @return healthFactor Health factor (WAD), `type(uint256).max` without debt.
