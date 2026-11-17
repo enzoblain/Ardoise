@@ -30,6 +30,7 @@ out/
 .turbo/
 target/
 *.tsbuildinfo
+next-env.d.ts
 
 # Blockchain tooling
 cache/
