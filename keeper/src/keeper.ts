@@ -1,9 +1,11 @@
 import {
+  TransactionReceiptNotFoundError,
   formatUnits,
   zeroAddress,
   type Account,
   type Address,
   type Chain,
+  type Hash,
   type PublicClient,
   type Transport,
   type WalletClient,
@@ -11,7 +13,7 @@ import {
 
 import { accountAbi, erc20Abi, factoryAbi, guardAbi, venueAbi } from "./abis.js";
 import { USDC_ADDRESS } from "./config.js";
-import { decide, type Decision, type Thresholds, type VenuePosition } from "./decision.js";
+import { MIN_SWEEP_AMOUNT, decide, type Decision, type Thresholds, type VenuePosition } from "./decision.js";
 
 /**
  * Largest block range asked in one `eth_getLogs` call. Public RPC endpoints
@@ -19,12 +21,27 @@ import { decide, type Decision, type Thresholds, type VenuePosition } from "./de
  */
 const LOG_RANGE = 10_000n;
 
+/**
+ * Blocks read again on every pass. Behind a load-balanced RPC endpoint, a
+ * node that has not seen the newest blocks yet answers with no logs; reading
+ * them again on the next passes keeps an account created there from being
+ * missed for good.
+ */
+const RESCAN_BLOCKS = 5n;
+
+/** Wait after a first failed `sweep()` on an account; doubles on every further failure. */
+const FIRST_RETRY_DELAY_MS = 60_000;
+
+/** Longest wait between two attempts on an account that keeps failing. */
+const MAX_RETRY_DELAY_MS = 3_600_000;
+
 /** An Ardoise account and the wallet that owns it and its collateral. */
 interface WatchedAccount {
   owner: Address;
   account: Address;
 }
 
+/** What the keeper needs to run: chain access, the factory to watch and a log sink. */
 export interface KeeperOptions {
   publicClient: PublicClient<Transport, Chain>;
   /** Wallet that sends `sweep()`, or `null` to only log what would be sent. */
@@ -33,6 +50,8 @@ export interface KeeperOptions {
   /** First block to read `AccountCreated` logs from. */
   fromBlock: bigint;
   log: (message: string) => void;
+  /** Clock in milliseconds, replaceable in tests. Defaults to `Date.now`. */
+  now?: () => number;
 }
 
 /** Formats a USDC amount in base units for the logs. */
@@ -51,29 +70,42 @@ function healthFactor(value: bigint): string {
  *
  * `sweep()` is the only transaction it ever sends. It applies the account's
  * own USDC balance to the account's debt, so the keeper wallet holds no user
- * funds and has no right to borrow, withdraw or move anything.
+ * funds and has no right to borrow, withdraw or move anything. The keeper
+ * wallet only pays gas, so every path that could send a transaction twice
+ * for the same funds, or keep paying for one that reverts, is closed below.
  */
 export class Keeper {
   private readonly accounts = new Map<Address, WatchedAccount>();
   private nextLogBlock: bigint;
-  /** Last decision logged per account, to log changes instead of every pass. */
-  private readonly lastLogged = new Map<Address, string>();
+  /** Last line logged per account and topic, to log changes instead of every pass. */
+  private readonly lastLogged = new Map<string, string>();
+  /** `sweep()` transactions sent and not yet seen in a block. */
+  private readonly pending = new Map<Address, Hash>();
+  /** Consecutive failed `sweep()` attempts and the time before which not to retry. */
+  private readonly failures = new Map<Address, { count: number; retryAt: number }>();
+  private readonly now: () => number;
 
   constructor(private readonly options: KeeperOptions) {
     this.nextLogBlock = options.fromBlock;
+    this.now = options.now ?? Date.now;
   }
 
   /**
    * One pass: picks up new accounts, then checks every known account and
    * sweeps those that need it, one transaction at a time.
    *
-   * @throws If the factory, the guard or the log query cannot be read; the
-   * caller retries on the next pass. A failure on a single account is logged
-   * and does not stop the others.
+   * @throws If the factory's venue list or guard address cannot be read; the
+   * caller retries on the next pass. A failed log query, an unreadable guard
+   * or a failure on a single account is logged and does not stop the rest.
    */
   async tick(): Promise<void> {
-    const { publicClient, factory } = this.options;
-    await this.discoverAccounts(await publicClient.getBlockNumber());
+    const { publicClient, factory, log } = this.options;
+    try {
+      await this.discoverAccounts(await publicClient.getBlockNumber());
+    } catch (error) {
+      // Repayments on the accounts already known matter more than new accounts.
+      log(`reading new accounts failed, retrying on the next pass: ${errorMessage(error)}`);
+    }
     if (this.accounts.size === 0) return;
 
     const [venues, guard] = await Promise.all([
@@ -86,14 +118,14 @@ export class Keeper {
       try {
         await this.checkAccount(watched, venues, thresholds);
       } catch (error) {
-        this.options.log(`account ${watched.account}: check failed: ${errorMessage(error)}`);
+        this.logOnce(watched.account, "error", `check failed: ${errorMessage(error)}`);
       }
     }
   }
 
   /** Reads `AccountCreated` logs from the last block read up to `latest`. */
   private async discoverAccounts(latest: bigint): Promise<void> {
-    const { publicClient, factory, log } = this.options;
+    const { publicClient, factory, log, fromBlock } = this.options;
     while (this.nextLogBlock <= latest) {
       const toBlock = this.nextLogBlock + LOG_RANGE - 1n < latest ? this.nextLogBlock + LOG_RANGE - 1n : latest;
       const events = await publicClient.getContractEvents({
@@ -113,17 +145,28 @@ export class Keeper {
       }
       this.nextLogBlock = toBlock + 1n;
     }
+    const rescanFrom = latest + 1n - RESCAN_BLOCKS;
+    this.nextLogBlock = rescanFrom > fromBlock ? rescanFrom : fromBlock;
   }
 
-  /** Reads the guard thresholds; `null` while the factory has no guard. */
+  /**
+   * Reads the guard thresholds. Returns `null` while the factory has no guard
+   * or when the guard cannot be read: the thresholds only label a decision
+   * and size the reported shortfall, so a broken guard must not stop sweeps.
+   */
   private async readThresholds(guard: Address): Promise<Thresholds | null> {
     if (guard === zeroAddress) return null;
     const { publicClient } = this.options;
-    const [minHealthFactor, targetHealthFactor] = await Promise.all([
-      publicClient.readContract({ address: guard, abi: guardAbi, functionName: "minHealthFactor" }),
-      publicClient.readContract({ address: guard, abi: guardAbi, functionName: "targetHealthFactor" }),
-    ]);
-    return { minHealthFactor, targetHealthFactor };
+    try {
+      const [minHealthFactor, targetHealthFactor] = await Promise.all([
+        publicClient.readContract({ address: guard, abi: guardAbi, functionName: "minHealthFactor" }),
+        publicClient.readContract({ address: guard, abi: guardAbi, functionName: "targetHealthFactor" }),
+      ]);
+      return { minHealthFactor, targetHealthFactor };
+    } catch (error) {
+      this.logOnce(guard, "guard", `guard ${guard} cannot be read, ignoring thresholds: ${errorMessage(error)}`);
+      return null;
+    }
   }
 
   /** Reads one account's state, decides, and sweeps if the decision says so. */
@@ -132,7 +175,9 @@ export class Keeper {
     venues: readonly Address[],
     thresholds: Thresholds | null,
   ): Promise<void> {
-    const { publicClient, log } = this.options;
+    const { publicClient } = this.options;
+    if (!(await this.readyForAttempt(watched.account))) return;
+
     const [usdcBalance, positions] = await Promise.all([
       publicClient.readContract({
         address: USDC_ADDRESS,
@@ -158,18 +203,33 @@ export class Keeper {
       (min, position) => (position.healthFactor < min ? position.healthFactor : min),
       2n ** 256n - 1n,
     );
-    const summary = describe(decision, usdcBalance, lowest);
-    if (decision.action === "sweep" || this.lastLogged.get(watched.account) !== summary) {
-      log(`account ${watched.account}: ${summary}`);
-      this.lastLogged.set(watched.account, summary);
-    }
+    this.logOnce(watched.account, "state", describe(decision, usdcBalance, lowest));
     if (decision.action === "sweep") await this.sweep(watched.account);
   }
 
   /**
-   * Sends `sweep()` and waits for it, so that the next pass reads the
-   * updated balance instead of sending a second transaction for the same
-   * funds.
+   * Tells whether a new `sweep()` may be attempted on an account: not while
+   * an earlier one is still pending (a second transaction would pay gas for
+   * the same funds), and not before the retry delay after a failure.
+   */
+  private async readyForAttempt(account: Address): Promise<boolean> {
+    const hash = this.pending.get(account);
+    if (hash !== undefined) {
+      try {
+        const receipt = await this.options.publicClient.getTransactionReceipt({ hash });
+        this.settle(account, hash, receipt.status === "success");
+      } catch (error) {
+        if (error instanceof TransactionReceiptNotFoundError) return false;
+        throw error;
+      }
+    }
+    const failure = this.failures.get(account);
+    return failure === undefined || this.now() >= failure.retryAt;
+  }
+
+  /**
+   * Simulates `sweep()`, sends it if it repays enough to be worth its gas,
+   * and waits for it so that the next pass reads the updated balance.
    */
   private async sweep(account: Address): Promise<void> {
     const { publicClient, walletClient, log } = this.options;
@@ -179,21 +239,65 @@ export class Keeper {
       functionName: "sweep",
       account: walletClient?.account,
     });
-    if (expected === 0n) {
-      log(`account ${account}: sweep() would repay nothing, not sent`);
+    // The balance can exceed what sweep() applies, for example when the debt
+    // is smaller or was taken outside Ardoise: decide on the simulated amount.
+    if (expected < MIN_SWEEP_AMOUNT) {
+      this.logOnce(account, "sweep", `sweep() would repay only ${usdc(expected)}, not sent`);
       return;
     }
     if (walletClient === null) {
-      log(`account ${account}: sweep() would repay ${usdc(expected)}; not sent, no keeper key configured`);
+      this.logOnce(account, "sweep", `sweep() would repay ${usdc(expected)}; not sent, no keeper key configured`);
       return;
     }
-    const hash = await walletClient.writeContract(request);
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    log(
-      receipt.status === "success"
-        ? `account ${account}: sweep() repaid about ${usdc(expected)} in ${hash}`
-        : `account ${account}: sweep() reverted in ${hash}`,
-    );
+
+    let hash: Hash;
+    try {
+      hash = await walletClient.writeContract(request);
+    } catch (error) {
+      this.recordFailure(account, `sending sweep() failed: ${errorMessage(error)}`);
+      return;
+    }
+    this.pending.set(account, hash);
+    log(`account ${account}: sweep() sent in ${hash}, expected to repay ${usdc(expected)}`);
+    try {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      this.settle(account, hash, receipt.status === "success");
+    } catch (error) {
+      // Still pending: `readyForAttempt` keeps the account on hold until the receipt shows up.
+      log(`account ${account}: sweep() ${hash} not confirmed yet: ${errorMessage(error)}`);
+    }
+  }
+
+  /** Records the outcome of a `sweep()` transaction that reached a block. */
+  private settle(account: Address, hash: Hash, success: boolean): void {
+    this.pending.delete(account);
+    this.lastLogged.delete(`${account}:sweep`);
+    if (success) {
+      this.failures.delete(account);
+      this.options.log(`account ${account}: sweep() confirmed in ${hash}`);
+    } else {
+      this.recordFailure(account, `sweep() reverted in ${hash}`);
+    }
+  }
+
+  /**
+   * Puts an account on hold after a failed attempt, doubling the wait each
+   * time, so that a `sweep()` that keeps failing cannot empty the keeper
+   * wallet in gas.
+   */
+  private recordFailure(account: Address, what: string): void {
+    const count = (this.failures.get(account)?.count ?? 0) + 1;
+    const delay = Math.min(FIRST_RETRY_DELAY_MS * 2 ** (count - 1), MAX_RETRY_DELAY_MS);
+    this.failures.set(account, { count, retryAt: this.now() + delay });
+    this.options.log(`account ${account}: ${what}; next attempt in ${Math.round(delay / 60_000)} min`);
+  }
+
+  /** Logs a line about `subject` unless it repeats the last one on the same topic. */
+  private logOnce(subject: Address, topic: string, message: string): void {
+    const key = `${subject}:${topic}`;
+    if (this.lastLogged.get(key) === message) return;
+    this.lastLogged.set(key, message);
+    this.options.log(topic === "guard" ? message : `account ${subject}: ${message}`);
   }
 }
 
@@ -217,7 +321,13 @@ function describe(decision: Decision, usdcBalance: bigint, lowestHealthFactor: b
   }
 }
 
-/** First line of an error, which for viem errors never includes the transport's headers. */
+/**
+ * Message of an error, cut to its first line: viem puts the request details,
+ * including the RPC URL (which may embed a key), on the following lines.
+ *
+ * @param error Anything thrown.
+ * @returns A one-line message safe to log.
+ */
 export function errorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.split("\n")[0];

@@ -1,4 +1,5 @@
-import { isAddress, isHex, type Address, type Hex } from "viem";
+import { isAddress, isHex, type Address, type PrivateKeyAccount } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 /** USDC on Arc mainnet (6 decimals through its ERC-20 interface). */
 export const USDC_ADDRESS: Address = "0x3600000000000000000000000000000000000000";
@@ -11,8 +12,8 @@ export interface Config {
   factory: Address | null;
   /** Block the factory was deployed at, or `null` to start from the current block. */
   factoryDeployBlock: bigint | null;
-  /** Key of the keeper wallet, or `null` to run without sending transactions. */
-  privateKey: Hex | null;
+  /** Keeper wallet, or `null` to run without sending transactions. */
+  keeperAccount: PrivateKeyAccount | null;
 }
 
 /**
@@ -39,10 +40,20 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     throw new Error("KEEPER_PRIVATE_KEY is not a 32-byte hex key starting with 0x");
   }
 
+  let keeperAccount: PrivateKeyAccount | null = null;
+  if (privateKey !== null) {
+    try {
+      keeperAccount = privateKeyToAccount(privateKey);
+    } catch {
+      // The library's own error quotes the rejected value; replace it.
+      throw new Error("KEEPER_PRIVATE_KEY is not a valid secp256k1 private key");
+    }
+  }
+
   return {
     rpcUrl: env.ARC_RPC_URL?.trim() || undefined,
     factory,
     factoryDeployBlock: deployBlock === null ? null : BigInt(deployBlock),
-    privateKey,
+    keeperAccount,
   };
 }

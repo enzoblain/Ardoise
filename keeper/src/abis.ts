@@ -9,15 +9,11 @@ import { parseAbi } from "viem";
 
 export const factoryAbi = parseAbi([
   "event AccountCreated(address indexed owner, address indexed account)",
-  "function accountOf(address owner) view returns (address)",
   "function venues() view returns (address[])",
   "function guard() view returns (address)",
 ]);
 
-export const accountAbi = parseAbi([
-  "function owner() view returns (address)",
-  "function sweep() returns (uint256 repaid)",
-]);
+export const accountAbi = parseAbi(["function sweep() returns (uint256 repaid)"]);
 
 export const venueAbi = parseAbi([
   "function health(address user) view returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd)",

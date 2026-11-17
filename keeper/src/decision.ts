@@ -14,10 +14,15 @@ const WAD = 10n ** 18n;
 const USDC_UNIT_IN_WAD = 10n ** 12n;
 
 /**
- * Smallest balance worth a transaction, in USDC base units (0.01 USDC).
- * Gas on Arc is paid in USDC, so sweeping dust costs more than it repays.
+ * Smallest repayment worth a transaction, in USDC base units (0.1 USDC).
+ * Gas on Arc is paid in USDC, so sweeping dust costs more than it repays, and
+ * anyone could drain the keeper wallet by sending dust to an indebted account.
+ *
+ * TODO: set this to a multiple of the measured cost of `sweep()` once
+ * `ArdoiseAccount` is deployed (A4); until then 0.1 USDC is a margin over the
+ * 0.038 USDC measured for a simple operation on Arc (see docs/roadmap.md).
  */
-export const MIN_SWEEP_AMOUNT = 10_000n;
+export const MIN_SWEEP_AMOUNT = 100_000n;
 
 /** A user's position on one venue, as returned by `IVenue.health(owner)`. */
 export interface VenuePosition {

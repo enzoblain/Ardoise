@@ -1,7 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { createPublicClient, createWalletClient, http } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { arc } from "viem/chains";
 
 import { loadConfig } from "./config.js";
@@ -36,9 +35,9 @@ async function main(): Promise<void> {
   const transport = http(config.rpcUrl);
   const publicClient = createPublicClient({ chain: arc, transport });
   const walletClient =
-    config.privateKey === null
+    config.keeperAccount === null
       ? null
-      : createWalletClient({ account: privateKeyToAccount(config.privateKey), chain: arc, transport });
+      : createWalletClient({ account: config.keeperAccount, chain: arc, transport });
 
   let fromBlock = config.factoryDeployBlock;
   if (fromBlock === null) {

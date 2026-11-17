@@ -76,6 +76,13 @@ test("a position between the minimum and the target is not under the minimum", (
   assert.deepEqual(decision, { action: "wait", reason: "no-balance", shortfall: 0n });
 });
 
+test("a position exactly at the minimum is not under the minimum", () => {
+  const atMinimum = position(6_240n); // health factor exactly 1.25
+  assert.equal(atMinimum.healthFactor, thresholds.minHealthFactor);
+  const decision = decide({ usdcBalance: 0n, positions: [atMinimum], thresholds });
+  assert.deepEqual(decision, { action: "wait", reason: "no-balance", shortfall: 0n });
+});
+
 test("adds up the repayments of every venue under the minimum", () => {
   const decision = decide({ usdcBalance: 0n, positions: [underMinimum, healthy, underMinimum], thresholds });
   assert.equal(decision.shortfall, 2_600n * USDC);
