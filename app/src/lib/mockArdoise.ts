@@ -35,6 +35,7 @@ export interface MockPosition {
 
 /** A payment made before the page opened, replayed to seed the account. */
 export interface MockPayment {
+  /** Days before now; 0 counts toward today's cap like a new payment. */
   daysAgo: number;
   venueId: string;
   amount: bigint;
@@ -61,8 +62,8 @@ const DEMO_PAYEE: Address = "0xdf41621b35b0c3512d1177DE1423747900fC7a77";
 // A small demo account: $250 of cirBTC on each venue and two past payments
 // on Aave V4 that add up to $100 of debt. Thresholds are the real ones for
 // cirBTC: 78% collateral factor on the Aave V4 Main Spoke, 86% LLTV on the
-// Morpho market. The guard keeps the health factor above 1.3, the minimum
-// the MarginGuard tests use.
+// Morpho market. The guard keeps the health factor above 1.25, the minimum
+// suggested for deployment (roadmap B1, MarginGuard tests).
 export const DEFAULT_MOCK: MockOptions = {
   positions: {
     "aave-v4": { collateralUsd: 250n * WAD, debtUsd: 0n, liquidationThreshold: (78n * WAD) / 100n },
@@ -80,7 +81,7 @@ export const DEFAULT_MOCK: MockOptions = {
     },
     { daysAgo: 1, venueId: "aave-v4", amount: 40_000_000n, maxFee: 0n, destinationDomain: 26, payee: DEMO_PAYEE, memo: "Hosting, November" },
   ],
-  minHealthFactor: (130n * WAD) / 100n,
+  minHealthFactor: (125n * WAD) / 100n,
   perPaymentCap: 100_000_000n,
   dailyCap: 300_000_000n,
 };
@@ -193,7 +194,9 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
   for (const past of options.history) {
     const venue = venues.find((v) => v.id === past.venueId);
     if (!venue || !positions.has(venue.id)) continue;
-    record(past, venue, past.amount + past.maxFee, now - past.daysAgo * 86_400);
+    const borrowed = past.amount + past.maxFee;
+    if (past.daysAgo === 0) spentToday += borrowed;
+    record(past, venue, borrowed, now - past.daysAgo * 86_400);
   }
 
   return {
@@ -203,7 +206,7 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     caps: async () => ({ perPayment: options.perPaymentCap, daily: options.dailyCap, spentToday }),
     lines: async () => [...lines],
     quote: async (request) => quote(request),
-    events: async () => ({ logs: [...logs], blockTimes: new Map(blockTimes) }),
+    events: async () => ({ account: MOCK_ACCOUNT, logs: [...logs], blockTimes: new Map(blockTimes) }),
     pay: async (request) => {
       const q = quote(request);
       if (q.error) throw new PaymentFailed(q.error);

@@ -28,7 +28,7 @@ describe("mock Ardoise account", () => {
     expect(marginFromHealth(quote.healthBefore!.healthFactor)).toBe(1);
     // 250 * 0.86 / 20.054508 = HF 10.72.
     expect(marginFromHealth(quote.healthAfter!)).toBeCloseTo(0.9067, 3);
-    // Guard ceiling on Morpho: 250 * 0.86 / 1.3 = 165.38 USDC of debt.
+    // Guard ceiling on Morpho: 250 * 0.86 / 1.25 = 172 USDC of debt.
     expect((await account.quote(request(100, { maxFee: 0n }))).error).toBeUndefined();
   });
 
@@ -46,10 +46,10 @@ describe("mock Ardoise account", () => {
 
   it("refuses a payment the guard does not allow on the chosen venue", async () => {
     const account = createMockArdoise([AAVE, MORPHO]);
-    // Aave: $195 of borrowing power / 1.3 = $150 max debt, $100 already borrowed.
+    // Aave: $195 of borrowing power / 1.25 = $156 max debt, $100 already borrowed.
     const quote = await account.quote(request(60));
     expect(quote.venue?.id).toBe("aave-v4");
-    expect(quote.error).toEqual({ code: "PaymentRefused", allowed: 50_000_000n });
+    expect(quote.error).toEqual({ code: "PaymentRefused", allowed: 56_000_000n });
     await expect(account.pay(request(60))).rejects.toBeInstanceOf(PaymentFailed);
     expect(await account.lines()).toHaveLength(2);
   });
@@ -80,6 +80,14 @@ describe("mock Ardoise account", () => {
     expect((await account.caps()).spentToday).toBe(0n);
     const { logs } = await account.events();
     expect(logs).toHaveLength(2);
+  });
+
+  it("counts same-day history toward today's cap", async () => {
+    const account = createMockArdoise([AAVE], {
+      ...DEFAULT_MOCK,
+      history: [{ ...DEFAULT_MOCK.history[1], daysAgo: 0 }],
+    });
+    expect((await account.caps()).spentToday).toBe(40_000_000n);
   });
 
   it("rejects an invalid or zero payee", async () => {
