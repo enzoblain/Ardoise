@@ -2,10 +2,12 @@ import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { createPublicClient, createWalletClient, http } from "viem";
-import { arc } from "viem/chains";
+import { arc, base } from "viem/chains";
 
 import { loadConfig } from "./config.js";
+import { factoryAbi } from "./abis.js";
 import { GATEWAY_MAINNET, GatewayFunder, parseOrders } from "./gateway.js";
+import { accountOrNull, burnIntentTypedData, startIntake } from "./intake.js";
 import { Keeper, errorMessage } from "./keeper.js";
 
 /**
@@ -81,6 +83,27 @@ async function main(): Promise<void> {
       ? "GATEWAY_ORDERS_FILE is empty: no standing orders, the keeper only sweeps balances already on accounts"
       : `standing orders read from ${ordersFile}: under the minimum, the keeper draws USDC from Gateway`,
   );
+
+  if (config.intakePort !== null && ordersFile !== null) {
+    const factory = config.factory;
+    const baseClient = createPublicClient({ chain: base, transport: http(config.baseRpcUrl) });
+    startIntake({
+      port: config.intakePort,
+      host: "127.0.0.1",
+      ordersFile,
+      allowedOrigin: config.appOrigin,
+      network: GATEWAY_MAINNET,
+      checks: {
+        accountOf: async (owner) =>
+          accountOrNull(await publicClient.readContract({ address: factory, abi: factoryAbi, functionName: "accountOf", args: [owner] })),
+        // Handles plain wallets and ERC-1271 smart accounts (passkeys) on Base, the orders' source chain.
+        verifySignature: (order, depositor) =>
+          baseClient.verifyTypedData({ address: depositor, signature: order.signature, ...burnIntentTypedData(order) }),
+      },
+      log,
+    });
+    log(`standing-order intake on http://127.0.0.1:${config.intakePort}/orders for ${config.appOrigin}`);
+  }
 
   const keeper = new Keeper({ publicClient, walletClient, factory: config.factory, fromBlock, log, gateway });
   for (;;) {
