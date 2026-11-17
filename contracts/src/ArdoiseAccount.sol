@@ -75,6 +75,9 @@ contract ArdoiseAccount is IArdoise {
     error TokenCallFailed();
     /// @notice Thrown on a reentrant call to `pay`, `repay` or `sweep`.
     error Reentrancy();
+    /// @notice Thrown by `pay` while the factory has no guard: payments wait for one, repayments
+    /// and `sweep` do not.
+    error GuardNotSet();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -174,7 +177,7 @@ contract ArdoiseAccount is IArdoise {
     // non-reentrant lock; the line can only be written once the venue has sent the tokens.
     // forge-lint: disable-next-item(reentrancy-no-eth, reentrancy-events, unused-return)
     /// @inheritdoc IArdoise
-    /// @dev Also reverts with `ZeroAmount`, with `FeeOnArc` when `maxFee` is not 0 for a payment
+    /// @dev Also reverts with `GuardNotSet` while the factory has no guard, with `ZeroAmount`, with `FeeOnArc` when `maxFee` is not 0 for a payment
     /// on Arc, and with `BorrowShortfall` if the venue sends less than `amount + maxFee`. Payees
     /// on the known non-EVM CCTP domains (Noble 4, Solana 5, Sui 8, Aptos 9) may use all 32
     /// bytes; every other domain needs a left-padded EVM address. A payment to another chain
@@ -194,7 +197,9 @@ contract ArdoiseAccount is IArdoise {
         _spend(total);
 
         IVenue venue = bestVenue(total);
-        uint256 allowed = guard().checkMargin(owner, venue, total);
+        IGuard currentGuard = guard();
+        if (address(currentGuard) == address(0)) revert GuardNotSet();
+        uint256 allowed = currentGuard.checkMargin(owner, venue, total);
         if (allowed < total) revert PaymentRefused(total, allowed);
         // Capped at type(uint32).max first, so the cast cannot truncate.
         // forge-lint: disable-next-line(unsafe-typecast)

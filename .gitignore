@@ -37,6 +37,9 @@ cache/
 artifacts/
 typechain-types/
 broadcast/*/31337/
+# Foundry dry runs and timestamped copies; run-latest.json of a real deployment is kept
+**/broadcast/**/dry-run/
+**/broadcast/**/run-[0-9]*.json
 .anchor/
 test-ledger/
 .aptos/
