@@ -34,7 +34,7 @@ Status: ⬜ to do, 🔄 in progress, ✅ done, ✂️ cut.
 | # | Task | Who | When | Branch | Files | Done when | Status |
 |---|------|-----|------|--------|-------|-----------|--------|
 | 0.1 | Mainnet tests: buy ~$30–50 of cirBTC (Uniswap v3), supply it on the Aave V4 Main Spoke, borrow $1 through `borrowOnBehalfOf` from a test contract | Hugo · H1 | Tue 11/17 morning | none (experiments) | — | Explorer links recorded, or fallback decided | ✅ passed on mainnet, no fallback needed (see results below) |
-| 0.2 | Tests: Circle passkey wallet (MSCA) on Arc mainnet; timed USDC transfer Arc → Base (CCTP Fast Transfer or Gateway) | Enzo · E | Tue 11/17 morning | none (experiments) | — | Passkeys work or fall back to a regular wallet; Arc → Base delay measured | 🔄 testnet passed, mainnet confirmation left (see results below) |
+| 0.2 | Tests: Circle passkey wallet (MSCA) on Arc mainnet; timed USDC transfer Arc → Base (CCTP Fast Transfer or Gateway) | Enzo · E | Tue 11/17 morning | none (experiments) | — | Passkeys work or fall back to a regular wallet; Arc → Base delay measured | ✅ passed on testnet and mainnet (see results below) |
 | 0.3 | Repository scaffold: `contracts/` (Foundry), `app/` (Next.js + viem), `keeper/` (Node); install, run and test commands in `CLAUDE.md` and the README | Enzo · E | Tue 11/17 afternoon | `chore/scaffold` | root, `contracts/`, `app/`, `keeper/` (skeletons) | `forge build` and `npm run dev` run; no `TBD` left in `CLAUDE.md` | ✅ |
 | 0.4 | Frozen interfaces: `IVenue` (`rate`, `available`, `healthAfter`, `borrow`, `repay`), `IArdoise` (`pay`, `repay`, `lines`, `health`), `IGuard` (`checkMargin`, called by `pay()`), debt-line format, events | Hugo · H2 | Tue 11/17 afternoon | `feat/interfaces` | `contracts/src/interfaces/` | Merged into `main`; no change without telling the others first | ✅ see [`api.md`](api.md) |
 
@@ -56,7 +56,7 @@ Decisions:
 - `borrowOnBehalfOf` lives on the `TakerPositionManager`, not on the Spoke, and repaying on someone's behalf goes through the `GiverPositionManager`. The user authorizes both once and gives the adapter a borrow allowance; the steps are in [`api.md`](api.md).
 - CCTP fast transfer with the forwarder also works on mainnet towards Arc (domain 26), which supports the 0.2 decision.
 
-**0.2 — passkeys and Arc → Base (Enzo, Tue 11/17, Arc Testnet and Base Sepolia)**
+**0.2 — passkeys and Arc → Base (Enzo, Tue 11/17, testnet then mainnet)**
 
 | Test | Result | Evidence |
 |------|--------|----------|
@@ -67,7 +67,14 @@ Decisions:
 - **Passkeys are kept**; no fallback to a regular wallet is needed.
 - **Cross-chain payments use CCTP fast transfer with Circle's forwarder** (through Bridge Kit or the same contracts), not Gateway. This shapes `pay()` in A2 and the delivery tracking in C3.
 
-Left to do on mainnet: one passkey transaction (needs a live client key and a Gas Station policy for Arc) and one 1–2 USDC Arc → Base transfer, since mainnet delay and fees may differ.
+Mainnet confirmation (same day, dedicated project wallet, real funds):
+
+| Test | Result | Evidence |
+|------|--------|----------|
+| Circle passkey wallet (MSCA) on Arc mainnet | Works. Account deployed and 0.01 USDC sent in one user operation, confirmed in 7.9 s. No Gas Station policy: the account paid its own gas, about 0.038 USDC (1.25M gas at 25 gwei); the EntryPoint keeps the unused prefund as a deposit for later operations. A live client key needs billing details in the Circle Console (wallets are free up to 1,000 active per month) and its own mainnet passkey domain | [account](https://explorer.arc.io/address/0x094aea4481b40686f3440cfce5088582d5ec5769), [transaction](https://explorer.arc.io/tx/0xd034bbb8791191441e395e6fa350b6e94d5024fd8f945333c6c031c72ac75233) |
+| 1 USDC Arc → Base, Circle Bridge Kit, CCTP fast transfer, `useForwarder: true` | Arrived. 6 s from the Arc block to the Base block, 15 s end to end including the wallet signature. 0.053948 USDC in fees (0 protocol fee, forwarder fee only), 0.946052 USDC received. The app's payment page shows it correctly with `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` | [burn on Arc](https://explorer.arc.io/tx/0xff4d55ff4df9a858265d6edbdcacc5758fec353659e23f5e59d30d6342bbbe22), [mint on Base](https://basescan.org/tx/0x1b331fa52cac85b499fa68d856cbd952f72285908de7d19dd56da7b00b1d3778) |
+
+The mainnet figures match the testnet ones, so the decisions above stand.
 
 ## Track A — On-chain core · Hugo, account H1
 
