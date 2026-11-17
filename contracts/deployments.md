@@ -54,9 +54,9 @@ Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`
 
 ### Pending
 
-- [ ] **Guard (B5):** run [`script/DeployGuard.s.sol`](script/DeployGuard.s.sol) from the factory admin (see *How to deploy the guard* below): it deploys `MarginGuard(admin, 1.25e18, 1.5e18)` and calls `factory.setGuard(guard)`, then checks both on chain. Verify it on Sourcify and add it to the table above. Simulated against mainnet on 2026-11-18 as the admin: all checks pass, about 741k gas (≈ 0.034 USDC).
+- [ ] **Guard (B5):** run [`script/DeployGuard.s.sol`](script/DeployGuard.s.sol) from the factory admin (see *How to deploy the guard* below): it deploys `MarginGuard(admin, 1.25e18, 1.5e18)` and calls `factory.setGuard(guard)`; its checks run on forge's simulated result before anything is sent, so confirm the mined state with *Checks once B5 is done*. Verify it on Sourcify and add it to the table above. Simulated against mainnet on 2026-11-18 as the admin: all checks pass, about 741k gas (≈ 0.034 USDC).
 - [ ] **Demo account:** owned by the project test wallet, which holds the cirBTC collateral on the Main Spoke and has already authorized the Taker and Giver position managers. It needs `factory.createAccount()` and `Taker.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)` for this adapter (see docs/api.md, *One-time user setup on Aave V4*).
-- [ ] **Keeper:** in the repo-root `.env`, set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009` and `KEEPER_PRIVATE_KEY` (a dedicated wallet holding a little USDC for gas), then run `(cd keeper && npm start)`. For Gateway standing orders (B4), also set `GATEWAY_ORDERS_FILE` (outside the repository), `GATEWAY_INTAKE_PORT=8787`, and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app.
+- [ ] **Keeper:** in the repo-root `.env`, set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009` and `KEEPER_PRIVATE_KEY` (a dedicated wallet holding a little USDC for gas), then run `(cd keeper && npm start)`. Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. The app needs `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` (`.env.example` defaults to testnet). For Gateway standing orders (B4), also set `GATEWAY_ORDERS_FILE` (outside the repository), `GATEWAY_INTAKE_PORT=8787`, and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app.
 
 ### Checks once B5 is done
 
@@ -70,13 +70,15 @@ Read-only, against `https://rpc.mainnet.arc.io`, comparing with the A4 state abo
 
 ## How to deploy the guard
 
-From `contracts/`, simulate first from the admin address (no key needed, nothing is sent), then broadcast with the admin's key in the environment:
+From `contracts/`, simulate first from the admin address (no key needed, nothing is sent), then broadcast. Prefer a Foundry keystore (`cast wallet import`) to signing with a raw key: the repo-root `.env` is also read by the app and the keeper.
 
 ```sh
 forge script script/DeployGuard.s.sol --fork-url https://rpc.mainnet.arc.io --sender 0x54e1714a0ffae58d3AA227C80FD48668e11f18d7   # simulation
-set -a && source ../.env && set +a          # DEPLOYER_PRIVATE_KEY of the factory admin
-forge script script/DeployGuard.s.sol --rpc-url https://rpc.mainnet.arc.io --broadcast
+forge script script/DeployGuard.s.sol --rpc-url https://rpc.mainnet.arc.io --broadcast \
+  --account <keystore name> --sender 0x54e1714a0ffae58d3AA227C80FD48668e11f18d7                  # broadcast, keystore
 ```
+
+With the key in the environment instead, run `set -a && source ../.env && set +a` (it sets `DEPLOYER_PRIVATE_KEY`) and broadcast without `--account` and `--sender`.
 
 The script refuses to send anything if the key is not the factory admin's or if a guard is already set (`ARDOISE_REPLACE_GUARD=true` allows replacing it). Thresholds default to 1.25e18 / 1.5e18 and can be overridden with `ARDOISE_MIN_HEALTH_FACTOR` / `ARDOISE_TARGET_HEALTH_FACTOR`. The admin also owns the guard, so it is the admin who turns the demo's simulated price drop on and off with `setSimulatedDrop`.
 
