@@ -33,12 +33,28 @@ Status: ⬜ to do, 🔄 in progress, ✅ done, ✂️ cut.
 
 | # | Task | Who | When | Branch | Files | Done when | Status |
 |---|------|-----|------|--------|-------|-----------|--------|
-| 0.1 | Mainnet tests: buy ~$30–50 of cirBTC (Uniswap v3), supply it on the Aave V4 Main Spoke, borrow $1 through `borrowOnBehalfOf` from a test contract | Hugo · H1 | Tue 11/17 morning | none (experiments) | — | Explorer links recorded, or fallback decided | ⬜ |
+| 0.1 | Mainnet tests: buy ~$30–50 of cirBTC (Uniswap v3), supply it on the Aave V4 Main Spoke, borrow $1 through `borrowOnBehalfOf` from a test contract | Hugo · H1 | Tue 11/17 morning | none (experiments) | — | Explorer links recorded, or fallback decided | ✅ passed on mainnet, no fallback needed (see results below) |
 | 0.2 | Tests: Circle passkey wallet (MSCA) on Arc mainnet; timed USDC transfer Arc → Base (CCTP Fast Transfer or Gateway) | Enzo · E | Tue 11/17 morning | none (experiments) | — | Passkeys work or fall back to a regular wallet; Arc → Base delay measured | 🔄 testnet passed, mainnet confirmation left (see results below) |
 | 0.3 | Repository scaffold: `contracts/` (Foundry), `app/` (Next.js + viem), `keeper/` (Node); install, run and test commands in `CLAUDE.md` and the README | Enzo · E | Tue 11/17 afternoon | `chore/scaffold` | root, `contracts/`, `app/`, `keeper/` (skeletons) | `forge build` and `npm run dev` run; no `TBD` left in `CLAUDE.md` | ✅ |
-| 0.4 | Frozen interfaces: `IVenue` (`rate`, `available`, `healthAfter`, `borrow`, `repay`), `IArdoise` (`pay`, `repay`, `lines`, `health`), `IGuard` (`checkMargin`, called by `pay()`), debt-line format, events | Hugo · H2 | Tue 11/17 afternoon | `feat/interfaces` | `contracts/src/interfaces/` | Merged into `main`; no change without telling the others first | ⬜ |
+| 0.4 | Frozen interfaces: `IVenue` (`rate`, `available`, `healthAfter`, `borrow`, `repay`), `IArdoise` (`pay`, `repay`, `lines`, `health`), `IGuard` (`checkMargin`, called by `pay()`), debt-line format, events | Hugo · H2 | Tue 11/17 afternoon | `feat/interfaces` | `contracts/src/interfaces/` | Merged into `main`; no change without telling the others first | ✅ see [`api.md`](api.md) |
 
 ### Blocking test results
+
+**0.1 — cirBTC collateral and `borrowOnBehalfOf` (Hugo, Tue 11/17, Arc mainnet)**
+
+Run from a dedicated project wallet with $4 of cirBTC instead of $30–50: a $1 borrow only needs a small position, and every step is the same.
+
+| Test | Result | Evidence |
+|------|--------|----------|
+| Bridge 5 USDC Ethereum → Arc, CCTP fast transfer with Circle's forwarder (`depositForBurnWithHook`, domain 26) | Minted on Arc about 1 min after the burn, about 0.025 USDC in fees, no Arc gas needed by the recipient | [burn on Ethereum](https://etherscan.io/tx/0x8fc7e4021db32d2f1b20031cac3d1479f0b014e28e34123c90f60137372237a4), [mint on Arc](https://explorer.arc.io/tx/0x38ec3b153236379af508d028552de2cae2e6b7b7721121d77ec629f2888a1c17) |
+| Buy cirBTC: 4 USDC → 6,271 sats on the Uniswap v3 cirBTC/USDC 0.01% pool | Works | [swap](https://explorer.arc.io/tx/0x850fb03b6beeaae8d254a0deca5fa8dc2e974df27b8f934acd66c3bb4c3ccbea) |
+| Supply cirBTC on the Aave V4 Main Spoke (reserve 2) and enable it as collateral | Works | [supply](https://explorer.arc.io/tx/0xf90dccb8a05401477ce95b4db0d6cd91d7df2f9a3d0da316917a2cbc8698add2), [collateral](https://explorer.arc.io/tx/0x1eeb80c7833f3f1790412f231110cb54db0c27e42ee339f8d294bdcba2c65e73) |
+| A test contract borrows 1 USDC (reserve 0) on the wallet's behalf through `TakerPositionManager.borrowOnBehalfOf` | Works: debt of 1.000001 USDC on the wallet, the contract forwarded the USDC to it; about 317k gas | [authorize Taker](https://explorer.arc.io/tx/0x04120fd8a4298a9a5eeb26a9b919c48342e3b03bf6e0e15d396aa1174b1c7e2c), [test contract](https://explorer.arc.io/address/0xf4f15c650e54f701eE2f817d6EdD6b170fa96bfC), [borrow allowance](https://explorer.arc.io/tx/0x01fbfef1b6a6e27338b16671be3312c46b7a986464a33a8d6426c510bd22d962), [borrow](https://explorer.arc.io/tx/0xb25dfd484be78b9c3f7d652975600f1283486ee2c591f2d9fb572d026c8d83ee) |
+
+Decisions:
+- **No fallback needed**: Ardoise borrows on Aave V4 on the user's behalf, and the collateral stays in the user's wallet.
+- `borrowOnBehalfOf` lives on the `TakerPositionManager`, not on the Spoke, and repaying on someone's behalf goes through the `GiverPositionManager`. The user authorizes both once and gives the adapter a borrow allowance; the steps are in [`api.md`](api.md).
+- CCTP fast transfer with the forwarder also works on mainnet towards Arc (domain 26), which supports the 0.2 decision.
 
 **0.2 — passkeys and Arc → Base (Enzo, Tue 11/17, Arc Testnet and Base Sepolia)**
 
@@ -58,16 +74,16 @@ Left to do on mainnet: one passkey transaction (needs a live client key and a Ga
 | # | Task | When | Depends on | Branch | Files | Done when | Status |
 |---|------|------|------------|--------|-------|-----------|--------|
 | A1 | `AaveV4Adapter` (rate, liquidity, health after, borrow, repay) + tests | Wed 11/18 morning | 0.1, 0.3, 0.4 | `feat/aave-adapter` | `contracts/src/venues/AaveV4Adapter.sol`, tests | Tests pass; a real borrow of a few dollars on mainnet | ⬜ |
-| A2 | `ArdoiseAccount`: `pay()` picks the venue, calls `IGuard.checkMargin`, borrows, sends (on Arc, or to another chain through CCTP fast transfer with Circle's forwarder, see the 0.2 results), enforces per-payment and daily caps | Wed 11/18 midday | A1, 0.2 | `feat/ardoise-account` | `contracts/src/ArdoiseAccount.sol`, tests | `pay()` borrows and pays on mainnet | ⬜ |
+| A2 | `ArdoiseAccount`: `pay()` picks the venue, calls `IGuard.checkMargin`, borrows, sends (on Arc, or to another chain through CCTP fast transfer with Circle's forwarder, see the 0.2 results), enforces per-payment and daily caps, public `sweep()`; plus `ArdoiseFactory` (account registry, venue list, guard) | Wed 11/18 midday | A1, 0.2 | `feat/ardoise-account` | `contracts/src/ArdoiseAccount.sol`, `contracts/src/ArdoiseFactory.sol`, tests | `pay()` borrows and pays on mainnet | ⬜ |
 | A3 | Debt ledger (amount, venue, rate, payee, memo, accrued interest) + events | Wed 11/18 afternoon | A2 | `feat/debt-ledger` | `contracts/src/` (ledger), tests | One line per payment, readable by the app | ⬜ |
-| A4 | Mainnet deployment of account, venues and ledger; addresses in `contracts/deployments.md` | Wed 11/18 evening | A3 | `chore/deploy-mainnet` | `contracts/script/`, `contracts/deployments.md` | Contracts verified on the Arc explorer | ⬜ |
+| A4 | Mainnet deployment of the factory, venues and ledger (factory first, then adapters, then `setVenues`); addresses in `contracts/deployments.md` | Wed 11/18 evening | A3 | `chore/deploy-mainnet` | `contracts/script/`, `contracts/deployments.md` | Contracts verified on the Arc explorer | ⬜ |
 
 ## Track B — Position guard · Hugo, account H2
 
 | # | Task | When | Depends on | Branch | Files | Done when | Status |
 |---|------|------|------------|--------|-------|-----------|--------|
 | B1 | Margin check before each payment (refuse or reduce below the threshold), implementing `IGuard` | Wed 11/18 morning | 0.3, 0.4 | `feat/margin-check` | `contracts/src/guard/`, tests | A payment over the threshold is refused in tests | ⬜ |
-| B2 | Keeper that can only repay, plus a public `sweep()` (a plain USDC `transfer()` runs no recipient code) | Wed 11/18 afternoon | B1 | `feat/keeper` | `keeper/`, repay function in `contracts/src/guard/` | Debt goes down after a keeper-triggered repayment | ⬜ |
+| B2 | Keeper that can only repay: it watches accounts (`AccountCreated`) and calls the public `IArdoise.sweep()` implemented in A2 (a plain USDC `transfer()` runs no recipient code) | Wed 11/18 afternoon | B1, A2 | `feat/keeper` | `keeper/` | Debt goes down after a keeper-triggered repayment | ⬜ |
 | B3 | Bitcoin price-drop simulator, labelled as a simulation (no local Arc fork: native USDC breaks there) | Thu 11/19 morning | B1, B2 | `feat/price-sim` | `contracts/src/guard/` or `keeper/` | The "BTC drops → payment refused → repayment" demo runs | ⬜ |
 | B5 | Mainnet deployment of the guard; keeper running against mainnet; guard address in `contracts/deployments.md` (coordinate with H1) | Wed 11/18 evening | B2, A4 | `chore/deploy-guard` | `contracts/script/` (guard script only), `keeper/` config | `pay()` on mainnet calls the deployed guard | ⬜ |
 | B4 | (if time allows) deleveraging from a Gateway balance; otherwise a one-click user repayment | Thu 11/19 | B2 | `feat/gateway-deleverage` | `keeper/` | Repayment funded from Base, or fallback agreed | ⬜ |
