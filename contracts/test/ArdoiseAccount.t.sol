@@ -336,6 +336,17 @@ contract ArdoiseAccountTest is Test {
         account.repay(1, 1);
     }
 
+    function test_repay_ofPrincipalSecondsLaterClosesLine() public {
+        // Mainnet case: 0.50 USDC repaid 7 seconds after the payment must not leave 1 wei open.
+        _payArc(0.5e6);
+        skip(7);
+        _fund(owner, 0.5e6);
+        vm.prank(owner);
+        account.repay(1, 0.5e6);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.LineAlreadyRepaid.selector, 1));
+        account.repay(1, 1);
+    }
+
     function test_repay_includesEstimatedInterest() public {
         _payArc(100 * USDC);
         skip(365 days);

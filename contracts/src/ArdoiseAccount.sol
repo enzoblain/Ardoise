@@ -295,7 +295,7 @@ contract ArdoiseAccount is IArdoise {
     // ----- Internals -----
 
     // Only reached from `repay` and `sweep`, both non-reentrant.
-    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
+    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events, block-timestamp)
     /// @dev Repays up to `amount` of line `lineId` through its venue. `payer` is the caller for
     /// `repay` (tokens are pulled from it and the unused part refunded) or the account itself for
     /// `sweep`. Returns the debt the venue restored and the USDC the payer actually spent.
@@ -331,14 +331,17 @@ contract ArdoiseAccount is IArdoise {
 
     // The timestamp only feeds an interest estimate; a few seconds of drift are irrelevant.
     // forge-lint: disable-next-item(block-timestamp)
-    /// @dev Simple interest at the line's rate since it was opened, rounded up. Once a line is
-    /// closed, the interest it shows is what was repaid beyond the principal.
+    /// @dev Simple interest at the line's rate since it was opened, rounded down so that repaying
+    /// the principal right after a payment closes the line instead of leaving 1 wei open; the
+    /// venue's debt, not this estimate, is what is owed. Once a line is closed, the interest it
+    /// shows is what was repaid beyond the principal.
     function _interest(Line storage l) private view returns (uint256) {
         if (l.closed) return l.repaid > l.principal ? l.repaid - l.principal : 0;
-        uint256 numerator = l.principal * l.rateBps * (block.timestamp - l.openedAt);
-        return numerator == 0 ? 0 : (numerator - 1) / (BPS * YEAR) + 1;
+        return l.principal * l.rateBps * (block.timestamp - l.openedAt) / (BPS * YEAR);
     }
 
+    // The timestamp only feeds the interest estimate.
+    // forge-lint: disable-next-item(block-timestamp)
     /// @dev What the line still owes by its own estimate.
     function _outstanding(Line storage l) private view returns (uint256) {
         if (l.closed) return 0;
