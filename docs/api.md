@@ -82,11 +82,13 @@ Behaviour the frozen interfaces leave open, as implemented in [`ArdoiseAccount.s
 |--------|-----|
 | `simulatedDropBps()` | Simulated drop in basis points; `0` means the simulation is off (the normal state). The app shows a "SIMULATION — BTC -x%" banner whenever it is not 0 |
 | `simulatedHealth(venue, user)` | Health factor as the guard sees it (WAD, `type(uint256).max` without debt): the venue's health factor scaled by `(10_000 - simulatedDropBps) / 10_000`. The margin gauge reads this instead of `venue.health(user)` |
-| `setSimulatedDrop(dropBps)` | Owner only, at most `9_000` (90%). Emits `SimulationUpdated(dropBps)` |
+| `setSimulatedDrop(dropBps)` | Owner only, at most `MAX_SIMULATED_DROP_BPS` (`9_000`, 90%). Emits `SimulationUpdated(dropBps)`; reverts with `NotOwner(caller)` or `InvalidSimulatedDrop(dropBps)` |
 
 - **What it changes:** only Ardoise's own decisions. `checkMargin` refuses or reduces payments as if the price had dropped, and the keeper judges positions with the same simulated health factor.
 - **What it never changes:** Aave, its oracle and the user's real position. Nobody can be liquidated because of the simulation, and `venue.health(user)` keeps returning the real numbers.
-- **Why scaling the health factor is right:** it is risk-adjusted collateral over debt, so with cirBTC as the only collateral a price drop of x% multiplies it by (1 - x%). The guard rounds down once more than the venue would, so it is never more permissive than a real drop of the same size.
+- **It is global:** the guard is shared by every account of the factory, so a non-zero drop refuses or reduces payments for every user, not only the demo one, until the owner sets it back to 0. It can only make the guard stricter: it never lets through a payment the real guard would refuse. After a demo, check that `simulatedDropBps()` is 0.
+- **Why scaling the health factor is right:** it is risk-adjusted collateral over debt, so with cirBTC as the only collateral a price drop of x% multiplies it by (1 - x%), up to rounding dust. With several collateral assets the simulation means "every collateral -x%", which is stricter than a drop of BTC alone.
+- **Gauge and payments:** `simulatedHealth` derives from `venue.health`, `checkMargin` from `venue.healthAfter`; they may differ by a few wei, so a gauge exactly at the minimum does not guarantee that a payment passes.
 - **Outside the demo** the drop stays at 0 and `checkMargin` reads the real oracle through the venue, at the same gas cost as without the feature.
 
 ## One-time user setup on Aave V4
