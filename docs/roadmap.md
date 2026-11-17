@@ -82,7 +82,7 @@ Left to do on mainnet: one passkey transaction (needs a live client key and a Ga
 
 | # | Task | When | Depends on | Branch | Files | Done when | Status |
 |---|------|------|------------|--------|-------|-----------|--------|
-| B1 | Margin check before each payment (refuse or reduce below the threshold), implementing `IGuard` | Wed 11/18 morning | 0.3, 0.4 | `feat/margin-check` | `contracts/src/guard/`, tests | A payment over the threshold is refused in tests | ⬜ |
+| B1 | Margin check before each payment (refuse or reduce below the threshold), implementing `IGuard` | Wed 11/18 morning | 0.3, 0.4 | `feat/margin-check` | `contracts/src/guard/`, tests | A payment over the threshold is refused in tests | ✅ `MarginGuard`, minimum 1.25 and target 1.5 suggested at deployment |
 | B2 | Keeper that can only repay: it watches accounts (`AccountCreated`) and calls the public `IArdoise.sweep()` implemented in A2 (a plain USDC `transfer()` runs no recipient code) | Wed 11/18 afternoon | B1, A2 | `feat/keeper` | `keeper/` | Debt goes down after a keeper-triggered repayment | ⬜ |
 | B3 | Bitcoin price-drop simulator, labelled as a simulation (no local Arc fork: native USDC breaks there) | Thu 11/19 morning | B1, B2 | `feat/price-sim` | `contracts/src/guard/` or `keeper/` | The "BTC drops → payment refused → repayment" demo runs | ⬜ |
 | B5 | Mainnet deployment of the guard; keeper running against mainnet; guard address in `contracts/deployments.md` (coordinate with H1) | Wed 11/18 evening | B2, A4 | `chore/deploy-guard` | `contracts/script/` (guard script only), `keeper/` config | `pay()` on mainnet calls the deployed guard | ⬜ |
