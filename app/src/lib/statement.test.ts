@@ -32,8 +32,8 @@ describe("buildStatement", () => {
   it("decodes the account's Paid events into lines, newest first", async () => {
     const account = createMockArdoise([AAVE, MORPHO]);
     await account.pay({ amount: 20_000_000n, destinationDomain: 6, payee: PAYEE, maxFee: 53_948n, memo: "Logo design" });
-    const { logs, blockTimes } = await account.events();
-    const statement = buildStatement(logs, blockTimes, [AAVE, MORPHO], Math.floor(Date.now() / 1000));
+    const { account: emitter, logs, blockTimes } = await account.events();
+    const statement = buildStatement(emitter, logs, blockTimes, [AAVE, MORPHO], Math.floor(Date.now() / 1000));
 
     expect(statement.lines.map((l) => l.lineId)).toEqual([3n, 2n, 1n]);
     expect(statement.lines[0]).toMatchObject({
@@ -54,11 +54,11 @@ describe("buildStatement", () => {
 
   it("accrues simple interest at the line's rate since its block", async () => {
     const account = createMockArdoise([AAVE]);
-    const { logs, blockTimes } = await account.events();
+    const { account: emitter, logs, blockTimes } = await account.events();
     const oldest = blockTimes.get(1n)!;
     // 60 USDC at 3.10% for 365 days = 1.86 USDC; 3 days after the payment
     // plus 362 more days.
-    const statement = buildStatement(logs, blockTimes, [AAVE], oldest + 365 * DAY);
+    const statement = buildStatement(emitter, logs, blockTimes, [AAVE], oldest + 365 * DAY);
     const line = statement.lines.find((l) => l.lineId === 1n)!;
     expect(line.accruedInterest).toBe(1_860_000n);
     expect(line.owed).toBe(61_860_000n);
@@ -66,10 +66,11 @@ describe("buildStatement", () => {
 
   it("subtracts LineRepaid events and never shows a negative balance", async () => {
     const account = createMockArdoise([AAVE]);
-    const { logs, blockTimes } = await account.events();
+    const { account: emitter, logs, blockTimes } = await account.events();
     const now = blockTimes.get(2n)!;
     blockTimes.set(10n, now);
     const statement = buildStatement(
+      emitter,
       [...logs, repaidLog(2n, 15_000_000n, 10n), repaidLog(1n, 70_000_000n, 10n)],
       blockTimes,
       [AAVE],
@@ -80,17 +81,51 @@ describe("buildStatement", () => {
     expect(statement.lines.find((l) => l.lineId === 1n)!.owed).toBe(0n);
   });
 
+  it("leaves the interest of repaid lines out of the total", async () => {
+    const account = createMockArdoise([AAVE]);
+    const { account: emitter, logs, blockTimes } = await account.events();
+    const later = blockTimes.get(1n)! + 365 * DAY;
+    blockTimes.set(10n, later);
+    const statement = buildStatement(emitter, [...logs, repaidLog(1n, 62_000_000n, 10n)], blockTimes, [AAVE], later);
+    const hosting = statement.lines.find((l) => l.lineId === 2n)!;
+    expect(statement.totalInterest).toBe(hosting.accruedInterest);
+    expect(statement.totalOwed).toBe(hosting.owed);
+  });
+
+  it("ignores events with the same signature from another contract", async () => {
+    const account = createMockArdoise([AAVE]);
+    const { account: emitter, logs, blockTimes } = await account.events();
+    const spoofed: Log = { ...logs[0], address: "0x000000000000000000000000000000000000dEaD" };
+    const statement = buildStatement(emitter, [spoofed, logs[1]], blockTimes, [AAVE], blockTimes.get(2n)!);
+    expect(statement.lines.map((l) => l.lineId)).toEqual([2n]);
+  });
+
+  it("keeps a non-EVM payee as bytes32 instead of truncating it", async () => {
+    const account = createMockArdoise([AAVE]);
+    const { account: emitter, logs, blockTimes } = await account.events();
+    const solanaLike = `0x${"9f".repeat(32)}` as const;
+    const log: Log = {
+      ...logs[0],
+      data: encodeAbiParameters(parseAbiParameters("uint256, uint256, uint256, uint32, uint32, bytes32, string"), [
+        1_000_000n, 0n, 1_000_000n, 310, 5, solanaLike, "Solana payee",
+      ]),
+    };
+    const [line] = buildStatement(emitter, [log], blockTimes, [AAVE], blockTimes.get(1n)!).lines;
+    expect(line.payee).toBeUndefined();
+    expect(line.payeeBytes32).toBe(solanaLike);
+  });
+
   it("names unknown venues by address and ignores unrelated logs", async () => {
     const account = createMockArdoise([AAVE]);
-    const { logs, blockTimes } = await account.events();
+    const { account: emitter, logs, blockTimes } = await account.events();
     const unrelated: Log = { ...logs[0], topics: [`0x${"ab".repeat(32)}`] };
-    const statement = buildStatement([...logs, unrelated], blockTimes, [], blockTimes.get(2n)!);
+    const statement = buildStatement(emitter, [...logs, unrelated], blockTimes, [], blockTimes.get(2n)!);
     expect(statement.lines).toHaveLength(2);
     expect(statement.lines[0].venueName).toBe(AAVE.address);
   });
 
   it("fails loudly when a block time is missing", async () => {
-    const { logs } = await createMockArdoise([AAVE]).events();
-    expect(() => buildStatement(logs, new Map(), [AAVE], 0)).toThrow(/No time for block/);
+    const { account, logs } = await createMockArdoise([AAVE]).events();
+    expect(() => buildStatement(account, logs, new Map(), [AAVE], 0)).toThrow(/No time for block/);
   });
 });

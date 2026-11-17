@@ -69,8 +69,7 @@ async function readAave(): Promise<Venue> {
   // Hub rates are yearly, in RAY. Liquidity is Hub-wide; if the Main Spoke
   // has a lower draw cap, AaveV4Adapter.available() (A1) is the figure that
   // counts, and C4 reads it instead of this.
-  // Until the adapters are deployed (A1), the Main Spoke stands in for the
-  // venue address that Paid events will carry.
+  // Stand-in until AaveV4Adapter is deployed (A1); see Venue.address.
   return { id: "aave-v4", address: AAVE_MAIN_SPOKE, name: "Aave V4", rateBps: Number((rate * 10_000n) / RAY), available: liquidity };
 }
 
@@ -94,6 +93,7 @@ async function readMorpho(): Promise<Venue> {
   // so it compares with Aave's.
   return {
     id: "morpho",
+    // Stand-in until a Morpho adapter exists (R5); see Venue.address.
     address: MORPHO,
     name: "Morpho",
     rateBps: Number((perSecond * SECONDS_PER_YEAR * 10_000n) / WAD),

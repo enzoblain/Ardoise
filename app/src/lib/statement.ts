@@ -1,4 +1,4 @@
-import { getAddress, parseEventLogs, type Address, type Hex, type Log } from "viem";
+import { getAddress, isAddressEqual, parseEventLogs, type Address, type Hex, type Log } from "viem";
 import { ardoiseEventsAbi } from "@/lib/abi";
 import type { Venue } from "@/lib/ardoise";
 
@@ -19,8 +19,10 @@ export interface StatementLine {
   borrowed: bigint;
   rateBps: number;
   destinationDomain: number;
-  /** Payee as an EVM address (the bytes32 payee's last 20 bytes). */
-  payee: Address;
+  /** Payee as `pay()` received it: CCTP-style bytes32. */
+  payeeBytes32: Hex;
+  /** Payee as an EVM address, when the bytes32 is a left-padded one. */
+  payee?: Address;
   memo: string;
   repaid: bigint;
   /** Simple interest at `rateBps` since `paidAt`, as `IArdoise.lines()` estimates it. */
@@ -34,6 +36,7 @@ export interface Statement {
   /** Newest first. */
   lines: StatementLine[];
   totalBorrowed: bigint;
+  /** Interest on the lines still owed, so it is part of `totalOwed`. */
   totalInterest: bigint;
   totalOwed: bigint;
 }
@@ -45,7 +48,10 @@ export interface Statement {
  * variable rate on one debt per position, so the venue's `debtOf` is what is
  * actually owed.
  *
- * @param logs Raw logs emitted by the account; other events are ignored.
+ * @param account Address of the account; logs from any other emitter are
+ *   ignored, since another contract can emit events with the same signature.
+ * @param logs Raw logs, typically `getLogs({ address: account })`; other
+ *   events are ignored.
  * @param blockTimes Unix time of each block the logs come from.
  * @param venues Known venues, to name them by address.
  * @param now Unix time to accrue interest to.
@@ -53,12 +59,16 @@ export interface Statement {
  * @throws If a log's block has no time in `blockTimes`.
  */
 export function buildStatement(
+  account: Address,
   logs: Log[],
   blockTimes: ReadonlyMap<bigint, number>,
   venues: Venue[],
   now: number,
 ): Statement {
-  const events = parseEventLogs({ abi: ardoiseEventsAbi, logs });
+  const events = parseEventLogs({
+    abi: ardoiseEventsAbi,
+    logs: logs.filter((log) => isAddressEqual(log.address, account)),
+  });
   const names = new Map(venues.map((v) => [v.address.toLowerCase(), v.name]));
 
   const repaid = new Map<bigint, bigint>();
@@ -88,7 +98,8 @@ export function buildStatement(
       borrowed: e.args.borrowed,
       rateBps: e.args.rateBps,
       destinationDomain: e.args.destinationDomain,
-      payee: getAddress(`0x${e.args.payee.slice(-40)}`),
+      payeeBytes32: e.args.payee,
+      payee: evmPayee(e.args.payee),
       memo: e.args.memo,
       repaid: lineRepaid,
       accruedInterest,
@@ -100,7 +111,15 @@ export function buildStatement(
   return {
     lines,
     totalBorrowed: lines.reduce((sum, l) => sum + l.borrowed, 0n),
-    totalInterest: lines.reduce((sum, l) => sum + l.accruedInterest, 0n),
+    // A repaid line can show an interest estimate above what was repaid (the
+    // account closes lines on the venue's real debt); it is not owed.
+    totalInterest: lines.reduce((sum, l) => (l.owed > 0n ? sum + l.accruedInterest : sum), 0n),
     totalOwed: lines.reduce((sum, l) => sum + l.owed, 0n),
   };
+}
+
+// bytes32 leaves room for non-EVM payees; only a left-padded value is an
+// EVM address.
+function evmPayee(payee: Hex): Address | undefined {
+  return /^0x0{24}[0-9a-fA-F]{40}$/.test(payee) ? getAddress(`0x${payee.slice(-40)}`) : undefined;
 }

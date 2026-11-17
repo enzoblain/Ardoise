@@ -14,7 +14,11 @@ const USDC_TO_WAD = 10n ** 12n;
 /** A lending venue, as `IVenue` exposes it. */
 export interface Venue {
   id: string;
-  /** Address that `Paid` events carry as `venue`. */
+  /**
+   * Address `Paid` events carry as `venue`: the `IVenue` adapter. Until the
+   * adapters are deployed (A1), the underlying protocol contract stands in;
+   * C4 must replace it, or statement lines show a raw address.
+   */
   address: Address;
   name: string;
   /** Yearly borrow rate (APR) in basis points. */
@@ -104,8 +108,9 @@ export interface ArdoiseClient {
   /**
    * The account's `Paid` and `LineRepaid` logs, with the time of each block
    * they were emitted in; the statement is built from them.
+   * @returns `account` is the address that emitted the logs.
    */
-  events(): Promise<{ logs: Log[]; blockTimes: Map<bigint, number> }>;
+  events(): Promise<{ account: Address; logs: Log[]; blockTimes: Map<bigint, number> }>;
   /**
    * Sends the payment.
    * @returns The debt line it opened (`IArdoise.line(lineId)`).

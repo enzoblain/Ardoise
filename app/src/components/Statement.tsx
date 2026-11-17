@@ -28,7 +28,11 @@ export function Statement({ account, venues, version }: { account: ArdoiseClient
     let current = true;
     account
       .events()
-      .then((e) => current && setEvents(e))
+      .then((e) => {
+        if (!current) return;
+        setEvents(e);
+        setError(undefined);
+      })
       .catch((e: Error) => current && setError(e.message));
     return () => {
       current = false;
@@ -45,7 +49,7 @@ export function Statement({ account, venues, version }: { account: ArdoiseClient
 
   let statement: StatementData;
   try {
-    statement = buildStatement(events.logs, events.blockTimes, venues, now);
+    statement = buildStatement(events.account, events.logs, events.blockTimes, venues, now);
   } catch (e) {
     return <p className="text-sm text-red-600">Could not read the statement: {(e as Error).message}</p>;
   }
@@ -78,7 +82,7 @@ export function Statement({ account, venues, version }: { account: ArdoiseClient
                 </div>
                 <div className="flex flex-wrap justify-between gap-x-4 text-sm opacity-70">
                   <span>
-                    To <span className="font-mono">{shortAddress(line.payee)}</span> on{" "}
+                    To <span className="font-mono">{shortAddress(line.payee ?? line.payeeBytes32)}</span> on{" "}
                     {chain?.label ?? `CCTP domain ${line.destinationDomain}`} · {formatDate(line.paidAt)}
                   </span>
                   <span>#{line.lineId.toString()}</span>
