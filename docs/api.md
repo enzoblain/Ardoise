@@ -68,7 +68,10 @@ Behaviour the frozen interfaces leave open, as implemented in [`ArdoiseAccount.s
 - **Caps** apply to `amount + maxFee`; the UTC day is `block.timestamp / 1 days`. New accounts get the factory's `defaultPerPaymentCap` and `defaultDailyCap`.
 - **Venue choice:** `bestVenue` skips venues whose `available()` or `rate()` reverts; ties go to the first venue in the factory's list.
 - **Interest estimate:** simple interest at `rateBps` on the principal since `openedAt`, rounded down. A line closes when its repayments cover principal plus estimate, or when the owner's debt on its venue reaches 0. A closed line's `accruedInterest` is what was repaid beyond the principal.
-- **Repayment:** `repay` pulls at most what the line owes by its estimate and refunds what the venue does not take. `sweep()` does not read the guard, so it keeps working while the factory has none; USDC left after every line is closed stays in the account.
+- **Repayment:** `repay` pulls at most what the line owes by its estimate and refunds what the venue does not take.
+- **`sweep()`** repays the open lines oldest first, skipping a line whose venue refuses the repayment instead of reverting, so the keeper is never stuck behind one line. What is left then repays the owner's remaining debt on each venue of the factory (venues compound a variable rate while line estimates use simple interest, and the owner may have debt opened outside Ardoise); anything left after that stays in the account. It does not read the guard, so it keeps working while the factory has none.
+- **Closed lines:** `DebtLine` has no closed flag, and a line closed because its venue debt reached 0 can show `repaid` below `principal`. The account exposes `closed(lineId)` (not part of `IArdoise`) for the statement.
+- **Trust:** the factory admin is trusted. Accounts borrow from, and approve repayments to, whatever venues the admin sets, and pay only if the admin's guard agrees.
 - **Without a guard** (`setGuard(0)`), `pay()` reverts; repayments and `sweep()` still work.
 
 ## One-time user setup on Aave V4
