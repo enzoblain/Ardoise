@@ -22,18 +22,32 @@ import { MIN_SWEEP_AMOUNT, decide, type Decision, type Thresholds, type VenuePos
 const LOG_RANGE = 10_000n;
 
 /**
- * Blocks read again on every pass. Behind a load-balanced RPC endpoint, a
- * node that has not seen the newest blocks yet answers with no logs; reading
- * them again on the next passes keeps an account created there from being
- * missed for good.
+ * Blocks read again on every pass, about two minutes of Arc blocks. Behind a
+ * load-balanced RPC endpoint, a node that has not seen the newest blocks yet
+ * answers with no logs; reading them again on the next passes keeps an
+ * account created there from being missed for good.
  */
-const RESCAN_BLOCKS = 5n;
+const RESCAN_BLOCKS = 240n;
 
 /** Wait after a first failed `sweep()` on an account; doubles on every further failure. */
 const FIRST_RETRY_DELAY_MS = 60_000;
 
 /** Longest wait between two attempts on an account that keeps failing. */
 const MAX_RETRY_DELAY_MS = 3_600_000;
+
+/**
+ * How long one pass waits for a `sweep()` receipt. Arc confirms in about a
+ * second; waiting longer would only keep the other accounts from being
+ * checked, and the pending transaction is picked up again on later passes.
+ */
+const RECEIPT_TIMEOUT_MS = 30_000;
+
+/**
+ * Age after which a `sweep()` without receipt is treated as lost (dropped
+ * from the mempool, replaced) and counted as a failed attempt, so that the
+ * account is retried instead of staying on hold forever.
+ */
+const PENDING_DEADLINE_MS = 300_000;
 
 /** An Ardoise account and the wallet that owns it and its collateral. */
 interface WatchedAccount {
@@ -43,15 +57,20 @@ interface WatchedAccount {
 
 /** What the keeper needs to run: chain access, the factory to watch and a log sink. */
 export interface KeeperOptions {
+  /** Client used for every read, simulation and receipt. */
   publicClient: PublicClient<Transport, Chain>;
   /** Wallet that sends `sweep()`, or `null` to only log what would be sent. */
   walletClient: WalletClient<Transport, Chain, Account> | null;
+  /** Ardoise factory whose accounts are watched. */
   factory: Address;
   /** First block to read `AccountCreated` logs from. */
   fromBlock: bigint;
+  /** Receives one line per event worth telling the operator. */
   log: (message: string) => void;
   /** Clock in milliseconds, replaceable in tests. Defaults to `Date.now`. */
   now?: () => number;
+  /** Overrides `RECEIPT_TIMEOUT_MS`, for tests. */
+  receiptTimeoutMs?: number;
 }
 
 /** Formats a USDC amount in base units for the logs. */
@@ -71,8 +90,11 @@ function healthFactor(value: bigint): string {
  * `sweep()` is the only transaction it ever sends. It applies the account's
  * own USDC balance to the account's debt, so the keeper wallet holds no user
  * funds and has no right to borrow, withdraw or move anything. The keeper
- * wallet only pays gas, so every path that could send a transaction twice
- * for the same funds, or keep paying for one that reverts, is closed below.
+ * wallet only pays gas, so the bookkeeping below avoids paying twice for the
+ * same funds or paying again and again for a `sweep()` that fails. One case
+ * remains: if the RPC endpoint accepts a transaction but the answer is lost,
+ * the keeper has no hash to track and may send a second one after the retry
+ * delay; that costs one extra gas fee at most.
  */
 export class Keeper {
   private readonly accounts = new Map<Address, WatchedAccount>();
@@ -80,7 +102,7 @@ export class Keeper {
   /** Last line logged per account and topic, to log changes instead of every pass. */
   private readonly lastLogged = new Map<string, string>();
   /** `sweep()` transactions sent and not yet seen in a block. */
-  private readonly pending = new Map<Address, Hash>();
+  private readonly pending = new Map<Address, { hash: Hash; sentAt: number }>();
   /** Consecutive failed `sweep()` attempts and the time before which not to retry. */
   private readonly failures = new Map<Address, { count: number; retryAt: number }>();
   private readonly now: () => number;
@@ -117,6 +139,7 @@ export class Keeper {
     for (const watched of this.accounts.values()) {
       try {
         await this.checkAccount(watched, venues, thresholds);
+        this.logRecovery(watched.account, "error", "check works again");
       } catch (error) {
         this.logOnce(watched.account, "error", `check failed: ${errorMessage(error)}`);
       }
@@ -162,6 +185,7 @@ export class Keeper {
         publicClient.readContract({ address: guard, abi: guardAbi, functionName: "minHealthFactor" }),
         publicClient.readContract({ address: guard, abi: guardAbi, functionName: "targetHealthFactor" }),
       ]);
+      this.logRecovery(guard, "guard", `guard ${guard} can be read again`);
       return { minHealthFactor, targetHealthFactor };
     } catch (error) {
       this.logOnce(guard, "guard", `guard ${guard} cannot be read, ignoring thresholds: ${errorMessage(error)}`);
@@ -176,8 +200,7 @@ export class Keeper {
     thresholds: Thresholds | null,
   ): Promise<void> {
     const { publicClient } = this.options;
-    if (!(await this.readyForAttempt(watched.account))) return;
-
+    await this.followPending(watched.account);
     const [usdcBalance, positions] = await Promise.all([
       publicClient.readContract({
         address: USDC_ADDRESS,
@@ -204,7 +227,32 @@ export class Keeper {
       2n ** 256n - 1n,
     );
     this.logOnce(watched.account, "state", describe(decision, usdcBalance, lowest));
-    if (decision.action === "sweep") await this.sweep(watched.account);
+    // The state is read and logged even for an account on hold, so that a
+    // margin warning is never hidden by an earlier failed attempt.
+    if (decision.action === "sweep" && this.canAttempt(watched.account)) await this.sweep(watched.account);
+  }
+
+  /**
+   * Follows up on the `sweep()` sent for an account on an earlier pass:
+   * records its outcome once it has a receipt, and gives up on it after
+   * `PENDING_DEADLINE_MS`, since a transaction dropped from the mempool
+   * never gets one.
+   */
+  private async followPending(account: Address): Promise<void> {
+    const sent = this.pending.get(account);
+    if (sent === undefined) return;
+    try {
+      const receipt = await this.options.publicClient.getTransactionReceipt({ hash: sent.hash });
+      this.settle(account, sent.hash, receipt.status === "success");
+    } catch (error) {
+      if (!(error instanceof TransactionReceiptNotFoundError)) throw error;
+      if (this.now() - sent.sentAt < PENDING_DEADLINE_MS) {
+        this.logOnce(account, "sweep", `sweep() ${sent.hash} still pending, waiting for it`);
+        return;
+      }
+      this.pending.delete(account);
+      this.recordFailure(account, `sweep() ${sent.hash} has no receipt after 5 min, treating it as lost`);
+    }
   }
 
   /**
@@ -212,17 +260,8 @@ export class Keeper {
    * an earlier one is still pending (a second transaction would pay gas for
    * the same funds), and not before the retry delay after a failure.
    */
-  private async readyForAttempt(account: Address): Promise<boolean> {
-    const hash = this.pending.get(account);
-    if (hash !== undefined) {
-      try {
-        const receipt = await this.options.publicClient.getTransactionReceipt({ hash });
-        this.settle(account, hash, receipt.status === "success");
-      } catch (error) {
-        if (error instanceof TransactionReceiptNotFoundError) return false;
-        throw error;
-      }
-    }
+  private canAttempt(account: Address): boolean {
+    if (this.pending.has(account)) return false;
     const failure = this.failures.get(account);
     return failure === undefined || this.now() >= failure.retryAt;
   }
@@ -257,13 +296,17 @@ export class Keeper {
       this.recordFailure(account, `sending sweep() failed: ${errorMessage(error)}`);
       return;
     }
-    this.pending.set(account, hash);
+    this.pending.set(account, { hash, sentAt: this.now() });
     log(`account ${account}: sweep() sent in ${hash}, expected to repay ${usdc(expected)}`);
     try {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        timeout: this.options.receiptTimeoutMs ?? RECEIPT_TIMEOUT_MS,
+      });
       this.settle(account, hash, receipt.status === "success");
     } catch (error) {
-      // Still pending: `readyForAttempt` keeps the account on hold until the receipt shows up.
+      // Still pending: the account stays on hold until `followPending`
+      // sees the receipt or gives up on it.
       log(`account ${account}: sweep() ${hash} not confirmed yet: ${errorMessage(error)}`);
     }
   }
@@ -290,6 +333,12 @@ export class Keeper {
     const delay = Math.min(FIRST_RETRY_DELAY_MS * 2 ** (count - 1), MAX_RETRY_DELAY_MS);
     this.failures.set(account, { count, retryAt: this.now() + delay });
     this.options.log(`account ${account}: ${what}; next attempt in ${Math.round(delay / 60_000)} min`);
+  }
+
+  /** Logs that `subject` works again if a failure was logged on this topic, and forgets it. */
+  private logRecovery(subject: Address, topic: string, message: string): void {
+    if (!this.lastLogged.delete(`${subject}:${topic}`)) return;
+    this.options.log(topic === "guard" ? message : `account ${subject}: ${message}`);
   }
 
   /** Logs a line about `subject` unless it repeats the last one on the same topic. */
