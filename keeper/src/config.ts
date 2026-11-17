@@ -16,6 +16,12 @@ export interface Config {
   keeperAccount: PrivateKeyAccount | null;
   /** JSON file of Gateway standing orders (B4), or `null` to never draw from Gateway. */
   gatewayOrdersFile: string | null;
+  /** Port of the standing-order intake the app posts to, or `null` to not run it. */
+  intakePort: number | null;
+  /** Browser origin allowed to call the intake (the app). */
+  appOrigin: string;
+  /** Base RPC endpoint, to check order signatures, or `undefined` for the public one. */
+  baseRpcUrl: string | undefined;
 }
 
 /**
@@ -52,11 +58,22 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     }
   }
 
+  const intakePort = env.GATEWAY_INTAKE_PORT?.trim() || null;
+  if (intakePort !== null && !(/^\d+$/.test(intakePort) && Number(intakePort) > 0 && Number(intakePort) < 65_536)) {
+    throw new Error("GATEWAY_INTAKE_PORT is not a port number");
+  }
+  if (intakePort !== null && !env.GATEWAY_ORDERS_FILE?.trim()) {
+    throw new Error("GATEWAY_INTAKE_PORT needs GATEWAY_ORDERS_FILE to store the orders in");
+  }
+
   return {
     rpcUrl: env.ARC_RPC_URL?.trim() || undefined,
     factory,
     factoryDeployBlock: deployBlock === null ? null : BigInt(deployBlock),
     keeperAccount,
     gatewayOrdersFile: env.GATEWAY_ORDERS_FILE?.trim() || null,
+    intakePort: intakePort === null ? null : Number(intakePort),
+    appOrigin: env.APP_ORIGIN?.trim() || "http://localhost:3000",
+    baseRpcUrl: env.BASE_RPC_URL?.trim() || undefined,
   };
 }

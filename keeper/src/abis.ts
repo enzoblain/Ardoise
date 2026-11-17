@@ -11,6 +11,7 @@ export const factoryAbi = parseAbi([
   "event AccountCreated(address indexed owner, address indexed account)",
   "function venues() view returns (address[])",
   "function guard() view returns (address)",
+  "function accountOf(address owner) view returns (address)",
 ]);
 
 export const accountAbi = parseAbi(["function sweep() returns (uint256 repaid)"]);

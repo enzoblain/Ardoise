@@ -16,7 +16,18 @@ test("an empty environment means no factory, no key, no standing orders and the 
     factoryDeployBlock: null,
     keeperAccount: null,
     gatewayOrdersFile: null,
+    intakePort: null,
+    appOrigin: "http://localhost:3000",
+    baseRpcUrl: undefined,
   });
+});
+
+test("reads the order intake settings and needs an orders file for it", () => {
+  const config = loadConfig({ GATEWAY_ORDERS_FILE: "orders.json", GATEWAY_INTAKE_PORT: "8787", APP_ORIGIN: "https://ardoise.app" });
+  assert.equal(config.intakePort, 8787);
+  assert.equal(config.appOrigin, "https://ardoise.app");
+  assert.throws(() => loadConfig({ GATEWAY_INTAKE_PORT: "8787" }), /GATEWAY_ORDERS_FILE/);
+  assert.throws(() => loadConfig({ GATEWAY_ORDERS_FILE: "o.json", GATEWAY_INTAKE_PORT: "http" }), /GATEWAY_INTAKE_PORT/);
 });
 
 test("reads the Gateway standing orders file", () => {
