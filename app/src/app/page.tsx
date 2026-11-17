@@ -1,9 +1,10 @@
 import { arcClient } from "@/lib/arc";
+import { network } from "@/lib/network";
 
 // Read the chain on every request so the status reflects Arc right now.
 export const dynamic = "force-dynamic";
 
-/** Home page: shows the pitch and whether Arc mainnet is reachable. */
+/** Home page: shows the pitch and whether Arc is reachable. */
 export default async function Home() {
   const blockNumber = await arcClient.getBlockNumber().catch(() => null);
 
@@ -13,8 +14,8 @@ export default async function Home() {
       <p>Pay anyone, on any chain, with your bitcoin without selling it.</p>
       <p className="font-mono text-sm opacity-70">
         {blockNumber === null
-          ? "Arc mainnet unreachable"
-          : `Arc mainnet · block ${blockNumber.toString()}`}
+          ? `${network.arc.label} unreachable`
+          : `${network.arc.label} · block ${blockNumber.toString()}`}
       </p>
     </main>
   );
