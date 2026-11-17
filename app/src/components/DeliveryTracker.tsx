@@ -21,6 +21,9 @@ const NOT_FOUND_GIVE_UP_MS = 10 * 60_000;
  * delivered on the destination chain. Polls Iris until the payment is
  * delivered or failed.
  *
+ * Render it with `key={sourceTxHash}` so a new hash starts from a clean
+ * state.
+ *
  * @param props.sourceTxHash Hash of the payment's burn transaction on Arc.
  */
 export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
@@ -126,7 +129,7 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
       {stage === "not_found" && (
         <p className="text-sm opacity-70">
           {gaveUp
-            ? "Circle has no cross-chain transfer for this transaction. Check the hash; "
+            ? "Circle has no cross-chain transfer for this transaction. Check the hash. "
             : "Waiting for Circle to index the transfer. "}
           A same-chain payment on {network.arc.label} never shows up here.
         </p>

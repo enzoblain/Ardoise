@@ -17,7 +17,7 @@ export default async function PaymentPage({
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-6 p-8">
       <h1 className="text-2xl font-semibold">Payment</h1>
-      <DeliveryTracker sourceTxHash={txHash} />
+      <DeliveryTracker key={txHash} sourceTxHash={txHash} />
     </main>
   );
 }
