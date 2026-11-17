@@ -415,10 +415,13 @@ test("says when the simulation is turned off again", async () => {
   assert.ok(logs.some((line) => line.includes("health factor 1.950") && !line.includes("[SIMULATION]")));
 });
 
-test("works with a guard that has no simulation", async () => {
-  const chain = fakeChain({ simulatedDropBps: null });
-  const { keeper, logs } = setUp(chain, { wallet: true });
+test("judges at the real price, and says so once, when the simulated drop cannot be read", async () => {
+  // Under the minimum only if a drop applied: the real health factor is 1.95.
+  const chain = fakeChain({ simulatedDropBps: null, balance: 0n });
+  const { keeper, logs } = setUp(chain);
   await keeper.tick();
-  assert.equal(chain.sent, 1);
-  assert.ok(!logs.some((line) => line.includes("SIMULATION")));
+  await keeper.tick();
+  assert.equal(logs.filter((line) => line.includes("assuming no simulation")).length, 1);
+  assert.ok(logs.some((line) => line.includes("health factor 1.950") && line.includes("margin is fine")));
+  assert.ok(!logs.some((line) => line.includes("[SIMULATION]")));
 });

@@ -209,7 +209,8 @@ export class Keeper {
   /**
    * Reads the simulated price drop of the demo. It is an addition of
    * `MarginGuard`, not part of `IGuard`, so a guard without it means no
-   * simulation.
+   * simulation. A failed read is treated the same way but is logged, since
+   * during a demo it makes the keeper judge positions at the real price.
    */
   private async readSimulatedDrop(guard: Address): Promise<bigint> {
     try {
@@ -226,7 +227,12 @@ export class Keeper {
           : `SIMULATION: collateral price -${formatUnits(dropBps, 2)}%, positions are judged as if it had dropped`,
       );
       return dropBps;
-    } catch {
+    } catch (error) {
+      this.logOnce(
+        guard,
+        "simulation",
+        `simulated drop of guard ${guard} cannot be read, assuming no simulation: ${errorMessage(error)}`,
+      );
       return 0n;
     }
   }
