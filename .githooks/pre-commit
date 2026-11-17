@@ -1,0 +1,87 @@
+#!/bin/sh
+# Blocks commits that add secrets, junk files or large binaries.
+# Installed by pointing git at this folder: git config core.hooksPath .githooks
+#
+# A line that is a known false positive (for example a documented public test
+# key) can be allowed by ending it with the comment marker: secret-scan:allow
+
+max_bytes=5242880   # 5 MB
+errors=0
+branch_pattern='^(feat|fix|dev|docs|refactor|perf|test|chore|build|ci|style|hotfix)[/-][a-z0-9][a-z0-9._/-]*$'
+
+report() {
+  echo "pre-commit: $1" >&2
+  errors=1
+}
+
+# 0. Never commit on main; work on a named branch. The very first commit of a
+#    new repository is the only exception.
+if git rev-parse --verify -q HEAD >/dev/null; then
+  branch=$(git symbolic-ref --short -q HEAD)
+  case "$branch" in
+    main|master)
+      echo "pre-commit: do not commit on $branch. Create a branch (for example: git switch -c feat/<topic>) and open a pull request." >&2
+      exit 1 ;;
+  esac
+  if [ -n "$branch" ] && ! printf '%s\n' "$branch" | grep -Eq "$branch_pattern"; then
+    echo "pre-commit: branch '$branch' does not follow the naming rule <type>/<topic> or <type>-<topic>." >&2
+    echo "  types: feat fix dev docs refactor perf test chore build ci style hotfix (lowercase, e.g. fix/expired-nonce)" >&2
+    exit 1
+  fi
+fi
+
+# 1. Forbidden files: secrets, key material, dependencies, build output, junk.
+git diff --cached --name-only --diff-filter=ACR -z | tr '\0' '\n' | while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  base=$(basename "$path")
+  case "$base" in
+    .env.example|.env.sample|.env.template) ;;
+    .env|.env.*)
+      echo "pre-commit: $path is an environment file; keep secrets out of git and document variables in .env.example." >&2; echo x ;;
+    *.pem|*.key|*.p12|*.pfx|*.keystore|*.jks|id_rsa|id_ed25519|id_ecdsa|*-keypair.json|keypair.json|id.json)
+      echo "pre-commit: $path looks like key material." >&2; echo x ;;
+    .DS_Store|Thumbs.db|desktop.ini|*.log|*.pyc|*.swp|*.swo|*~)
+      echo "pre-commit: $path is a system, editor or log file; add it to .gitignore." >&2; echo x ;;
+  esac
+  case "/$path" in
+    */node_modules/*|*/__pycache__/*|*/.venv/*|*/venv/*|*/dist/*|*/build/*|*/.next/*|*/target/*|*/coverage/*|*/.idea/*|*/.anchor/*|*/test-ledger/*|*/artifacts/*|*/typechain-types/*)
+      echo "pre-commit: $path is a dependency or build output; add its folder to .gitignore." >&2; echo x ;;
+  esac
+  size=$(git cat-file -s ":$path" 2>/dev/null || echo 0)
+  if [ "$size" -gt "$max_bytes" ]; then
+    echo "pre-commit: $path is $((size / 1048576)) MB; files over 5 MB do not belong in the repository (link to them or use Git LFS)." >&2; echo x
+  fi
+done | grep -q x && errors=1
+
+# 2. Secret patterns in added lines.
+patterns='-----BEGIN ([A-Z]+ )?PRIVATE KEY-----
+AKIA[0-9A-Z]{16}
+sk-ant-[A-Za-z0-9_-]{20,}
+sk-(proj-)?[A-Za-z0-9_-]{32,}
+gh[pousr]_[A-Za-z0-9]{36}
+github_pat_[A-Za-z0-9_]{60,}
+xox[abprs]-[A-Za-z0-9-]{10,}
+AIza[0-9A-Za-z_-]{35}
+sk_live_[0-9A-Za-z]{20,}
+(private|priv|secret|signer|deployer|wallet)[A-Za-z_]*["'\'']?[[:space:]]*[:=][[:space:]]*["'\'']?(0x)?[0-9a-fA-F]{64}
+(mnemonic|seed|seed_phrase|recovery_phrase)[A-Za-z_]*["'\'']?[[:space:]]*[:=][[:space:]]*["'\''][a-z]+( [a-z]+){11,}
+^\[([0-9]{1,3}, ?){63}[0-9]{1,3}\]$'
+
+tmp=$(mktemp)
+printf '%s\n' "$patterns" > "$tmp"
+hits=$(git diff --cached -U0 --diff-filter=ACMR \
+  | grep -E '^\+' | grep -vE '^\+\+\+ ' | sed 's/^+//' \
+  | grep -v 'secret-scan:allow' \
+  | grep -iE -f "$tmp")
+rm -f "$tmp"
+if [ -n "$hits" ]; then
+  report "possible secret in the staged changes:"
+  printf '%s\n' "$hits" | cut -c1-80 | sed 's/^/    /' >&2
+  echo "  Move it to an environment variable. If it was ever pushed, rotate it: deleting it from history is not enough." >&2
+fi
+
+if [ "$errors" -ne 0 ]; then
+  echo "pre-commit: commit blocked. Do not bypass with --no-verify; fix the files or tell the user about a false positive." >&2
+  exit 1
+fi
+exit 0

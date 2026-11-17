@@ -1,0 +1,37 @@
+#!/bin/sh
+# Rejects commit messages that do not follow Conventional Commits.
+# Installed by pointing git at this folder: git config core.hooksPath .githooks
+
+msg_file="$1"
+subject=$(sed -n '/^[^#]/{p;q;}' "$msg_file")
+
+# Let git's own generated messages through.
+case "$subject" in
+  "Merge "*|"Revert \""*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+
+types='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+pattern="^($types)(\([a-z0-9._/-]+\))?!?: [^A-Z].*[^.]$"
+
+fail() {
+  echo "commit-msg: $1" >&2
+  echo "  got: $subject" >&2
+  echo "  expected: <type>(<optional scope>): <subject>" >&2
+  echo "  types: $(echo "$types" | tr '|' ' ')" >&2
+  echo "  example: feat(api): add settlement retry on expired nonce" >&2
+  exit 1
+}
+
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  fail "the first line must follow Conventional Commits (lowercase subject, no trailing period)."
+fi
+
+if [ "${#subject}" -gt 72 ]; then
+  fail "the first line is ${#subject} characters long; keep it to 72 or fewer."
+fi
+
+if [ -n "$(sed -n '2p' "$msg_file" | grep -v '^#')" ]; then
+  fail "leave a blank line between the subject and the body."
+fi
+
+exit 0
