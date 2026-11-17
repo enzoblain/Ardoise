@@ -211,4 +211,165 @@ contract MarginGuardTest is Test {
         vm.prank(owner);
         guard.setThresholds(1.3e18, 1.3e18);
     }
+
+    // --- simulation ---
+
+    function test_simulation_isOffByDefault() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
+        assertEq(guard.simulatedDropBps(), 0);
+        assertEq(guard.simulatedHealth(venue, user), venue.healthAfter(user, 0));
+    }
+
+    function test_simulation_refusesPreviouslySafePayment() public {
+        venue.setPosition(user, COLLATERAL_USD, 5_000 * USDC);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 1_000 * USDC);
+
+        // -30%: the guard reasons on 7,000 USD of collateral, which allows 4,368 USDC of debt.
+        vm.prank(owner);
+        guard.setSimulatedDrop(3_000);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 0);
+    }
+
+    function test_simulation_reducesPaymentLikeARealDrop() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
+        vm.prank(owner);
+        guard.setSimulatedDrop(2_000);
+        uint256 simulated = guard.checkMargin(user, venue, 2_000 * USDC);
+
+        // The same drop applied to the venue itself must give the same answer.
+        vm.prank(owner);
+        guard.setSimulatedDrop(0);
+        venue.movePrice(user, 0.8e18);
+        assertEq(simulated, guard.checkMargin(user, venue, 2_000 * USDC));
+        // 8,000 * 0.78 / 1.25 = 4,992 USDC of debt allowed, 4,000 already owed.
+        assertEq(simulated, 992 * USDC);
+    }
+
+    function test_simulation_turningItOffRestoresTheRealAnswer() public {
+        venue.setPosition(user, COLLATERAL_USD, 5_000 * USDC);
+        vm.prank(owner);
+        guard.setSimulatedDrop(3_000);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 0);
+
+        vm.prank(owner);
+        guard.setSimulatedDrop(0);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 1_000 * USDC);
+    }
+
+    function test_simulation_survivesAThresholdChange() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
+        vm.startPrank(owner);
+        guard.setSimulatedDrop(2_000);
+        guard.setThresholds(1.3e18, 1.6e18);
+        vm.stopPrank();
+        // 8,000 * 0.78 / 1.3 = 4,800 USDC of debt allowed, 4,000 already owed.
+        assertEq(guard.checkMargin(user, venue, 2_000 * USDC), 800 * USDC);
+    }
+
+    function test_simulation_appliesToThresholdsSetBeforeIt() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
+        vm.startPrank(owner);
+        guard.setThresholds(1.3e18, 1.6e18);
+        guard.setSimulatedDrop(2_000);
+        vm.stopPrank();
+        assertEq(guard.checkMargin(user, venue, 2_000 * USDC), 800 * USDC);
+    }
+
+    function test_simulation_boundaryIsExact() public {
+        // -20% allows 4,992 USDC of debt: the last base unit passes, one more does not.
+        vm.prank(owner);
+        guard.setSimulatedDrop(2_000);
+        assertEq(guard.checkMargin(user, venue, 4_992 * USDC), 4_992 * USDC);
+        assertEq(guard.checkMargin(user, venue, 4_992 * USDC + 1), 4_992 * USDC);
+
+        venue.setPosition(user, COLLATERAL_USD, 4_992 * USDC);
+        assertEq(guard.simulatedHealth(venue, user), MIN_HF);
+        assertEq(guard.checkMargin(user, venue, 1), 0);
+    }
+
+    function test_simulation_atTheMaximumDrop() public {
+        // -90%: 1,000 USD of collateral allows 780 / 1.25 = 624 USDC of debt.
+        vm.prank(owner);
+        guard.setSimulatedDrop(9_000);
+        assertEq(guard.checkMargin(user, venue, 1_000 * USDC), 624 * USDC);
+    }
+
+    function test_simulation_safePaymentStillCostsOneProjection() public {
+        vm.prank(owner);
+        guard.setSimulatedDrop(2_000);
+        vm.expectCall(address(venue), abi.encodeCall(IVenue.healthAfter, (user, 100 * USDC)), 1);
+        vm.expectCall(address(venue), abi.encodeCall(IVenue.healthAfter, (user, 0)), 0);
+        guard.checkMargin(user, venue, 100 * USDC);
+    }
+
+    function test_simulatedHealth_scalesTheVenueHealth() public {
+        venue.setPosition(user, COLLATERAL_USD, 4_000 * USDC);
+        assertEq(guard.simulatedHealth(venue, user), 1.95e18);
+
+        vm.prank(owner);
+        guard.setSimulatedDrop(2_000);
+        assertEq(guard.simulatedHealth(venue, user), 1.56e18);
+    }
+
+    function test_simulatedHealth_keepsNoDebtAsNoDebt() public {
+        vm.prank(owner);
+        guard.setSimulatedDrop(9_000);
+        assertEq(guard.simulatedHealth(venue, user), type(uint256).max);
+    }
+
+    function test_simulatedHealth_doesNotOverflowOnTinyDebt() public {
+        // One base unit of debt against a huge collateral: a health factor near 1e70, which
+        // would overflow if it were multiplied before being divided.
+        venue.setPosition(user, 1e58, 1);
+        vm.prank(owner);
+        guard.setSimulatedDrop(5_000);
+        (uint256 real,,) = venue.health(user);
+        assertEq(guard.simulatedHealth(venue, user), real / 2);
+    }
+
+    function test_setSimulatedDrop_emits() public {
+        vm.expectEmit();
+        emit MarginGuard.SimulationUpdated(2_000);
+        vm.prank(owner);
+        guard.setSimulatedDrop(2_000);
+        assertEq(guard.simulatedDropBps(), 2_000);
+    }
+
+    function test_setSimulatedDrop_revertsForNonOwner() public {
+        vm.expectRevert(abi.encodeWithSelector(MarginGuard.NotOwner.selector, user));
+        vm.prank(user);
+        guard.setSimulatedDrop(2_000);
+    }
+
+    function test_setSimulatedDrop_acceptsTheMaximumAndRejectsAbove() public {
+        vm.startPrank(owner);
+        guard.setSimulatedDrop(9_000);
+        vm.expectRevert(abi.encodeWithSelector(MarginGuard.InvalidSimulatedDrop.selector, 9_001));
+        guard.setSimulatedDrop(9_001);
+        vm.stopPrank();
+    }
+
+    function testFuzz_simulation_matchesARealDropWithinOneUnit(uint256 debt, uint256 amount, uint256 dropBps) public {
+        debt = bound(debt, 0, 20_000 * USDC);
+        amount = bound(amount, 1, 20_000 * USDC);
+        // Whole percents keep the mock's own price move exact.
+        dropBps = bound(dropBps, 0, 90) * 100;
+        venue.setPosition(user, COLLATERAL_USD, debt);
+
+        vm.prank(owner);
+        guard.setSimulatedDrop(dropBps);
+        uint256 simulated = guard.checkMargin(user, venue, amount);
+        uint256 simulatedHf = guard.simulatedHealth(venue, user);
+
+        vm.prank(owner);
+        guard.setSimulatedDrop(0);
+        venue.movePrice(user, (10_000 - dropBps) * 1e14);
+        uint256 real = guard.checkMargin(user, venue, amount);
+        // The simulation rounds the health factor down once more than the venue does, so it
+        // may allow one base unit less than a real drop, and never more.
+        assertLe(simulated, real);
+        assertApproxEqAbs(simulated, real, 1);
+        // The two health factors round at different steps: allow the last few wei.
+        if (debt > 0) assertApproxEqAbs(simulatedHf, venue.healthAfter(user, 0), 10_000);
+    }
 }

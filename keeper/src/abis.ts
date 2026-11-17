@@ -22,6 +22,8 @@ export const venueAbi = parseAbi([
 export const guardAbi = parseAbi([
   "function minHealthFactor() view returns (uint256)",
   "function targetHealthFactor() view returns (uint256)",
+  // Addition of MarginGuard, not part of IGuard: the simulated price drop of the demo.
+  "function simulatedDropBps() view returns (uint256)",
 ]);
 
 export const erc20Abi = parseAbi(["function balanceOf(address account) view returns (uint256)"]);

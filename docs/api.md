@@ -7,7 +7,7 @@ The interfaces below are the single contact point between the tracks (see [`road
 | `IVenue` | [`contracts/src/interfaces/IVenue.sol`](../contracts/src/interfaces/IVenue.sol) | `AaveV4Adapter` (A1), Morpho adapter (R5) | `ArdoiseAccount`, guard, app (rate comparison, margin gauge) |
 | `IArdoise` and `DebtLine` | [`contracts/src/interfaces/IArdoise.sol`](../contracts/src/interfaces/IArdoise.sol) | `ArdoiseAccount` (A2, A3) | app (pay screen, statement), keeper |
 | `IArdoiseFactory` | [`contracts/src/interfaces/IArdoiseFactory.sol`](../contracts/src/interfaces/IArdoiseFactory.sol) | factory (A2) | venue adapters (caller check), app and keeper (finding a user's account) |
-| `IGuard` | [`contracts/src/interfaces/IGuard.sol`](../contracts/src/interfaces/IGuard.sol) | guard (B1) | `ArdoiseAccount.pay()`, app, keeper |
+| `IGuard` | [`contracts/src/interfaces/IGuard.sol`](../contracts/src/interfaces/IGuard.sol) | `MarginGuard` (B1, B3) | `ArdoiseAccount.pay()`, app, keeper |
 
 ## Units
 
@@ -27,7 +27,7 @@ The interfaces below are the single contact point between the tracks (see [`road
 - **The factory holds the venue list and the guard** that every account reads, so they can be redeployed without new accounts. Deployment order: factory, then adapters and guard (pointing to the factory), then `setVenues` and `setGuard`.
 - **Venue adapters are shared.** An adapter only accepts `borrow` calls from `factory.accountOf(user)` and sends the tokens to the caller. It must never trust `IArdoise(msg.sender).owner()`: any contract can claim a victim as its owner.
 - **Debt lines are USDC only** and their `accruedInterest` is an estimate; the venue's `debtOf` is what is actually owed. Borrowing EURC (R5) would need a new line format.
-- **The price-drop simulator (B3)** is outside these interfaces: Track B decides where the simulated price lives, as long as the demo labels it as a simulation and `checkMargin` keeps reading the real oracle in normal use.
+- **The price-drop simulator (B3)** is outside these interfaces: it lives in `MarginGuard` as an owner-only simulated drop, described in [Price-drop simulation](#price-drop-simulation-demo-only). The demo labels it as a simulation, and `checkMargin` reads the real oracle whenever the drop is 0.
 
 ## Payment flow
 
@@ -73,6 +73,23 @@ Behaviour the frozen interfaces leave open, as implemented in [`ArdoiseAccount.s
 - **Closed lines:** `DebtLine` has no closed flag, and a line closed because its venue debt reached 0 can show `repaid` below `principal`. The account exposes `closed(lineId)` (not part of `IArdoise`) for the statement.
 - **Trust:** the factory admin is trusted. Accounts borrow from, and approve repayments to, whatever venues the admin sets, and pay only if the admin's guard agrees.
 - **Without a guard** (`setGuard(0)`), `pay()` reverts; repayments and `sweep()` still work.
+
+## Price-drop simulation (demo only)
+
+`MarginGuard` ([`contracts/src/guard/MarginGuard.sol`](../contracts/src/guard/MarginGuard.sol)) can reason as if the collateral price had dropped, so that the demo can show a payment being refused and a repayment restoring the margin without waiting for the market. These members are additions of the implementation, not part of the frozen `IGuard`:
+
+| Member | Use |
+|--------|-----|
+| `simulatedDropBps()` | Simulated drop in basis points; `0` means the simulation is off (the normal state). The app shows a "SIMULATION — BTC -x%" banner whenever it is not 0 |
+| `simulatedHealth(venue, user)` | Health factor as the guard sees it (WAD, `type(uint256).max` without debt): the venue's health factor scaled by `(10_000 - simulatedDropBps) / 10_000`. The margin gauge reads this instead of `venue.health(user)` |
+| `setSimulatedDrop(dropBps)` | Owner only, at most `MAX_SIMULATED_DROP_BPS` (`9_000`, 90%). Emits `SimulationUpdated(dropBps)`; reverts with `NotOwner(caller)` or `InvalidSimulatedDrop(dropBps)` |
+
+- **What it changes:** only Ardoise's own decisions. `checkMargin` refuses or reduces payments as if the price had dropped, and the keeper judges positions with the same simulated health factor.
+- **What it never changes:** Aave, its oracle and the user's real position. Nobody can be liquidated because of the simulation, and `venue.health(user)` keeps returning the real numbers.
+- **It is global:** the guard is shared by every account of the factory, so a non-zero drop refuses or reduces payments for every user, not only the demo one, until the owner sets it back to 0. It can only make the guard stricter: it never lets through a payment the real guard would refuse. After a demo, check that `simulatedDropBps()` is 0.
+- **Why scaling the health factor is right:** it is risk-adjusted collateral over debt, so with cirBTC as the only collateral a price drop of x% multiplies it by (1 - x%), up to rounding dust. With several collateral assets the simulation means "every collateral -x%", which is stricter than a drop of BTC alone.
+- **Gauge and payments:** `simulatedHealth` derives from `venue.health`, `checkMargin` from `venue.healthAfter`; they may differ by a few wei, so a gauge exactly at the minimum does not guarantee that a payment passes.
+- **Outside the demo** the drop stays at 0 and `checkMargin` reads the real oracle through the venue, at the same gas cost as without the feature.
 
 ## One-time user setup on Aave V4
 

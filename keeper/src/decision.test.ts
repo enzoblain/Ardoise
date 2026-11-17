@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MIN_SWEEP_AMOUNT, decide, repaymentToTarget, type Thresholds, type VenuePosition } from "./decision.js";
+import {
+  MIN_SWEEP_AMOUNT,
+  applySimulatedDrop,
+  decide,
+  repaymentToTarget,
+  type Thresholds,
+  type VenuePosition,
+} from "./decision.js";
 
 const WAD = 10n ** 18n;
 const USDC = 10n ** 6n;
@@ -12,6 +19,7 @@ const USDC_UNIT_THIRD = 10n ** 12n / 3n;
 const thresholds: Thresholds = {
   minHealthFactor: (125n * WAD) / 100n,
   targetHealthFactor: (15n * WAD) / 10n,
+  simulatedDropBps: 0n,
 };
 
 /** Position with 7,800 USD of risk-adjusted collateral and `debt` USDC of debt. */
@@ -104,4 +112,36 @@ test("repaymentToTarget rounds up to the next USDC base unit", () => {
   const healthFactor = (7_800n * WAD * WAD) / debtUsd;
   const repayment = repaymentToTarget({ healthFactor, debtUsd }, thresholds.targetHealthFactor);
   assert.equal(repayment, 1n);
+});
+
+test("a simulated drop puts a healthy position under the minimum", () => {
+  // -40%: 7,800 becomes 4,680 USD of risk-adjusted collateral, health factor 1.17 for
+  // 4,000 USDC of debt. The target debt is 4,680 / 1.5 = 3,120 USDC: 880 USDC to repay.
+  const simulated: Thresholds = { ...thresholds, simulatedDropBps: 4_000n };
+  const decision = decide({ usdcBalance: 0n, positions: [healthy], thresholds: simulated });
+  assert.deepEqual(decision, { action: "wait", reason: "underfunded", shortfall: 880n * USDC });
+});
+
+test("under a simulated drop, the idle balance is swept to restore the margin", () => {
+  const simulated: Thresholds = { ...thresholds, simulatedDropBps: 4_000n };
+  const decision = decide({ usdcBalance: 500n * USDC, positions: [healthy], thresholds: simulated });
+  assert.deepEqual(decision, { action: "sweep", reason: "restore-margin", shortfall: 380n * USDC });
+});
+
+test("a small simulated drop does not change the decision on a healthy position", () => {
+  const simulated: Thresholds = { ...thresholds, simulatedDropBps: 1_000n };
+  const decision = decide({ usdcBalance: 0n, positions: [healthy], thresholds: simulated });
+  assert.deepEqual(decision, { action: "wait", reason: "no-balance", shortfall: 0n });
+});
+
+test("applySimulatedDrop scales the health factor and keeps the debt", () => {
+  assert.deepEqual(applySimulatedDrop(healthy, 2_000n), {
+    healthFactor: (156n * WAD) / 100n,
+    debtUsd: healthy.debtUsd,
+  });
+});
+
+test("applySimulatedDrop leaves a position alone without simulation or without debt", () => {
+  assert.equal(applySimulatedDrop(healthy, 0n), healthy);
+  assert.equal(applySimulatedDrop(noDebt, 9_000n), noDebt);
 });
