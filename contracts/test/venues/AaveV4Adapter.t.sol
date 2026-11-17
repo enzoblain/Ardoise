@@ -57,6 +57,18 @@ contract AaveV4AdapterTest is Test {
         assertEq(adapter.name(), "Aave V4");
     }
 
+    function test_constructor_rejectsMoreThan18Decimals() public {
+        aave.setReserve(0x0C, 19);
+        vm.expectRevert(abi.encodeWithSelector(AaveV4Adapter.UnsupportedDecimals.selector, 19));
+        new AaveV4Adapter(
+            factory,
+            IAaveV4Spoke(address(aave)),
+            IAaveV4TakerPositionManager(address(aave)),
+            IAaveV4GiverPositionManager(address(aave)),
+            0
+        );
+    }
+
     // ----- rate -----
 
     function test_rate_convertsRayToBps() public {
@@ -92,6 +104,33 @@ contract AaveV4AdapterTest is Test {
 
     function test_available_isZeroWhenOwedExceedsDrawCap() public {
         aave.setHub(0, 43_752_830 * USDC, 69_700_000, 69_800_000 * USDC);
+        assertEq(adapter.available(), 0);
+    }
+
+    function test_available_countsSpokeDeficitAgainstDrawCap() public {
+        // The Hub's draw check adds the Spoke's deficit (RAY) to what it owes.
+        aave.setHub(0, 43_752_830 * USDC, 69_700_000, 69_699_000 * USDC);
+        aave.setSpokeStatus(true, false, uint200(400 * USDC * RAY));
+        assertEq(adapter.available(), 600 * USDC);
+    }
+
+    function test_available_isZeroWhenReserveCannotBeBorrowed() public {
+        aave.setHub(0, 1_000 * USDC, type(uint40).max, 0);
+        assertEq(adapter.available(), 1_000 * USDC);
+
+        aave.setReserve(0x0C | 0x01, 6); // paused
+        assertEq(adapter.available(), 0);
+        aave.setReserve(0x0C | 0x02, 6); // frozen
+        assertEq(adapter.available(), 0);
+        aave.setReserve(0x08, 6); // not borrowable
+        assertEq(adapter.available(), 0);
+    }
+
+    function test_available_isZeroWhenSpokeInactiveOrHalted() public {
+        aave.setHub(0, 1_000 * USDC, type(uint40).max, 0);
+        aave.setSpokeStatus(false, false, 0);
+        assertEq(adapter.available(), 0);
+        aave.setSpokeStatus(true, true, 0);
         assertEq(adapter.available(), 0);
     }
 
@@ -266,6 +305,7 @@ contract AaveV4AdapterTest is Test {
     }
 
     function test_repay_refundsWhatGiverDidNotPull() public {
+        // Safeguard only: the real Giver always pulls the capped amount.
         aave.setDebt(user, 1 * USDC);
         aave.setRepayQuirks(0, 10);
         _fund(stranger, 5 * USDC);

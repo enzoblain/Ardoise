@@ -71,8 +71,19 @@ contract MockAaveV4 {
     uint256 public price = 1e8;
     /// @notice Debt restored short of what the Giver pulls, to model Spoke share rounding.
     uint256 public repayDust;
-    /// @notice Amount the Giver pulls short of what it is asked, to exercise the adapter refund.
+    /// @notice Amount the Giver pulls short of what it is asked. The real Giver never does; this
+    /// exercises the adapter's refund safeguard.
     uint256 public giverShortfall;
+    /// @notice Reserve flags (`ReserveFlags` bits); defaults to borrowable, as on Arc mainnet.
+    uint8 public reserveFlags = 0x0C;
+    /// @notice Decimals reported by `getReserve`; defaults to the token's.
+    uint8 public reserveDecimals;
+    /// @notice Spoke status on the Hub.
+    bool public spokeActive = true;
+    /// @notice Spoke halted on the Hub.
+    bool public spokeHalted;
+    /// @notice Spoke deficit on the Hub, RAY.
+    uint200 public spokeDeficitRay;
 
     /// @notice Account data returned for each user.
     mapping(address => IAaveV4Spoke.UserAccountData) internal accountData;
@@ -91,6 +102,7 @@ contract MockAaveV4 {
     /// @param token_ Borrowed asset.
     constructor(MockToken token_) {
         token = token_;
+        reserveDecimals = token_.decimals();
         drawCap = type(uint40).max;
     }
 
@@ -102,6 +114,19 @@ contract MockAaveV4 {
         liquidity = liquidity_;
         drawCap = drawCap_;
         spokeOwed = spokeOwed_;
+    }
+
+    /// @notice Sets the reserve flags and decimals `getReserve` reports.
+    function setReserve(uint8 flags, uint8 decimals_) external {
+        reserveFlags = flags;
+        reserveDecimals = decimals_;
+    }
+
+    /// @notice Sets the Spoke status and deficit `getSpoke` reports.
+    function setSpokeStatus(bool active, bool halted, uint200 deficitRay) external {
+        spokeActive = active;
+        spokeHalted = halted;
+        spokeDeficitRay = deficitRay;
     }
 
     /// @notice Sets the oracle price (8 decimals).
@@ -137,7 +162,8 @@ contract MockAaveV4 {
         reserve.underlying = address(token);
         reserve.hub = address(this);
         reserve.assetId = ASSET_ID;
-        reserve.decimals = token.decimals();
+        reserve.decimals = reserveDecimals;
+        reserve.flags = reserveFlags;
     }
 
     /// @notice Spoke `ORACLE`: this contract is the oracle.
@@ -169,11 +195,13 @@ contract MockAaveV4 {
         return liquidity;
     }
 
-    /// @notice Hub `getSpoke`; only the draw cap is meaningful.
+    /// @notice Hub `getSpoke`; only the draw cap, status and deficit are meaningful.
     function getSpoke(uint256 assetId, address) external view returns (IAaveV4Hub.SpokeData memory data) {
         require(assetId == ASSET_ID, "asset");
         data.drawCap = drawCap;
-        data.active = true;
+        data.active = spokeActive;
+        data.halted = spokeHalted;
+        data.deficitRay = spokeDeficitRay;
     }
 
     /// @notice Hub `getSpokeTotalOwed`.
