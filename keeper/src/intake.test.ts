@@ -9,7 +9,14 @@ import { pad, verifyTypedData, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 import { GATEWAY_MAINNET, type StandingOrder } from "./gateway.js";
-import { MAX_ORDERS_PER_REQUEST, acceptOrders, burnIntentTypedData, startIntake, type IntakeChecks } from "./intake.js";
+import {
+  MAX_ORDERS_PER_OWNER,
+  MAX_ORDERS_PER_REQUEST,
+  acceptOrders,
+  burnIntentTypedData,
+  startIntake,
+  type IntakeChecks,
+} from "./intake.js";
 
 /** Throwaway key made for this run, so that no key is written in the repository. */
 const signer = privateKeyToAccount(generatePrivateKey());
@@ -50,11 +57,16 @@ async function signedOrder(overrides: Partial<StandingOrder["burnIntent"]["spec"
   return { ...unsigned, signature: await signer.signTypedData(burnIntentTypedData(unsigned)) };
 }
 
-/** Checks backed by a fixed account map and a local EIP-712 verification. */
+/** Orders the fake funder has used, by salt. */
+const used = new Set<string>();
+
+/** Checks backed by a fixed account map, a local EIP-712 verification and Base at block 60M. */
 const checks: IntakeChecks = {
   accountOf: async (owner) => (owner === OWNER ? ACCOUNT : null),
   verifySignature: (order, depositor) =>
     verifyTypedData({ address: depositor, signature: order.signature, ...burnIntentTypedData(order) }),
+  sourceBlockNumber: async () => 60_000_000n,
+  isUsed: (order) => used.has(order.burnIntent.spec.salt),
 };
 
 test("a burn intent signed by the depositor verifies against the typed data the keeper rebuilds", async () => {
@@ -117,12 +129,64 @@ test("serves the intake over HTTP: stores accepted orders, lists them per owner,
     assert.deepEqual(await posted.json(), { results: [{ index: 0, status: "accepted" }] });
     assert.equal(JSON.parse(await readFile(ordersFile, "utf8")).length, 1);
 
+    // Listed without the signature: a listed order cannot be submitted by whoever reads it.
     const listed = await fetch(`${url}?owner=${OWNER}`);
-    assert.deepEqual(await listed.json(), [order]);
+    assert.deepEqual(await listed.json(), [
+      { value: "5000000", maxBlockHeight: "62265703", salt: order.burnIntent.spec.salt },
+    ]);
     assert.deepEqual(await (await fetch(`${url}?owner=${OTHER}`)).json(), []);
     assert.equal((await fetch(`${url}?owner=nope`)).status, 400);
     assert.equal((await fetch(url, { method: "POST", body: "{not json" })).status, 400);
     assert.equal((await fetch(url.replace("/orders", "/other"))).status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("drops expired and used orders, so they neither count nor show", async () => {
+  const expired = await signedOrder();
+  expired.burnIntent.maxBlockHeight = "59999999";
+  const spent = await signedOrder();
+  used.add(spent.burnIntent.spec.salt);
+  const fresh = await signedOrder();
+  const { orders } = await acceptOrders([fresh], [expired, spent], GATEWAY_MAINNET, checks);
+  assert.deepEqual(orders, [fresh]);
+});
+
+test("enforces the per-owner cap on live orders before any chain read", async () => {
+  const stored = await Promise.all(Array.from({ length: MAX_ORDERS_PER_OWNER }, () => signedOrder()));
+  let reads = 0;
+  const counting: IntakeChecks = { ...checks, accountOf: async (owner) => (reads++, checks.accountOf(owner)) };
+  const { results } = await acceptOrders([await signedOrder()], stored, GATEWAY_MAINNET, counting);
+  assert.equal(results[0].status, "rejected");
+  assert.equal(reads, 0);
+});
+
+test("answers a chain failure with a generic 503 that leaks no RPC URL", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ardoise-intake-"));
+  const logs: string[] = [];
+  const server = startIntake({
+    port: 0,
+    host: "127.0.0.1",
+    ordersFile: join(dir, "gateway-orders.json"),
+    allowedOrigin: "http://localhost:3000",
+    network: GATEWAY_MAINNET,
+    checks: {
+      ...checks,
+      accountOf: async () => {
+        throw new Error("HTTP request failed.\nURL: https://rpc.example/v2/secret-key\nStatus: 500");
+      },
+    },
+    log: (message) => logs.push(message),
+  });
+  await new Promise((resolve) => server.once("listening", resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/orders`;
+  try {
+    const res = await fetch(url, { method: "POST", body: JSON.stringify([await signedOrder()]) });
+    assert.equal(res.status, 503);
+    const text = await res.text();
+    assert.ok(!text.includes("secret-key"));
+    assert.ok(logs.every((line) => !line.includes("secret-key")));
   } finally {
     server.close();
   }

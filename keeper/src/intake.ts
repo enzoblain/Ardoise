@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { getAddress, isAddress, zeroAddress, type Address, type Hex } from "viem";
 
 import { BURN_INTENT_DOMAIN, BURN_INTENT_TYPES, parseOrders, rejectReason, type GatewayNetwork, type StandingOrder } from "./gateway.js";
+import { errorMessage } from "./keeper.js";
 
 /**
  * Intake of Gateway standing orders (B4): the app sends the orders a user
@@ -15,6 +16,11 @@ import { BURN_INTENT_DOMAIN, BURN_INTENT_TYPES, parseOrders, rejectReason, type 
  * reports it, every field must pass `rejectReason`, and the signature must
  * be the depositor's. A stored order can therefore only repay its signer's
  * debt, whoever posted it.
+ *
+ * Stored orders are bearer instruments: anyone holding one can submit it to
+ * Gateway, which can only move the owner's reserve onto their own account
+ * (repaying their debt, for Gateway's fee). The intake therefore never hands
+ * signatures back out.
  */
 
 /** Most orders accepted in one request, and kept per depositor. */
@@ -24,12 +30,26 @@ const MAX_BODY_BYTES = 64 * 1024;
 /** Requests allowed per client address per minute. */
 const RATE_LIMIT = 30;
 
-/** Chain reads the intake needs, replaceable in tests. */
+/** Chain reads and funder state the intake needs, replaceable in tests. */
 export interface IntakeChecks {
   /** `factory.accountOf(owner)`, or `null` if the owner has no account. */
   accountOf(owner: Address): Promise<Address | null>;
   /** Whether `signature` is the depositor's over the burn intent (EOA or ERC-1271 on the source chain). */
   verifySignature(order: StandingOrder, depositor: Address): Promise<boolean>;
+  /** Current block of the source chain (Base), against which `maxBlockHeight` expires. */
+  sourceBlockNumber(): Promise<bigint>;
+  /** Whether the funder already used the order. */
+  isUsed(order: StandingOrder): boolean;
+}
+
+/** A request the intake cannot accept as sent; its message is safe to return. */
+export class IntakeInputError extends Error {}
+
+/** What `GET /orders` returns per order: enough to show it, not to submit it. */
+export interface OrderSummary {
+  value: string;
+  maxBlockHeight: string;
+  salt: Hex;
 }
 
 /** Outcome of one posted order. */
@@ -38,27 +58,47 @@ export type IntakeResult =
   | { index: number; status: "rejected"; reason: string };
 
 /**
- * Checks posted orders against the chain and merges the valid ones into the
- * stored list. Pure apart from the chain reads, so it can be unit-tested.
+ * Orders that can still be used: not past their `maxBlockHeight` on the
+ * source chain and not used by the funder.
+ *
+ * @param orders Stored orders.
+ * @param sourceBlock Current source-chain block.
+ * @param isUsed The funder's record of used orders.
+ * @returns The live orders.
+ */
+export function liveOrders(
+  orders: readonly StandingOrder[],
+  sourceBlock: bigint,
+  isUsed: (order: StandingOrder) => boolean,
+): StandingOrder[] {
+  return orders.filter((order) => BigInt(order.burnIntent.maxBlockHeight) >= sourceBlock && !isUsed(order));
+}
+
+/**
+ * Checks posted orders: shape, duplicates and the per-owner cap first, then
+ * the chain reads (account and signature) only for orders that passed. It
+ * reads but never writes, so it can run outside the write queue.
  *
  * @param body Parsed JSON body: an array of standing orders.
- * @param stored Orders already stored.
+ * @param live Live stored orders.
  * @param network Gateway environment.
  * @param checks Chain reads.
- * @returns The new stored list and one result per posted entry.
- * @throws If `body` is not an array or holds too many orders.
+ * @returns The orders to store and one result per posted entry.
+ * @throws {IntakeInputError} If `body` is not an array or holds too many orders.
  */
-export async function acceptOrders(
+export async function checkOrders(
   body: unknown,
-  stored: readonly StandingOrder[],
+  live: readonly StandingOrder[],
   network: GatewayNetwork,
   checks: IntakeChecks,
-): Promise<{ orders: StandingOrder[]; results: IntakeResult[] }> {
-  if (!Array.isArray(body)) throw new Error("expected a JSON array of standing orders");
-  if (body.length > MAX_ORDERS_PER_REQUEST) throw new Error(`at most ${MAX_ORDERS_PER_REQUEST} orders per request`);
+): Promise<{ candidates: StandingOrder[]; results: IntakeResult[] }> {
+  if (!Array.isArray(body)) throw new IntakeInputError("expected a JSON array of standing orders");
+  if (body.length > MAX_ORDERS_PER_REQUEST) throw new IntakeInputError(`at most ${MAX_ORDERS_PER_REQUEST} orders per request`);
 
-  const orders = [...stored];
-  const keys = new Set(orders.map(orderKey));
+  const keys = new Set(live.map(orderKey));
+  const perOwner = new Map<string, number>();
+  for (const order of live) perOwner.set(ownerKey(order), (perOwner.get(ownerKey(order)) ?? 0) + 1);
+  const candidates: StandingOrder[] = [];
   const results: IntakeResult[] = [];
 
   for (let index = 0; index < body.length; index++) {
@@ -76,6 +116,12 @@ export async function acceptOrders(
       results.push({ index, status: "rejected", reason: "depositor is not an address" });
       continue;
     }
+    // Checked before any chain read, so a flood of orders for one owner
+    // costs no RPC calls once the cap is reached.
+    if ((perOwner.get(ownerKey(order)) ?? 0) >= MAX_ORDERS_PER_OWNER) {
+      results.push({ index, status: "rejected", reason: `at most ${MAX_ORDERS_PER_OWNER} live orders per owner` });
+      continue;
+    }
     const owner = getAddress(depositor);
     const account = await checks.accountOf(owner);
     if (account === null) {
@@ -91,15 +137,55 @@ export async function acceptOrders(
       results.push({ index, status: "rejected", reason: "the signature is not the depositor's" });
       continue;
     }
-    if (orders.filter((o) => orderKey(o).startsWith(`${owner.toLowerCase()}:`)).length >= MAX_ORDERS_PER_OWNER) {
-      results.push({ index, status: "rejected", reason: `at most ${MAX_ORDERS_PER_OWNER} orders per owner` });
-      continue;
-    }
-    orders.push(order);
+    candidates.push(order);
     keys.add(orderKey(order));
+    perOwner.set(ownerKey(order), (perOwner.get(ownerKey(order)) ?? 0) + 1);
     results.push({ index, status: "accepted" });
   }
-  return { orders, results };
+  return { candidates, results };
+}
+
+/**
+ * The list to store: the live stored orders plus the new candidates that
+ * are still not duplicates and within the per-owner cap (another request
+ * may have been stored meanwhile).
+ *
+ * @param live Live stored orders, read again inside the write queue.
+ * @param candidates Orders `checkOrders` accepted.
+ * @returns The orders to write.
+ */
+export function mergeOrders(live: readonly StandingOrder[], candidates: readonly StandingOrder[]): StandingOrder[] {
+  const merged = [...live];
+  const keys = new Set(merged.map(orderKey));
+  for (const order of candidates) {
+    if (keys.has(orderKey(order))) continue;
+    if (merged.filter((o) => ownerKey(o) === ownerKey(order)).length >= MAX_ORDERS_PER_OWNER) continue;
+    merged.push(order);
+    keys.add(orderKey(order));
+  }
+  return merged;
+}
+
+/**
+ * Checks posted orders and merges them into the stored ones in one step, as
+ * the server does across its two phases. Expired and used orders are dropped.
+ *
+ * @param body Parsed JSON body.
+ * @param stored Orders stored so far.
+ * @param network Gateway environment.
+ * @param checks Chain reads and funder state.
+ * @returns The new stored list and one result per posted entry.
+ * @throws {IntakeInputError} On a malformed request.
+ */
+export async function acceptOrders(
+  body: unknown,
+  stored: readonly StandingOrder[],
+  network: GatewayNetwork,
+  checks: IntakeChecks,
+): Promise<{ orders: StandingOrder[]; results: IntakeResult[] }> {
+  const live = liveOrders(stored, await checks.sourceBlockNumber(), (o) => checks.isUsed(o));
+  const { candidates, results } = await checkOrders(body, live, network, checks);
+  return { orders: mergeOrders(live, candidates), results };
 }
 
 /**
@@ -141,8 +227,11 @@ export interface IntakeServerOptions {
  *
  * - `POST /orders` with a JSON array of standing orders: checks and stores
  *   them, answers one result per entry.
- * - `GET /orders?owner=0x…`: the stored orders of that depositor, so the
- *   app can show them. Orders hold no secret: they are signed for Gateway.
+ * - `GET /orders?owner=0x…`: a summary (value, expiry, salt) of that
+ *   depositor's live orders, without signatures.
+ *
+ * Errors from chain reads or the file are answered with a generic 503 and
+ * logged on one line: their full text can include an RPC URL with a key.
  *
  * @param options Server settings.
  * @returns The listening server.
@@ -154,8 +243,8 @@ export function startIntake(options: IntakeServerOptions): Server {
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((error: unknown) => {
-      options.log(`order intake: ${(error as Error).message}`);
-      send(res, 500, { error: "internal error" });
+      options.log(`order intake: ${errorMessage(error)}`);
+      send(res, 503, { error: "could not check the orders, try again" });
     });
   });
 
@@ -179,27 +268,41 @@ export function startIntake(options: IntakeServerOptions): Server {
       const owner = url.searchParams.get("owner") ?? "";
       if (!isAddress(owner)) return send(res, 400, { error: "owner must be an address" });
       const prefix = `${owner.toLowerCase()}:`;
-      return send(res, 200, (await load(options.ordersFile)).filter((o) => orderKey(o).startsWith(prefix)));
+      const live = liveOrders(await load(options.ordersFile), await options.checks.sourceBlockNumber(), (o) =>
+        options.checks.isUsed(o),
+      );
+      const summaries: OrderSummary[] = live
+        .filter((o) => orderKey(o).startsWith(prefix))
+        .map((o) => ({ value: o.burnIntent.spec.value, maxBlockHeight: o.burnIntent.maxBlockHeight, salt: o.burnIntent.spec.salt }));
+      return send(res, 200, summaries);
     }
     if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
 
     let body: unknown;
     try {
       body = JSON.parse(await readBody(req));
-    } catch (error) {
-      return send(res, 400, { error: (error as Error).message });
+    } catch {
+      return send(res, 400, { error: "body is not JSON or is too large" });
     }
-    const run = queue.then(async () => {
-      const { orders, results } = await acceptOrders(body, await load(options.ordersFile), options.network, options.checks);
-      if (results.some((r) => r.status === "accepted")) await save(options.ordersFile, orders);
-      return results;
-    });
-    queue = run.catch(() => undefined);
-    let results: IntakeResult[];
+    const isUsed = (o: StandingOrder) => options.checks.isUsed(o);
+    let checked: Awaited<ReturnType<typeof checkOrders>>;
     try {
-      results = await run;
+      // Chain reads happen here, outside the write queue, so a slow or
+      // abusive request does not hold back the others' writes.
+      const live = liveOrders(await load(options.ordersFile), await options.checks.sourceBlockNumber(), isUsed);
+      checked = await checkOrders(body, live, options.network, options.checks);
     } catch (error) {
-      return send(res, 400, { error: (error as Error).message });
+      if (error instanceof IntakeInputError) return send(res, 400, { error: error.message });
+      throw error;
+    }
+    const { candidates, results } = checked;
+    if (candidates.length > 0) {
+      const write = queue.then(async () => {
+        const live = liveOrders(await load(options.ordersFile), await options.checks.sourceBlockNumber(), isUsed);
+        await save(options.ordersFile, mergeOrders(live, candidates));
+      });
+      queue = write.catch(() => undefined);
+      await write;
     }
     const accepted = results.filter((r) => r.status === "accepted").length;
     if (accepted > 0) options.log(`order intake: stored ${accepted} standing order(s)`);
@@ -208,6 +311,10 @@ export function startIntake(options: IntakeServerOptions): Server {
 
   server.listen(options.port, options.host);
   return server;
+}
+
+function ownerKey(order: StandingOrder): string {
+  return order.burnIntent.spec.sourceDepositor.slice(26).toLowerCase();
 }
 
 function orderKey(order: StandingOrder): string {

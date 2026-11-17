@@ -99,6 +99,8 @@ async function main(): Promise<void> {
         // Handles plain wallets and ERC-1271 smart accounts (passkeys) on Base, the orders' source chain.
         verifySignature: (order, depositor) =>
           baseClient.verifyTypedData({ address: depositor, signature: order.signature, ...burnIntentTypedData(order) }),
+        sourceBlockNumber: () => baseClient.getBlockNumber(),
+        isUsed: (order) => gateway?.isUsed(order) ?? false,
       },
       log,
     });

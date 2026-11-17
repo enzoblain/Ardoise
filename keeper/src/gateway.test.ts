@@ -102,6 +102,7 @@ test("rejects orders that would send funds anywhere but the owner's account", ()
   const cases: [Partial<StandingOrder["burnIntent"]["spec"]>, RegExp][] = [
     [{ destinationRecipient: b32(OTHER) }, /recipient/],
     [{ sourceDepositor: b32(OTHER) }, /depositor/],
+    [{ sourceSigner: b32(OTHER) }, /signer/],
     [{ destinationDomain: 6 }, /not Arc/],
     [{ sourceDomain: 3 }, /source domain/],
     [{ sourceContract: b32(OTHER) }, /GatewayWallet/],
@@ -263,7 +264,12 @@ test("keeps two owners' orders apart even with the same salt", async () => {
   const OTHER_ACCOUNT: Address = "0x00000000000000000000000000000000000000c2";
   const salt = pad("0x77", { size: 32 });
   const mine = order(5n * USDC, { salt });
-  const theirs = order(5n * USDC, { salt, sourceDepositor: b32(OTHER), destinationRecipient: b32(OTHER_ACCOUNT) });
+  const theirs = order(5n * USDC, {
+    salt,
+    sourceDepositor: b32(OTHER),
+    sourceSigner: b32(OTHER),
+    destinationRecipient: b32(OTHER_ACCOUNT),
+  });
   const gateway = fakeGateway();
   const { instance } = funder(gateway.fetchImpl, [mine, theirs]);
   await instance.fund(OWNER, ACCOUNT, 5n * USDC);

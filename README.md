@@ -63,6 +63,8 @@ Run the front end and the keeper in two separate terminals, from the repository 
 (cd keeper && npm start)     # keeper, polls Arc mainnet for new blocks
 ```
 
+To let users sign Gateway standing orders from the app's Protection panel, set `GATEWAY_ORDERS_FILE` and `GATEWAY_INTAKE_PORT` (for example `8787`) for the keeper and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app. The intake listens on `127.0.0.1` only, so the app must run in a browser on the keeper's machine.
+
 Foundry only reads a `.env` inside `contracts/`, so export the root one before using an RPC alias (`--rpc-url arc`):
 
 ```bash

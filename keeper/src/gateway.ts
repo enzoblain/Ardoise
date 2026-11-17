@@ -207,6 +207,8 @@ export function rejectReason(
   if (spec.destinationDomain !== network.arcDomain) return `destination domain ${spec.destinationDomain} is not Arc`;
   if (!same(spec.destinationRecipient, account)) return "recipient is not the Ardoise account";
   if (!same(spec.sourceDepositor, owner)) return "depositor is not the account owner";
+  // Gateway checks the signature against sourceSigner: anyone else would be refused.
+  if (!same(spec.sourceSigner, owner)) return "signer is not the account owner";
   if (!same(spec.sourceContract, network.walletContract)) return "source contract is not GatewayWallet";
   if (!same(spec.destinationContract, network.minterContract)) return "destination contract is not GatewayMinter";
   if (!same(spec.sourceToken, sourceUsdc)) return "source token is not USDC";
@@ -488,6 +490,17 @@ export class GatewayFunder {
       }
     }
     if (sent.length > 0) this.inFlight.set(account, sent);
+  }
+
+  /**
+   * Whether this funder already used an order (submitted it, or Gateway
+   * reported it spent), so the intake can stop listing and counting it.
+   *
+   * @param order Standing order.
+   * @returns True once the order can no longer be submitted.
+   */
+  isUsed(order: StandingOrder): boolean {
+    return this.used.has(orderKey(order));
   }
 
   /** Follows the account's transfers and forgets those that settled or ran past the deadline. */
