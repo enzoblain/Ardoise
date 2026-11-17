@@ -71,8 +71,9 @@ export interface PaymentQuote {
   borrow: bigint;
   /** `bestVenue(borrow)`, when one qualifies. */
   venue?: Venue;
-  healthBefore: Health;
-  /** Health factor after borrowing `borrow` on `venue`. */
+  /** `health(venue)`: the position on the chosen venue before the payment. */
+  healthBefore?: Health;
+  /** Health factor on `venue` after borrowing `borrow`. */
   healthAfter?: bigint;
   /** Minimum health factor the guard allows after a payment. */
   minHealthFactor: bigint;
@@ -87,7 +88,12 @@ export interface PaymentQuote {
 export interface ArdoiseClient {
   /** True for the in-browser mock, so the UI can say the data is simulated. */
   readonly simulated: boolean;
-  health(): Promise<Health>;
+  /**
+   * `IArdoise.health(venue)`: Aave V4 and Morpho are separate positions,
+   * each with its own liquidation threshold.
+   * @param venueId Venue to read.
+   */
+  health(venueId: string): Promise<Health>;
   /** `IGuard.minHealthFactor()`: lowest health factor a payment may leave. */
   minHealthFactor(): Promise<bigint>;
   caps(): Promise<Caps>;
@@ -95,10 +101,10 @@ export interface ArdoiseClient {
   quote(request: PaymentRequest): Promise<PaymentQuote>;
   /**
    * Sends the payment.
-   * @returns The id of the new debt line.
+   * @returns The debt line it opened (`IArdoise.line(lineId)`).
    * @throws {PaymentFailed} With the contract error that refused it.
    */
-  pay(request: PaymentRequest): Promise<bigint>;
+  pay(request: PaymentRequest): Promise<DebtLine>;
 }
 
 /** Thrown by `ArdoiseClient.pay` with the contract error that refused it. */
