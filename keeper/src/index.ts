@@ -65,7 +65,10 @@ async function main(): Promise<void> {
       ? undefined
       : new GatewayFunder({
           network: GATEWAY_MAINNET,
-          loadOrders: async () => parseOrders(JSON.parse(await readFile(ordersFile, "utf8"))),
+          loadOrders: async () =>
+            parseOrders(JSON.parse(await readFile(ordersFile, "utf8")), (index) =>
+              log(`standing order ${index} in ${ordersFile} is malformed, skipped`),
+            ),
           log,
           dryRun: walletClient === null,
         });

@@ -115,58 +115,69 @@ export const BURN_INTENT_TYPES = {
   ],
 } as const;
 
+/** Fields of a `TransferSpec` that hold an address, as bytes32. */
+const ADDRESS_FIELDS = [
+  "sourceContract",
+  "destinationContract",
+  "sourceToken",
+  "destinationToken",
+  "sourceDepositor",
+  "destinationRecipient",
+  "sourceSigner",
+  "destinationCaller",
+] as const;
+
+const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
+
 /**
  * Reads standing orders from untrusted JSON (a file the operator fills).
  *
+ * Address fields must be canonical bytes32 (left-padded, as Gateway's
+ * EIP-712 types and Circle's docs use them): a 20-byte value is ambiguous
+ * once encoded, and the keeper checks the recipient it reads here.
+ *
  * @param json Parsed JSON: an array of `{ burnIntent, signature }`.
- * @returns The orders.
- * @throws Error naming the first malformed entry.
+ * @param onSkip Told about each malformed entry, which is skipped so that
+ *   one bad entry does not disable the others.
+ * @returns The well-formed orders.
+ * @throws If `json` is not an array.
  */
-export function parseOrders(json: unknown): StandingOrder[] {
+export function parseOrders(json: unknown, onSkip: (index: number) => void = () => {}): StandingOrder[] {
   if (!Array.isArray(json)) throw new Error("standing orders must be a JSON array");
-  return json.map((entry, index) => {
+  const orders: StandingOrder[] = [];
+  json.forEach((entry, index) => {
     const order = entry as Partial<StandingOrder> | null;
     const spec = order?.burnIntent?.spec;
-    const fields: (keyof TransferSpec)[] = [
-      "sourceContract",
-      "destinationContract",
-      "sourceToken",
-      "destinationToken",
-      "sourceDepositor",
-      "destinationRecipient",
-      "sourceSigner",
-      "destinationCaller",
-      "salt",
-      "hookData",
-    ];
     const valid =
       order !== null &&
       isHex(order.signature) &&
       spec !== undefined &&
-      fields.every((field) => isHex(spec[field])) &&
+      ADDRESS_FIELDS.every((field) => typeof spec[field] === "string" && BYTES32.test(spec[field])) &&
+      typeof spec.salt === "string" &&
+      BYTES32.test(spec.salt) &&
+      isHex(spec.hookData) &&
       [spec.version, spec.sourceDomain, spec.destinationDomain].every(Number.isInteger) &&
       [spec.value, order.burnIntent?.maxBlockHeight, order.burnIntent?.maxFee].every(
         (value) => typeof value === "string" && /^\d+$/.test(value),
       );
-    if (!valid) throw new Error(`standing order ${index} is malformed`);
-    return order as StandingOrder;
+    if (valid) orders.push(order as StandingOrder);
+    else onSkip(index);
   });
+  return orders;
 }
 
 /**
- * Address held in a bytes32 field, or `null` if the upper 12 bytes are not
- * zero. Gateway also accepts plain 20-byte addresses, so both are handled.
+ * Address held in a bytes32 field, or `null` if the field is not a
+ * left-padded address. Case is ignored, so a bad checksum cannot throw.
  */
 function addressOf(field: Hex): Address | null {
-  const digits = field.slice(2);
-  if (digits.length === 40) return getAddress(field);
-  if (digits.length !== 64 || !/^0{24}/.test(digits)) return null;
-  return getAddress(`0x${digits.slice(24)}`);
+  if (!BYTES32.test(field) || !/^0x0{24}/.test(field)) return null;
+  return getAddress(`0x${field.slice(26).toLowerCase()}`);
 }
 
 function same(field: Hex, expected: Address): boolean {
   const address = addressOf(field);
-  return address !== null && address === getAddress(expected);
+  return address !== null && address === getAddress(expected.toLowerCase());
 }
 
 /**
@@ -209,9 +220,11 @@ export function rejectReason(
 }
 
 /**
- * Picks the fewest orders that together cover `shortfall`, largest first.
- * When all of them together fall short, returns them all: a partial
- * repayment still raises the margin.
+ * Picks the orders to submit for `shortfall`: the smallest single order that
+ * covers it when there is one, so the user's Base balance is not drawn more
+ * than needed; otherwise the fewest orders, largest first. When all of them
+ * together fall short, returns them all: a partial repayment still raises
+ * the margin.
  *
  * @param orders Usable orders for one account.
  * @param shortfall USDC missing, in base units.
@@ -219,16 +232,16 @@ export function rejectReason(
  */
 export function selectOrders(orders: readonly StandingOrder[], shortfall: bigint): StandingOrder[] {
   if (shortfall <= 0n) return [];
-  const byValue = [...orders].sort((a, b) => {
-    const diff = BigInt(b.burnIntent.spec.value) - BigInt(a.burnIntent.spec.value);
-    return diff > 0n ? 1 : diff < 0n ? -1 : 0;
-  });
+  const value = (order: StandingOrder) => BigInt(order.burnIntent.spec.value);
+  const ascending = [...orders].sort((a, b) => (value(a) < value(b) ? -1 : value(a) > value(b) ? 1 : 0));
+  const single = ascending.find((order) => value(order) >= shortfall);
+  if (single !== undefined) return [single];
   const picked: StandingOrder[] = [];
   let covered = 0n;
-  for (const order of byValue) {
+  for (const order of ascending.reverse()) {
     if (covered >= shortfall) break;
     picked.push(order);
-    covered += BigInt(order.burnIntent.spec.value);
+    covered += value(order);
   }
   return picked;
 }
@@ -237,11 +250,24 @@ export function selectOrders(orders: readonly StandingOrder[], shortfall: bigint
 export type TransferStatus = { state: "pending" } | { state: "delivered"; txHash?: Hex } | { state: "failed"; reason: string };
 
 /** Minimal `fetch`, replaceable in tests. */
-export type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
+export type Fetch = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+) => Promise<{
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
 }>;
+
+/**
+ * Longest wait for one Gateway request. The funder runs inside the keeper's
+ * pass, before the next accounts are checked, so a hanging API must not
+ * hold back their `sweep()`.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/** Error Gateway returned for a request it understood and refused. */
+export class GatewayRefusal extends Error {}
 
 /**
  * Submits an order to Gateway with Circle's forwarder, which mints on Arc.
@@ -249,19 +275,29 @@ export type Fetch = (url: string, init?: { method?: string; headers?: Record<str
  * @param order Order to submit.
  * @param network Gateway environment.
  * @param fetchImpl HTTP client.
+ * @param timeoutMs Longest wait for the answer.
  * @returns The Gateway transfer id.
- * @throws If Gateway refuses the order (bad signature, balance too low,
- *   expired, salt already used); the message is Gateway's.
+ * @throws {GatewayRefusal} If Gateway refuses the order (bad signature,
+ *   balance too low, expired, salt already used); the message is Gateway's.
+ * @throws Other errors when Gateway cannot be reached or does not answer in
+ *   time; the order may or may not have been accepted.
  */
-export async function submitOrder(order: StandingOrder, network: GatewayNetwork, fetchImpl: Fetch): Promise<string> {
+export async function submitOrder(
+  order: StandingOrder,
+  network: GatewayNetwork,
+  fetchImpl: Fetch,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<string> {
   const res = await fetchImpl(`${network.apiUrl}/v1/transfer?enableForwarder=true`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify([order]),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const body = (await res.json().catch(() => null)) as { transferId?: string; message?: string; error?: string } | null;
+  if (res.status >= 500) throw new Error(`Gateway answered ${res.status}`);
   if (!res.ok || typeof body?.transferId !== "string") {
-    throw new Error(`Gateway refused the order (${res.status}): ${body?.message ?? body?.error ?? "no transfer id"}`);
+    throw new GatewayRefusal(`Gateway refused the order (${res.status}): ${body?.message ?? body?.error ?? "no transfer id"}`);
   }
   return body.transferId;
 }
@@ -272,12 +308,20 @@ export async function submitOrder(order: StandingOrder, network: GatewayNetwork,
  * @param transferId Id returned by `submitOrder`.
  * @param network Gateway environment.
  * @param fetchImpl HTTP client.
+ * @param timeoutMs Longest wait for the answer.
  * @returns `delivered` once minted on Arc, `failed` if it never will be,
  *   `pending` otherwise.
  * @throws If Gateway cannot be reached.
  */
-export async function transferStatus(transferId: string, network: GatewayNetwork, fetchImpl: Fetch): Promise<TransferStatus> {
-  const res = await fetchImpl(`${network.apiUrl}/v1/transfer/${transferId}`);
+export async function transferStatus(
+  transferId: string,
+  network: GatewayNetwork,
+  fetchImpl: Fetch,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<TransferStatus> {
+  const res = await fetchImpl(`${network.apiUrl}/v1/transfer/${transferId}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   if (!res.ok) throw new Error(`Gateway status request failed (${res.status})`);
   const body = (await res.json()) as {
     status?: string;
@@ -306,37 +350,69 @@ export interface GatewayFunderOptions {
   /** When true, logs what it would submit and submits nothing (the keeper's dry run). */
   dryRun: boolean;
   fetch?: Fetch;
+  /** Clock in milliseconds, replaceable in tests. Defaults to `Date.now`. */
+  now?: () => number;
+  /** Overrides the 10 s limit on each Gateway request, for tests. */
+  requestTimeoutMs?: number;
 }
+
+/** First wait before retrying an order Gateway refused; doubles on every further refusal. */
+const FIRST_RETRY_MS = 60_000;
+const MAX_RETRY_MS = 3_600_000;
+
+/**
+ * Time after which a transfer that is still not delivered is given up on, so
+ * that an account is not left unfunded for ever when Gateway stops answering
+ * about it. Circle's forwarder mints within seconds once the transfer is
+ * accepted.
+ */
+const IN_FLIGHT_DEADLINE_MS = 30 * 60_000;
+
+/** A refusal meaning the order can never be used again. */
+const SPENT = /already (been )?used|already exists|duplicate|salt/i;
 
 /**
  * Submits standing orders for accounts that lack USDC to restore their
  * margin, and follows the resulting transfers.
  *
- * It keeps in memory which orders it already submitted: an order can only be
- * used once (Gateway rejects a reused salt), and while a transfer is on its
- * way the account must not be funded twice for the same shortfall.
+ * It keeps in memory which orders it used: an order can only be used once
+ * (Gateway rejects a reused salt), and while a transfer is on its way the
+ * account must not be funded twice for the same shortfall. An order Gateway
+ * refused for another reason (balance not credited yet, server error) is
+ * retried later with a growing delay: resubmitting it is harmless, since
+ * Gateway would refuse an order it already accepted.
  */
 export class GatewayFunder {
-  private readonly inFlight = new Map<Address, { transferId: string; salt: Hex; value: bigint }[]>();
-  private readonly used = new Set<Hex>();
+  private readonly inFlight = new Map<Address, { transferId: string; value: bigint; sentAt: number }[]>();
+  /** Orders used for good, keyed by depositor and salt so two owners' salts never collide. */
+  private readonly used = new Set<string>();
+  private readonly retries = new Map<string, { count: number; retryAt: number }>();
   private readonly lastLogged = new Map<string, string>();
   private readonly fetchImpl: Fetch;
+  private readonly now: () => number;
 
   constructor(private readonly options: GatewayFunderOptions) {
     this.fetchImpl = options.fetch ?? (fetch as unknown as Fetch);
+    this.now = options.now ?? Date.now;
   }
 
   /**
    * Called on every keeper pass for every account. Follows the transfers
-   * already sent for the account; if none is on its way and `shortfall` is
-   * positive, submits the fewest unused orders that cover it.
+   * already sent for the account; if none is on its way or just arrived,
+   * and `shortfall` is positive, submits the orders `selectOrders` picks.
    *
    * @param owner Owner of the account.
    * @param account Ardoise account.
-   * @param shortfall USDC missing to bring the account back to the target, as `decide()` reports it.
+   * @param shortfall USDC missing to bring the account back to the target, as
+   *   `decide()` reports it from the balance read at the start of the pass.
    */
   async fund(owner: Address, account: Address, shortfall: bigint): Promise<void> {
-    if (await this.follow(account)) return;
+    // A transfer that settled during this pass changed the balance after
+    // `shortfall` was computed: decide again on the next pass.
+    if (this.inFlight.has(account)) {
+      await this.follow(account);
+      return;
+    }
     if (shortfall <= 0n) return;
 
     let orders: StandingOrder[];
@@ -347,17 +423,20 @@ export class GatewayFunder {
       return;
     }
     const usable = orders.filter((order) => {
-      if (this.used.has(order.burnIntent.spec.salt)) return false;
       const spec = order.burnIntent.spec;
       // Orders of other accounts are expected in a shared file; skip them quietly.
       if (!same(spec.destinationRecipient, account)) return false;
+      const key = orderKey(order);
+      if (this.used.has(key)) return false;
+      const retry = this.retries.get(key);
+      if (retry !== undefined && this.now() < retry.retryAt) return false;
       const reason = rejectReason(order, owner, account, this.options.network);
       if (reason !== null) this.logOnce(`${account}:${spec.salt}`, `standing order ${spec.salt} ignored: ${reason}`);
       return reason === null;
     });
     const picked = selectOrders(usable, shortfall);
     if (picked.length === 0) {
-      this.logOnce(account, `${usdc(shortfall)} missing and no standing order left on Gateway`);
+      this.logOnce(account, `${usdc(shortfall)} missing and no standing order available on Gateway`);
       return;
     }
 
@@ -366,49 +445,59 @@ export class GatewayFunder {
       this.logOnce(account, `would draw ${usdc(total)} from Gateway (${picked.length} order(s)); dry run, nothing submitted`);
       return;
     }
-    const sent: { transferId: string; salt: Hex; value: bigint }[] = [];
+    const sent: { transferId: string; value: bigint; sentAt: number }[] = [];
     for (const order of picked) {
       const { salt, value } = order.burnIntent.spec;
-      // Marked used before the request: if Gateway accepted it but the
-      // answer is lost, resubmitting would only be refused.
-      this.used.add(salt);
+      const key = orderKey(order);
       try {
-        const transferId = await submitOrder(order, this.options.network, this.fetchImpl);
-        sent.push({ transferId, salt, value: BigInt(value) });
+        const transferId = await submitOrder(order, this.options.network, this.fetchImpl, this.options.requestTimeoutMs);
+        this.used.add(key);
+        this.retries.delete(key);
+        sent.push({ transferId, value: BigInt(value), sentAt: this.now() });
         this.options.log(`account ${account}: drawing ${usdc(BigInt(value))} from Gateway, transfer ${transferId}`);
       } catch (error) {
-        this.options.log(`account ${account}: standing order ${salt} not used: ${(error as Error).message}`);
+        const message = (error as Error).message;
+        if (error instanceof GatewayRefusal && SPENT.test(message)) {
+          this.used.add(key);
+          this.options.log(`account ${account}: standing order ${salt} already used: ${message}`);
+          continue;
+        }
+        const count = (this.retries.get(key)?.count ?? 0) + 1;
+        const delay = Math.min(FIRST_RETRY_MS * 2 ** (count - 1), MAX_RETRY_MS);
+        this.retries.set(key, { count, retryAt: this.now() + delay });
+        this.options.log(
+          `account ${account}: standing order ${salt} not used (${message}); retrying in ${Math.round(delay / 60_000)} min`,
+        );
       }
     }
     if (sent.length > 0) this.inFlight.set(account, sent);
   }
 
-  /** Follows the account's transfers; returns true while one is still on its way. */
-  private async follow(account: Address): Promise<boolean> {
-    const transfers = this.inFlight.get(account);
-    if (transfers === undefined) return false;
+  /** Follows the account's transfers and forgets those that settled or ran past the deadline. */
+  private async follow(account: Address): Promise<void> {
+    const transfers = this.inFlight.get(account) ?? [];
     const remaining: typeof transfers = [];
     for (const transfer of transfers) {
       let status: TransferStatus;
       try {
-        status = await transferStatus(transfer.transferId, this.options.network, this.fetchImpl);
+        status = await transferStatus(transfer.transferId, this.options.network, this.fetchImpl, this.options.requestTimeoutMs);
       } catch (error) {
         this.logOnce(account, `cannot read Gateway transfer ${transfer.transferId}: ${(error as Error).message}`);
-        remaining.push(transfer);
-        continue;
+        status = { state: "pending" };
       }
-      if (status.state === "pending") {
-        remaining.push(transfer);
-      } else if (status.state === "delivered") {
+      if (status.state === "delivered") {
         const where = status.txHash ? ` in ${status.txHash}` : "";
         this.options.log(`account ${account}: ${usdc(transfer.value)} from Gateway delivered on Arc${where}`);
-      } else {
+      } else if (status.state === "failed") {
         this.options.log(`account ${account}: Gateway transfer ${transfer.transferId} failed: ${status.reason}`);
+      } else if (this.now() - transfer.sentAt > IN_FLIGHT_DEADLINE_MS) {
+        this.options.log(`account ${account}: Gateway transfer ${transfer.transferId} not delivered after 30 min, giving up on it`);
+      } else {
+        remaining.push(transfer);
       }
     }
     if (remaining.length === 0) this.inFlight.delete(account);
     else this.inFlight.set(account, remaining);
-    return remaining.length > 0;
   }
 
   private logOnce(key: string, message: string): void {
@@ -416,6 +505,11 @@ export class GatewayFunder {
     this.lastLogged.set(key, message);
     this.options.log(`account ${key.split(":")[0]}: ${message}`);
   }
+}
+
+function orderKey(order: StandingOrder): string {
+  const spec = order.burnIntent.spec;
+  return `${spec.sourceDepositor.toLowerCase()}:${spec.salt.toLowerCase()}`;
 }
 
 function usdc(amount: bigint): string {
