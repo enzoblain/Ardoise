@@ -26,12 +26,18 @@ import {
   signOrder,
   submitToGateway,
   sweepAbi,
+  type OrderSummary,
   type StandingOrder,
 } from "@/lib/gateway";
 import { network, txUrl } from "@/lib/network";
 
-/** The keeper's standing-order intake; public, it holds no secret. */
-const KEEPER_URL = process.env.NEXT_PUBLIC_KEEPER_URL || "";
+/**
+ * The keeper's standing-order intake; public, it holds no secret. The keeper
+ * relays orders on Arc mainnet only, so the section is hidden elsewhere.
+ */
+const KEEPER_URL = network.name === "mainnet" ? process.env.NEXT_PUBLIC_KEEPER_URL || "" : "";
+/** Standing orders are signed with twice the estimated fee cap (see `signOrder`). */
+const STANDING_FEE_HEADROOM = 2n;
 const POLL_MS = 3_000;
 
 /**
@@ -45,7 +51,15 @@ const POLL_MS = 3_000;
  */
 export function ProtectionPanel({ provider, owner, account }: { provider: EIP1193Provider; owner: Address; account: Address }) {
   const [balance, setBalance] = useState<bigint>();
-  const [orders, setOrders] = useState<StandingOrder[]>();
+  const [orders, setOrders] = useState<OrderSummary[]>();
+  // Stops a running delivery poll when the panel goes away.
+  const [mounted] = useState(() => ({ current: true }));
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, [mounted]);
   const [busy, setBusy] = useState<string>();
   const [message, setMessage] = useState<{ text: string; tx?: { chain: "arc" | "base"; hash: Hex } }>();
   const [error, setError] = useState<string>();
@@ -120,7 +134,9 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
     step("orders", async () => {
       const value = parseUnits(orderValueText, 6);
       const signed: StandingOrder[] = [];
-      for (let i = 0; i < orderCount; i++) signed.push(await signOrder(signer, orderSpec(owner, account, value)));
+      for (let i = 0; i < orderCount; i++) {
+        signed.push(await signOrder(signer, orderSpec(owner, account, value), STANDING_FEE_HEADROOM));
+      }
       const results = await sendToKeeper(KEEPER_URL, signed);
       const accepted = results.filter((r) => r.status === "accepted").length;
       const refused = results.find((r) => r.status === "rejected");
@@ -137,7 +153,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
       const value = parseUnits(repayText, 6);
       const transferId = await submitToGateway(await signOrder(signer, orderSpec(owner, account, value)));
       setMessage({ text: `${formatUsdc(value)} USDC on its way from ${network.base.label}…` });
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 100 && mounted.current; i++) {
         const status = await gatewayTransfer(transferId);
         if (status.state === "failed") throw new Error("Gateway could not deliver the transfer");
         if (status.state === "delivered") {
@@ -150,7 +166,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
         }
         await new Promise((resolve) => setTimeout(resolve, POLL_MS));
       }
-      throw new Error("Still not delivered after 5 minutes; check again later");
+      if (mounted.current) throw new Error("Still not delivered after 5 minutes; do not repay again before checking your account");
     });
 
   const applyNow = () =>
@@ -163,7 +179,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
       setMessage({ text: "Applied to your debt.", tx: { chain: "arc", hash } });
     });
 
-  const total = orders?.reduce((sum, o) => sum + BigInt(o.burnIntent.spec.value), 0n) ?? 0n;
+  const total = orders?.reduce((sum, o) => sum + BigInt(o.value), 0n) ?? 0n;
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby="protection-title">
@@ -196,7 +212,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
         <div className="flex items-baseline justify-between">
           <span className="text-sm opacity-70">Standing orders held by the keeper</span>
           <span className="font-semibold tabular-nums">
-            {!KEEPER_URL ? "keeper not configured" : orders === undefined ? "…" : `${orders.length} · ${formatUsdc(total)} USDC`}
+            {!KEEPER_URL ? "not available" : orders === undefined ? "…" : `${orders.length} · ${formatUsdc(total)} USDC`}
           </span>
         </div>
         {KEEPER_URL ? (
@@ -223,7 +239,11 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
             />
           </div>
         ) : (
-          <p className="text-xs opacity-60">Set NEXT_PUBLIC_KEEPER_URL to the keeper&apos;s order intake to sign orders here.</p>
+          <p className="text-xs opacity-60">
+            {network.name === "mainnet"
+              ? "Set NEXT_PUBLIC_KEEPER_URL to the keeper's order intake to sign orders here."
+              : "The keeper relays standing orders on Arc mainnet only."}
+          </p>
         )}
         <p className="text-xs opacity-60">Each order is a signature, not a transaction: no gas. Valid about 70 days.</p>
       </div>

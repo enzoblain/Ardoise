@@ -171,15 +171,22 @@ export async function gatewayBalance(depositor: Address): Promise<bigint> {
  *
  * @param wallet Owner's wallet.
  * @param spec Spec from `orderSpec`.
+ * @param feeHeadroom Multiplier on the estimated fee cap. A standing order
+ *   may be submitted weeks later, when Circle's forwarding fee has moved, so
+ *   it is signed with room to spare; Gateway charges only the actual fee.
  * @returns The signed order, valid about 70 days on Base.
  */
-export async function signOrder(wallet: WalletClient<Transport, Chain | undefined, Account>, spec: TransferSpec): Promise<StandingOrder> {
+export async function signOrder(
+  wallet: WalletClient<Transport, Chain | undefined, Account>,
+  spec: TransferSpec,
+  feeHeadroom = 1n,
+): Promise<StandingOrder> {
   const estimate = await gatewayPost<{ body: { burnIntent: { maxBlockHeight: string; maxFee: string } }[] }>(
     "/v1/estimate?enableForwarder=true",
     [{ spec }],
   );
-  const { maxBlockHeight, maxFee } = estimate.body[0].burnIntent;
-  const burnIntent = { maxBlockHeight, maxFee, spec };
+  const { maxBlockHeight, maxFee: estimatedFee } = estimate.body[0].burnIntent;
+  const burnIntent = { maxBlockHeight, maxFee: (BigInt(estimatedFee) * feeHeadroom).toString(), spec };
   const signature = await wallet.signTypedData({ account: wallet.account, ...burnIntentTypedData(burnIntent) });
   return { burnIntent, signature };
 }
@@ -206,17 +213,24 @@ export async function sendToKeeper(
   return body.results;
 }
 
+/** A standing order as the keeper lists it: no signature, so a listing cannot be replayed. */
+export interface OrderSummary {
+  value: string;
+  maxBlockHeight: string;
+  salt: Hex;
+}
+
 /**
- * The standing orders the keeper holds for an owner.
+ * The live standing orders the keeper holds for an owner (not expired, not used).
  *
  * @param keeperUrl Base URL of the keeper intake.
  * @param owner Depositor.
- * @returns The orders, used or not: the keeper keeps what it submitted.
+ * @returns Their summaries.
  */
-export async function keeperOrders(keeperUrl: string, owner: Address): Promise<StandingOrder[]> {
+export async function keeperOrders(keeperUrl: string, owner: Address): Promise<OrderSummary[]> {
   const res = await fetch(`${keeperUrl}/orders?owner=${owner}`);
   if (!res.ok) throw new Error(`Keeper answered ${res.status}`);
-  return (await res.json()) as StandingOrder[];
+  return (await res.json()) as OrderSummary[];
 }
 
 /**
@@ -237,11 +251,14 @@ export async function submitToGateway(order: StandingOrder): Promise<string> {
  * Where a Gateway transfer stands.
  *
  * @param transferId Id from `submitToGateway`.
- * @returns `delivered` once minted on Arc, `failed` if it never will be, `pending` otherwise.
+ * @returns `delivered` once minted on Arc, `failed` if it never will be,
+ *   `pending` otherwise, including when Gateway does not answer: the
+ *   transfer may still be on its way, and treating that as a failure would
+ *   invite a second repayment.
  */
 export async function gatewayTransfer(transferId: string): Promise<{ state: "pending" | "delivered" | "failed"; txHash?: Hex }> {
-  const res = await fetch(`${gateway.apiUrl}/v1/transfer/${transferId}`);
-  if (!res.ok) throw new Error(`Gateway answered ${res.status}`);
+  const res = await fetch(`${gateway.apiUrl}/v1/transfer/${transferId}`).catch(() => null);
+  if (res === null || !res.ok) return { state: "pending" };
   const body = (await res.json()) as { status?: string; transactionHash?: Hex };
   if (body.status === "confirmed" || body.status === "finalized") return { state: "delivered", txHash: body.transactionHash };
   if (body.status === "failed" || body.status === "expired") return { state: "failed" };
