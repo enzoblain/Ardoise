@@ -78,7 +78,7 @@ Left to do on mainnet: one passkey transaction (needs a live client key and a Ga
 |---|------|------|------------|--------|-------|-----------|--------|
 | C1 | Pay screen + destination chain picker (Arc or Base, moved from C3) + Aave / Morpho rate comparison (real reads) + margin gauge, on mock contracts | Wed 11/18 morning | 0.3, 0.4 | `feat/pay-screen` | `app/` (pay screen) | The flow can be clicked end to end with mocks | ⬜ |
 | C2 | Line-by-line statement | Wed 11/18 afternoon | 0.3, 0.4 | `feat/statement` | `app/` (statement) | Lines render from contract events | ⬜ |
-| C3 | Destination chain in the pay screen (Arc or Base) and delivery tracking on Base (explorer link, arrival status); the sending itself happens in `pay()` (A2) | Wed 11/18 evening | 0.2, 0.3 | `feat/crosschain-send` | `app/` only | The app shows a payment arriving on Base | ✅ payment page `/payments/[txHash]`, checked with the 0.2 testnet transfer |
+| C3 | Delivery tracking on Base (explorer link, arrival status); the sending itself happens in `pay()` (A2) | Wed 11/18 evening | 0.2, 0.3 | `feat/crosschain-send` | `app/` only | The app shows a payment arriving on Base | ✅ payment page `/payments/[txHash]`, checked with the 0.2 testnet transfer |
 | C4 | Wire the app to the real mainnet contracts (addresses from `contracts/deployments.md`) | Thu 11/19 morning | A4, B5, C1–C3 | `feat/wire-contracts` | `app/` (config, calls) | A real payment from the app, line visible in the statement | ⬜ |
 
 ## Assembly and submission
