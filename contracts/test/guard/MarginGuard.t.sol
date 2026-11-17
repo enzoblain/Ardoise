@@ -106,12 +106,19 @@ contract MarginGuardTest is Test {
         assertEq(guard.checkMargin(user, venue, 100 * USDC), 0);
     }
 
-    function test_checkMargin_hugeAmountStaysSafe() public view {
-        // Far beyond what 64 halvings resolve exactly; the venue mock would overflow above
-        // 2^128, which no real amount reaches.
-        uint256 allowed = guard.checkMargin(user, venue, type(uint128).max);
-        assertLe(allowed, MAX_DEBT);
-        assertGe(venue.healthAfter(user, allowed), MIN_HF);
+    function test_checkMargin_hugeAmountStillFindsTheExactMaximum() public view {
+        // An app may pass a very large amount to ask how much can still be paid. The venue
+        // mock would overflow above 2^128, which no real amount reaches.
+        assertEq(guard.checkMargin(user, venue, type(uint128).max), MAX_DEBT);
+    }
+
+    function test_checkMargin_revertsWhenVenueReverts() public {
+        // pay() must fail closed when the venue cannot project the health factor.
+        vm.mockCallRevert(
+            address(venue), abi.encodeCall(IVenue.healthAfter, (user, 100 * USDC)), "oracle down"
+        );
+        vm.expectRevert("oracle down");
+        guard.checkMargin(user, venue, 100 * USDC);
     }
 
     function testFuzz_checkMargin_allowedIsSafeAndMaximal(uint256 collateralUsd, uint256 debt, uint256 amount)
@@ -153,6 +160,11 @@ contract MarginGuardTest is Test {
         new MarginGuard(owner, 1e18, TARGET_HF);
     }
 
+    function test_constructor_revertsWhenTargetNotAboveMin() public {
+        vm.expectRevert(abi.encodeWithSelector(MarginGuard.InvalidThresholds.selector, MIN_HF, MIN_HF));
+        new MarginGuard(owner, MIN_HF, MIN_HF);
+    }
+
     function test_setThresholds_updatesAndEmits() public {
         vm.expectEmit();
         emit IGuard.ThresholdsUpdated(1.3e18, 1.6e18);
@@ -173,6 +185,18 @@ contract MarginGuardTest is Test {
         vm.expectRevert(abi.encodeWithSelector(MarginGuard.InvalidThresholds.selector, 1e18, 1.5e18));
         vm.prank(owner);
         guard.setThresholds(1e18, 1.5e18);
+    }
+
+    function test_setThresholds_revertsWhenMinBelowLiquidation() public {
+        vm.expectRevert(abi.encodeWithSelector(MarginGuard.InvalidThresholds.selector, 0.9e18, 1.5e18));
+        vm.prank(owner);
+        guard.setThresholds(0.9e18, 1.5e18);
+    }
+
+    function test_setThresholds_revertsWhenTargetBelowMin() public {
+        vm.expectRevert(abi.encodeWithSelector(MarginGuard.InvalidThresholds.selector, 1.5e18, 1.3e18));
+        vm.prank(owner);
+        guard.setThresholds(1.5e18, 1.3e18);
     }
 
     function test_setThresholds_revertsWhenTargetNotAboveMin() public {

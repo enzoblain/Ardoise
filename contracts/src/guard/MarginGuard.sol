@@ -16,11 +16,6 @@ contract MarginGuard is IGuard {
     /// @notice Health factor at which the venue liquidates (WAD). Thresholds must stay above it.
     uint256 public constant LIQUIDATION_HEALTH_FACTOR = 1e18;
 
-    /// @notice Upper bound on the `healthAfter` calls spent searching for a partial amount.
-    /// @dev 64 halvings resolve any amount below 2^64 base units (about 18 trillion USDC) to the
-    /// exact base unit. Above that the result is still safe, only not the exact maximum.
-    uint256 public constant MAX_SEARCH_STEPS = 64;
-
     /// @notice Address allowed to change the thresholds.
     /// @dev Immutable on purpose: the factory can point accounts to a new guard, so replacing
     /// the admin means redeploying rather than carrying ownership-transfer logic here.
@@ -60,6 +55,8 @@ contract MarginGuard is IGuard {
     /// @notice Changes the margin thresholds.
     /// @dev Reverts with `NotOwner` if the caller is not `owner` and with `InvalidThresholds`
     /// unless `targetHealthFactor_ > minHealthFactor_ > 1e18`. Emits `ThresholdsUpdated`.
+    /// There is no upper bound: the owner is trusted, and a minimum set too high refuses every
+    /// payment of every account until it is corrected.
     /// @param minHealthFactor_ New minimum health factor after a payment (WAD).
     /// @param targetHealthFactor_ New health factor the keeper repays back to (WAD).
     function setThresholds(uint256 minHealthFactor_, uint256 targetHealthFactor_) external {
@@ -82,12 +79,14 @@ contract MarginGuard is IGuard {
         // reports 0) cannot borrow anything; checking it first avoids a full search to reach 0.
         if (venue.healthAfter(user, 0) < minHf) return 0;
 
-        // Invariant: borrowing `low` keeps the margin, borrowing `high` does not.
+        // Invariant: borrowing `low` keeps the margin, borrowing `high` does not. The interval
+        // halves at every step, so the search ends after at most 256 projections, and after
+        // about 40 for any realistic USDC amount.
         uint256 low = 0;
         uint256 high = amount;
-        for (uint256 step = 0; step < MAX_SEARCH_STEPS && high - low > 1; ++step) {
+        while (high - low > 1) {
             uint256 mid = low + (high - low) / 2;
-            // The loop is bounded by MAX_SEARCH_STEPS and the venue is the adapter chosen by
+            // The loop is bounded as described above and the venue is the adapter chosen by
             // the account, so the repeated external call is intended.
             // forge-lint: disable-next-line(calls-loop)
             if (venue.healthAfter(user, mid) >= minHf) {
