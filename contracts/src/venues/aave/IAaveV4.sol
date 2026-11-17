@@ -30,9 +30,13 @@ interface IAaveV4Spoke {
         uint256 borrowCount;
     }
 
+    /// @return The reserve's configuration (underlying token, hub, hub asset id, decimals).
     function getReserve(uint256 reserveId) external view returns (Reserve memory);
+    /// @return The user's position across every reserve of the Spoke.
     function getUserAccountData(address user) external view returns (UserAccountData memory);
+    /// @return The user's debt on `reserveId`, drawn and premium, in token decimals.
     function getUserTotalDebt(uint256 reserveId, address user) external view returns (uint256);
+    /// @return The Spoke oracle.
     function ORACLE() external view returns (address);
 }
 
@@ -53,9 +57,13 @@ interface IAaveV4Hub {
 
     /// @return Yearly drawn (borrow) rate, RAY.
     function getAssetDrawnRate(uint256 assetId) external view returns (uint256);
+    /// @return Liquidity of the asset the Hub can lend right now, in token decimals.
     function getAssetLiquidity(uint256 assetId) external view returns (uint256);
+    /// @return The spoke's configuration for the asset; caps are in whole tokens.
     function getSpoke(uint256 assetId, address spoke) external view returns (SpokeData memory);
+    /// @return What the spoke owes the Hub for the asset (drawn, premium, deficit), token decimals.
     function getSpokeTotalOwed(uint256 assetId, address spoke) external view returns (uint256);
+    /// @return The cap value meaning "no cap".
     function MAX_ALLOWED_SPOKE_CAP() external view returns (uint40);
 }
 
@@ -67,6 +75,10 @@ interface IAaveV4Oracle {
 
 /// @notice Aave V4 position manager that borrows on a user's behalf within an allowance.
 interface IAaveV4TakerPositionManager {
+    /// @notice Borrows on the Spoke for `onBehalfOf`, spending the allowance `onBehalfOf` granted
+    /// to the caller, and sends the tokens to the caller.
+    /// @return shares Drawn shares added.
+    /// @return amount_ Amount borrowed and sent to the caller.
     function borrowOnBehalfOf(address spoke, uint256 reserveId, uint256 amount, address onBehalfOf)
         external
         returns (uint256 shares, uint256 amount_);
@@ -74,6 +86,10 @@ interface IAaveV4TakerPositionManager {
 
 /// @notice Aave V4 position manager that lets anyone repay a user's debt.
 interface IAaveV4GiverPositionManager {
+    /// @notice Repays up to the debt of `onBehalfOf`, pulling the tokens from the caller.
+    /// Rejects `type(uint256).max`.
+    /// @return shares Drawn shares restored.
+    /// @return amount_ Debt restored, premium included.
     function repayOnBehalfOf(address spoke, uint256 reserveId, uint256 amount, address onBehalfOf)
         external
         returns (uint256 shares, uint256 amount_);
