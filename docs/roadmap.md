@@ -34,16 +34,31 @@ Status: ⬜ to do, 🔄 in progress, ✅ done, ✂️ cut.
 | # | Task | Who | When | Branch | Files | Done when | Status |
 |---|------|-----|------|--------|-------|-----------|--------|
 | 0.1 | Mainnet tests: buy ~$30–50 of cirBTC (Uniswap v3), supply it on the Aave V4 Main Spoke, borrow $1 through `borrowOnBehalfOf` from a test contract | Hugo · H1 | Tue 11/17 morning | none (experiments) | — | Explorer links recorded, or fallback decided | ⬜ |
-| 0.2 | Tests: Circle passkey wallet (MSCA) on Arc mainnet; timed USDC transfer Arc → Base (CCTP Fast Transfer or Gateway) | Enzo · E | Tue 11/17 morning | none (experiments) | — | Passkeys work or fall back to a regular wallet; Arc → Base delay measured | ⬜ |
+| 0.2 | Tests: Circle passkey wallet (MSCA) on Arc mainnet; timed USDC transfer Arc → Base (CCTP Fast Transfer or Gateway) | Enzo · E | Tue 11/17 morning | none (experiments) | — | Passkeys work or fall back to a regular wallet; Arc → Base delay measured | 🔄 testnet passed, mainnet confirmation left (see results below) |
 | 0.3 | Repository scaffold: `contracts/` (Foundry), `app/` (Next.js + viem), `keeper/` (Node); install, run and test commands in `CLAUDE.md` and the README | Enzo · E | Tue 11/17 afternoon | `chore/scaffold` | root, `contracts/`, `app/`, `keeper/` (skeletons) | `forge build` and `npm run dev` run; no `TBD` left in `CLAUDE.md` | ✅ |
 | 0.4 | Frozen interfaces: `IVenue` (`rate`, `available`, `healthAfter`, `borrow`, `repay`), `IArdoise` (`pay`, `repay`, `lines`, `health`), `IGuard` (`checkMargin`, called by `pay()`), debt-line format, events | Hugo · H2 | Tue 11/17 afternoon | `feat/interfaces` | `contracts/src/interfaces/` | Merged into `main`; no change without telling the others first | ⬜ |
+
+### Blocking test results
+
+**0.2 — passkeys and Arc → Base (Enzo, Tue 11/17, Arc Testnet and Base Sepolia)**
+
+| Test | Result | Evidence |
+|------|--------|----------|
+| Circle passkey wallet (MSCA) on Arc Testnet | Works. Account deployed and a user operation confirmed in 8.2 s, gas sponsored by Circle's paymaster (testnet client key, `@circle-fin/modular-wallets-core` 1.0.16) | [account](https://explorer.testnet.arc.io/address/0x8a75a1f7b15e42f60d85b2b7e5b1c8e4f8d9c86a), [transaction](https://explorer.testnet.arc.io/tx/0xec2834578819435f03ece68de41bb802f3e008a9768155e787a19037c0c511f8) |
+| 1 USDC Arc Testnet → Base Sepolia, Circle Bridge Kit (`@circle-fin/bridge-kit` 1.17.2), CCTP fast transfer, `useForwarder: true` | Arrived. 6 s from the Arc block to the Base block, 12 s end to end including the wallet signature. About 0.053 USDC in fees; Circle's relayer submits the mint, so the recipient (here the same wallet) needs no gas on Base | Sent from the dedicated project test wallet, which MetaMask ran as an EIP-7702 delegated account (approve and burn in one transaction); A2 will call CCTP from a contract instead. [burn on Arc](https://explorer.testnet.arc.io/tx/0x56b6cfcddd62fced03a9efb4e192f561f1e1a0ff0de0c3504464c8fea0255988), [mint on Base](https://sepolia.basescan.org/tx/0x0cbd3d556f547f82ef27ab41a209a66e350792c79cae420e5cb101aafb1b77e8) |
+
+Decisions:
+- **Passkeys are kept**; no fallback to a regular wallet is needed.
+- **Cross-chain payments use CCTP fast transfer with Circle's forwarder** (through Bridge Kit or the same contracts), not Gateway. This shapes `pay()` in A2 and the delivery tracking in C3.
+
+Left to do on mainnet: one passkey transaction (needs a live client key and a Gas Station policy for Arc) and one 1–2 USDC Arc → Base transfer, since mainnet delay and fees may differ.
 
 ## Track A — On-chain core · Hugo, account H1
 
 | # | Task | When | Depends on | Branch | Files | Done when | Status |
 |---|------|------|------------|--------|-------|-----------|--------|
 | A1 | `AaveV4Adapter` (rate, liquidity, health after, borrow, repay) + tests | Wed 11/18 morning | 0.1, 0.3, 0.4 | `feat/aave-adapter` | `contracts/src/venues/AaveV4Adapter.sol`, tests | Tests pass; a real borrow of a few dollars on mainnet | ⬜ |
-| A2 | `ArdoiseAccount`: `pay()` picks the venue, calls `IGuard.checkMargin`, borrows, sends (on Arc, or to another chain through CCTP / Gateway as decided after test 0.2), enforces per-payment and daily caps | Wed 11/18 midday | A1, 0.2 | `feat/ardoise-account` | `contracts/src/ArdoiseAccount.sol`, tests | `pay()` borrows and pays on mainnet | ⬜ |
+| A2 | `ArdoiseAccount`: `pay()` picks the venue, calls `IGuard.checkMargin`, borrows, sends (on Arc, or to another chain through CCTP fast transfer with Circle's forwarder, see the 0.2 results), enforces per-payment and daily caps | Wed 11/18 midday | A1, 0.2 | `feat/ardoise-account` | `contracts/src/ArdoiseAccount.sol`, tests | `pay()` borrows and pays on mainnet | ⬜ |
 | A3 | Debt ledger (amount, venue, rate, payee, memo, accrued interest) + events | Wed 11/18 afternoon | A2 | `feat/debt-ledger` | `contracts/src/` (ledger), tests | One line per payment, readable by the app | ⬜ |
 | A4 | Mainnet deployment of account, venues and ledger; addresses in `contracts/deployments.md` | Wed 11/18 evening | A3 | `chore/deploy-mainnet` | `contracts/script/`, `contracts/deployments.md` | Contracts verified on the Arc explorer | ⬜ |
 
