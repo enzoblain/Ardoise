@@ -29,19 +29,42 @@ _Where and how each sponsor technology is used, with links to the relevant files
 
 ### Prerequisites
 
+- Node.js 20 or later, with npm
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (`forge`)
+
 ### Installation
 
 ```bash
-TBD
+git clone --recurse-submodules https://github.com/enzoblain/Ardoise.git
+cd Ardoise
+(cd app && npm install)
+(cd keeper && npm install)
+cp .env.example .env   # optional for read-only use: Arc reads default to the public RPC
 ```
 
 ### Run
 
 ```bash
-TBD
+cd app && npm run dev        # front end on http://localhost:3000
+cd keeper && npm start       # keeper, follows Arc mainnet blocks
+```
+
+### Test
+
+```bash
+cd contracts && forge build && forge test
+cd app && npm run lint && npm run build
+cd keeper && npm run typecheck
 ```
 
 ## Project structure
+
+```
+contracts/   Solidity contracts (Foundry): account, lending venue adapters, position guard
+app/         Next.js + viem front end: pay screen, statement, margin gauge
+keeper/      Node keeper that can only repay debt to protect the position
+docs/        Roadmap and architecture notes
+```
 
 ## Roadmap
 

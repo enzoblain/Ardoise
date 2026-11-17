@@ -16,9 +16,10 @@ The task breakdown for the hackathon (who does what, when, on which branch) is i
 ## Stack and commands
 
 - Stack: Solidity (Foundry) on Arc mainnet (chain id 5042), Aave V4 and Morpho as lending venues, Circle CCTP / Gateway, Next.js + viem front end, Node keeper
-- Install: `TBD`
-- Run: `TBD`
-- Test: `TBD`
+- Prerequisites: Node.js 20+, npm, Foundry (`foundryup`); clone with `--recurse-submodules` (or run `git submodule update --init`)
+- Install: `cd app && npm install`, `cd keeper && npm install` (contracts need no install beyond the submodule)
+- Run: `cd app && npm run dev` (front end on http://localhost:3000), `cd keeper && npm start` (keeper)
+- Test: `cd contracts && forge build && forge test`, `cd app && npm run lint && npm run build`, `cd keeper && npm run typecheck`
 
 ## Rules for every agent working in this repository
 
