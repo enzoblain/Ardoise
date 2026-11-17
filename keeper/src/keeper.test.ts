@@ -21,7 +21,7 @@ import { arc } from "viem/chains";
 
 import { accountAbi, erc20Abi, factoryAbi, guardAbi, venueAbi } from "./abis.js";
 import { USDC_ADDRESS } from "./config.js";
-import { Keeper } from "./keeper.js";
+import { Keeper, type KeeperOptions } from "./keeper.js";
 
 const WAD = 10n ** 18n;
 const USDC = 10n ** 6n;
@@ -108,7 +108,10 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
   }
 }
 
-function setUp(chain: FakeChain, options: { wallet?: boolean; fromBlock?: bigint } = {}) {
+function setUp(
+  chain: FakeChain,
+  options: { wallet?: boolean; fromBlock?: bigint; gateway?: KeeperOptions["gateway"] } = {},
+) {
   const publicClient = createPublicClient({
     chain: arc,
     pollingInterval: 1,
@@ -197,6 +200,7 @@ function setUp(chain: FakeChain, options: { wallet?: boolean; fromBlock?: bigint
     log: (message) => logs.push(message),
     now: () => clock.now,
     receiptTimeoutMs: 20,
+    gateway: options.gateway,
   });
   return { keeper, logs, clock };
 }
@@ -424,4 +428,40 @@ test("judges at the real price, and says so once, when the simulated drop cannot
   assert.equal(logs.filter((line) => line.includes("assuming no simulation")).length, 1);
   assert.ok(logs.some((line) => line.includes("health factor 1.950") && line.includes("margin is fine")));
   assert.ok(!logs.some((line) => line.includes("[SIMULATION]")));
+});
+
+test("asks Gateway for the shortfall of an account under the minimum with nothing to repay with", async () => {
+  const chain = fakeChain({ debt: 6_500n, balance: 0n });
+  const calls: [Address, Address, bigint][] = [];
+  const { keeper } = setUp(chain, { gateway: { fund: async (owner, account, shortfall) => void calls.push([owner, account, shortfall]) } });
+  await keeper.tick();
+  assert.equal(calls.length, 1);
+  const [owner, account, shortfall] = calls[0];
+  assert.equal(owner.toLowerCase(), OWNER);
+  assert.equal(account.toLowerCase(), ACCOUNT);
+  // 6,500 of debt at HF 1.2 back to 1.5: 6,500 - 7,800 / 1.5 = 1,300 USDC.
+  assert.equal(shortfall, 1_300n * USDC);
+});
+
+test("still calls Gateway with no shortfall, so transfers on their way are followed", async () => {
+  const chain = fakeChain({ debt: 4_000n, balance: 0n });
+  const shortfalls: bigint[] = [];
+  const { keeper } = setUp(chain, { gateway: { fund: async (_owner, _account, shortfall) => void shortfalls.push(shortfall) } });
+  await keeper.tick();
+  assert.deepEqual(shortfalls, [0n]);
+});
+
+test("logs a Gateway failure without stopping the sweep", async () => {
+  const chain = fakeChain({ debt: 6_500n });
+  const { keeper, logs } = setUp(chain, {
+    wallet: true,
+    gateway: {
+      fund: async () => {
+        throw new Error("Gateway unreachable");
+      },
+    },
+  });
+  await keeper.tick();
+  assert.equal(chain.sent, 1);
+  assert.ok(logs.some((line) => line.includes("Gateway funding failed: Gateway unreachable")));
 });

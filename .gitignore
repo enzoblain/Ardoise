@@ -70,6 +70,9 @@ desktop.ini
 .vercel/
 .netlify/
 
+# Gateway standing orders (signed, user-specific; see GATEWAY_ORDERS_FILE)
+gateway-orders*.json
+
 # Scratch files
 tmp/
 scratch/

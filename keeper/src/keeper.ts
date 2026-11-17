@@ -81,6 +81,11 @@ export interface KeeperOptions {
   now?: () => number;
   /** Overrides `RECEIPT_TIMEOUT_MS`, for tests. */
   receiptTimeoutMs?: number;
+  /**
+   * Draws USDC from the owner's Gateway balance when the account lacks it
+   * (B4), or `undefined` when no standing orders are configured.
+   */
+  gateway?: { fund(owner: Address, account: Address, shortfall: bigint): Promise<void> };
 }
 
 /** Formats a USDC amount in base units for the logs. */
@@ -281,6 +286,16 @@ export class Keeper {
     // The state is read and logged even for an account on hold, so that a
     // margin warning is never hidden by an earlier failed attempt.
     if (decision.action === "sweep" && mayAttempt) await this.sweep(watched.account);
+    // Called on every pass, shortfall or not, so transfers already on their
+    // way are followed. USDC it brings lands on the account and is swept on
+    // a later pass like any other balance.
+    if (this.options.gateway !== undefined) {
+      try {
+        await this.options.gateway.fund(watched.owner, watched.account, decision.shortfall);
+      } catch (error) {
+        this.logOnce(watched.account, "gateway", `Gateway funding failed: ${errorMessage(error)}`);
+      }
+    }
   }
 
   /**
