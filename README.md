@@ -29,7 +29,7 @@ _Where and how each sponsor technology is used, with links to the relevant files
 
 ### Prerequisites
 
-- Node.js 22 or later, with npm
+- Node.js 22.9 or later, with npm
 - [Foundry](https://book.getfoundry.sh/getting-started/installation) (`forge`)
 
 ### Installation
