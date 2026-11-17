@@ -14,6 +14,8 @@ export interface Config {
   factoryDeployBlock: bigint | null;
   /** Keeper wallet, or `null` to run without sending transactions. */
   keeperAccount: PrivateKeyAccount | null;
+  /** JSON file of Gateway standing orders (B4), or `null` to never draw from Gateway. */
+  gatewayOrdersFile: string | null;
 }
 
 /**
@@ -55,5 +57,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     factory,
     factoryDeployBlock: deployBlock === null ? null : BigInt(deployBlock),
     keeperAccount,
+    gatewayOrdersFile: env.GATEWAY_ORDERS_FILE?.trim() || null,
   };
 }

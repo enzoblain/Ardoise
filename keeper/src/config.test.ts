@@ -9,13 +9,18 @@ const FACTORY = "0x00000000000000000000000000000000000000f1";
 /** Throwaway key made for this run, so that no key is written in the repository. */
 const TEST_KEY = generatePrivateKey();
 
-test("an empty environment means no factory, no key and the public RPC", () => {
+test("an empty environment means no factory, no key, no standing orders and the public RPC", () => {
   assert.deepEqual(loadConfig({}), {
     rpcUrl: undefined,
     factory: null,
     factoryDeployBlock: null,
     keeperAccount: null,
+    gatewayOrdersFile: null,
   });
+});
+
+test("reads the Gateway standing orders file", () => {
+  assert.equal(loadConfig({ GATEWAY_ORDERS_FILE: " orders.json " }).gatewayOrdersFile, "orders.json");
 });
 
 test("reads the factory, its deploy block and the keeper wallet", () => {

@@ -91,6 +91,15 @@ Behaviour the frozen interfaces leave open, as implemented in [`ArdoiseAccount.s
 - **Gauge and payments:** `simulatedHealth` derives from `venue.health`, `checkMargin` from `venue.healthAfter`; they may differ by a few wei, so a gauge exactly at the minimum does not guarantee that a payment passes.
 - **Outside the demo** the drop stays at 0 and `checkMargin` reads the real oracle through the venue, at the same gas cost as without the feature.
 
+## Gateway standing orders (B4)
+
+A user who keeps USDC in Circle Gateway on Base can let the keeper repay their debt from it when a position falls under the guard's minimum and the account holds nothing to repay with.
+
+- **Standing order:** a Gateway burn intent the owner signs in advance (EIP-712, domain `GatewayWallet` version `1`): a fixed `value` of their Gateway balance on Base (domain 6), delivered on Arc (domain 26) to **their own Ardoise account**, with `destinationCaller` zero so that Circle's forwarder can mint, and no hook data. Gateway accepts a `maxBlockHeight` up to about 70 days ahead on Base, so orders are renewed every few weeks.
+- **Keeper:** reads orders from `GATEWAY_ORDERS_FILE` (a JSON array of `{ burnIntent, signature }` with addresses as left-padded bytes32; a malformed entry is skipped). For `decide()`'s shortfall it submits the smallest unused order that covers it, or else the fewest, to `POST /v1/transfer?enableForwarder=true`, follows each transfer, and sweeps the USDC into the debt on a later pass. It refuses any order whose recipient is not the owner's account (the pair from the factory's `AccountCreated` event), whose depositor is not the owner, or that uses other contracts, tokens or domains (`rejectReason` in [`keeper/src/gateway.ts`](../keeper/src/gateway.ts)). An order Gateway refuses for another reason than a spent salt (balance not credited yet, server error, timeout) is retried with a growing delay. Without `KEEPER_PRIVATE_KEY` the keeper runs dry and submits no order either, although submitting needs no key.
+- **Why it is safe:** an order can only pay the account it names, and that account can only repay its owner's debt, so the keeper holds no key that can move user funds and a leaked order can do nothing but repay that debt. Gateway checks the signature (ERC-1271 for smart contract wallets).
+- **Cost:** on mainnet, Gateway quoted 0.0248 USDC for a 5 USDC order from Base to Arc (0.01 Gateway fee + 0.0148 forwarding).
+
 ## One-time user setup on Aave V4
 
 Verified on Arc mainnet in test 0.1 (see the results in [`roadmap.md`](roadmap.md)).
