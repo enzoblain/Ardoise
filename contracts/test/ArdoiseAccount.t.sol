@@ -458,6 +458,18 @@ contract ArdoiseAccountTest is Test {
         assertEq(usdc.balanceOf(address(account)), 2 * USDC);
     }
 
+    function test_sweep_residualPassSkipsRefusingVenue() public {
+        aave.setDebt(owner, 1 * USDC);
+        aave.setRepayBroken(true);
+        morpho.setDebt(owner, 1 * USDC);
+        usdc.mint(address(account), 3 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertEq(aave.debtOf(owner), 1 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.allowance(address(account), address(aave)), 0);
+        assertEq(usdc.balanceOf(address(account)), 2 * USDC);
+    }
+
     function test_repay_bubblesVenueRevert() public {
         _payArc(1 * USDC);
         aave.setRepayBroken(true);
