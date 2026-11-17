@@ -29,19 +29,55 @@ _Where and how each sponsor technology is used, with links to the relevant files
 
 ### Prerequisites
 
+- Node.js 22.9 or later, with npm
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (`forge`)
+
 ### Installation
 
 ```bash
-TBD
+git clone --recurse-submodules https://github.com/enzoblain/Ardoise.git
+cd Ardoise
+(cd app && npm install)
+(cd keeper && npm install)
+cp .env.example .env   # optional for read-only use: Arc reads default to the public RPC
 ```
+
+The app and the keeper both read the `.env` file at the repository root.
 
 ### Run
 
+Run the front end and the keeper in two separate terminals, from the repository root:
+
 ```bash
-TBD
+(cd app && npm run dev)      # front end on http://localhost:3000
+```
+
+```bash
+(cd keeper && npm start)     # keeper, polls Arc mainnet for new blocks
+```
+
+Foundry only reads a `.env` inside `contracts/`, so export the root one before using an RPC alias (`--rpc-url arc`):
+
+```bash
+set -a && source .env && set +a
+```
+
+### Test
+
+```bash
+(cd contracts && forge build && forge test)
+(cd app && npm run lint && npm run build)
+(cd keeper && npm run typecheck)
 ```
 
 ## Project structure
+
+```
+contracts/   Solidity contracts (Foundry); empty scaffold for now
+app/         Next.js + viem front end; for now shows the Arc mainnet connection
+keeper/      Node keeper; for now follows Arc mainnet blocks
+docs/        Roadmap
+```
 
 ## Roadmap
 
