@@ -185,7 +185,7 @@ contract ArdoiseAccountTest is Test {
     function test_pay_revertsWithoutGuard() public {
         vm.prank(admin);
         factory.setGuard(IGuard(address(0)));
-        vm.expectRevert();
+        vm.expectRevert(ArdoiseAccount.GuardNotSet.selector);
         vm.prank(owner);
         account.pay(1 * USDC, ARC, _b(payee), 0, "");
     }
