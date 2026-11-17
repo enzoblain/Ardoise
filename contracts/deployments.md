@@ -4,7 +4,7 @@ Addresses of the Ardoise contracts. The app (C4) and the keeper (B2) read them f
 
 ## Arc mainnet (chain id 5042)
 
-Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardoise/commit/37d9fe4) (branch `chore/deploy-mainnet`) with [`script/Deploy.s.sol`](script/Deploy.s.sol), in block [31776497](https://explorer.arc.io/block/31776497). Deployer and factory admin: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7).
+Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardoise/commit/37d9fe4) (branch `chore/deploy-mainnet`, [PR #14](https://github.com/enzoblain/Ardoise/pull/14)) with [`script/Deploy.s.sol`](script/Deploy.s.sol), in block [31777009](https://explorer.arc.io/block/31777009). Deployer and factory admin: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7).
 
 | Contract | Address | Source verification |
 |----------|---------|---------------------|
@@ -55,7 +55,7 @@ Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`
 
 - **Guard (B5):** deploy `MarginGuard(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7, 1.25e18, 1.5e18)` once B3 (price-drop simulation) is merged, then call `factory.setGuard(guard)` from the factory admin, and add the guard to the table above.
 - **Demo account:** owned by the project test wallet, which holds the cirBTC collateral on the Main Spoke and has already authorized the Taker and Giver position managers. It needs `factory.createAccount()` and `Taker.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)` for this adapter (see docs/api.md, *One-time user setup on Aave V4*).
-- **Keeper:** set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD` and `ARDOISE_FACTORY_DEPLOY_BLOCK=31776497`.
+- **Keeper:** set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD` and `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009`.
 
 ## How to redeploy
 
