@@ -17,7 +17,7 @@ Paying with bitcoin usually means selling it, which loses the exposure and, in t
 
 Ardoise turns a cirBTC position on Arc into a payment account. Each payment borrows exactly the amount from the best lending venue on Arc (Aave V4 or Morpho), delivers it on the payee's chain through CCTP, and records one debt line per payment. A position guard refuses payments that would push the margin too low and repays debt before liquidation.
 
-Every payment appears as a line in the account statement (amount, venue, rate, payee, memo, interest so far), built from the account's `Paid` and `LineRepaid` events.
+Without a wallet, anyone can try the flow on a demo account simulated in the browser; connecting a wallet on Arc mainnet activates a real account. Every payment appears as a line in the account statement (amount, venue, rate, payee, memo, interest so far), built from the account's `Paid` and `LineRepaid` events.
 
 ## How it works
 
@@ -58,6 +58,8 @@ Run the front end and the keeper in two separate terminals, from the repository 
 ```bash
 (cd app && npm run dev)      # front end on http://localhost:3000
 ```
+
+By default the app runs on Arc Testnet with a simulated demo account. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance).
 
 ```bash
 (cd keeper && npm start)     # keeper, polls Arc mainnet for new blocks
