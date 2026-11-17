@@ -12,12 +12,21 @@ describe("computeMaxFee", () => {
     expect(computeMaxFee(ARC_TO_BASE, 20_000_000n)).toBe(54_508n);
   });
 
-  it("rounds a fractional protocol fee up", () => {
-    const fees: IrisFee[] = [{ finalityThreshold: 1000, minimumFee: 1.3 }];
-    // 1.3 bps of 20 USDC = 0.0026 USDC = 2600 units.
-    expect(computeMaxFee(fees, 20_000_000n)).toBe(2_600n);
-    // 1.3 bps of 1 unit rounds up to 1 unit.
-    expect(computeMaxFee(fees, 1n)).toBe(1n);
+  it("charges the protocol fee on the burned amount, fee included", () => {
+    const fees: IrisFee[] = [{ finalityThreshold: 1000, minimumFee: 1.3, forwardFee: { low: 0, med: 0, high: 50_000 } }];
+    const amount = 20_000_000n;
+    const maxFee = computeMaxFee(fees, amount);
+    // CCTP takes 1.3 bps of what is burned; what is left must cover amount + forwarder.
+    const burned = amount + maxFee;
+    const protocol = (burned * 13n + 99_999n) / 100_000n;
+    expect(burned - protocol).toBeGreaterThanOrEqual(amount + 50_000n);
+    expect(maxFee).toBe(52_607n);
+  });
+
+  it("rounds fractional bps exactly and never down", () => {
+    // 1.1 * 100 is 110.00000000000001 in floating point.
+    expect(computeMaxFee([{ finalityThreshold: 1000, minimumFee: 1.1 }], 100_000_000n)).toBe(11_002n);
+    expect(computeMaxFee([{ finalityThreshold: 1000, minimumFee: 1.3 }], 1n)).toBe(1n);
   });
 
   it("fails without a fast-transfer entry", () => {
