@@ -76,10 +76,10 @@ set -a && source .env && set +a
 ## Project structure
 
 ```
-contracts/   Solidity contracts (Foundry); empty scaffold for now
+contracts/   Solidity contracts (Foundry); for now the frozen interfaces in src/interfaces/
 app/         Next.js + viem front end; for now the Arc connection and the cross-chain payment tracking page
 keeper/      Node keeper; for now follows Arc mainnet blocks
-docs/        Roadmap
+docs/        Roadmap and contract interfaces (api.md)
 ```
 
 ## Roadmap

@@ -25,9 +25,11 @@ interface IGuard {
     function checkMargin(address user, IVenue venue, uint256 amount) external view returns (uint256 allowed);
 
     /// @notice Minimum health factor a payment may leave the position at (WAD).
+    /// @return The minimum health factor.
     function minHealthFactor() external view returns (uint256);
 
     /// @notice Health factor the keeper repays the position back to when it falls below
     /// `minHealthFactor()` (WAD). Always greater than `minHealthFactor()`.
+    /// @return The target health factor.
     function targetHealthFactor() external view returns (uint256);
 }

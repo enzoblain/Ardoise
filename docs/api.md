@@ -1,11 +1,12 @@
 # Contract interfaces
 
-The three interfaces below are the single contact point between the tracks (see [`roadmap.md`](roadmap.md), task 0.4). They are frozen: changing one means telling the others first. The NatSpec in each file is the reference; this page explains how they fit together.
+The interfaces below are the single contact point between the tracks (see [`roadmap.md`](roadmap.md), task 0.4). They are frozen: changing one means telling the others first. The NatSpec in each file is the reference; this page explains how they fit together.
 
 | Interface | File | Implemented by | Used by |
 |-----------|------|----------------|---------|
 | `IVenue` | [`contracts/src/interfaces/IVenue.sol`](../contracts/src/interfaces/IVenue.sol) | `AaveV4Adapter` (A1), Morpho adapter (R5) | `ArdoiseAccount`, guard, app (rate comparison, margin gauge) |
 | `IArdoise` and `DebtLine` | [`contracts/src/interfaces/IArdoise.sol`](../contracts/src/interfaces/IArdoise.sol) | `ArdoiseAccount` (A2, A3) | app (pay screen, statement), keeper |
+| `IArdoiseFactory` | [`contracts/src/interfaces/IArdoiseFactory.sol`](../contracts/src/interfaces/IArdoiseFactory.sol) | factory (A2) | venue adapters (caller check), app and keeper (finding a user's account) |
 | `IGuard` | [`contracts/src/interfaces/IGuard.sol`](../contracts/src/interfaces/IGuard.sol) | guard (B1) | `ArdoiseAccount.pay()`, app, keeper |
 
 ## Units
@@ -22,8 +23,9 @@ The three interfaces below are the single contact point between the tracks (see 
 ## Who owns what
 
 - **The collateral stays in the user's wallet.** The cirBTC position on Aave V4 belongs to the user's address, not to Ardoise. Ardoise can only borrow within the allowance the user granted and repay; it can never withdraw collateral.
-- **One `ArdoiseAccount` per user.** It holds the debt lines, the caps and any USDC waiting to repay debt. A plain USDC `transfer()` to the account runs no code, so `sweep()` lets anyone (the keeper included) apply that balance to the debt.
-- **Venue adapters are shared.** An adapter only accepts `borrow` calls from the Ardoise account registered for the user it borrows for.
+- **One `ArdoiseAccount` per user**, created by `IArdoiseFactory.createAccount()`. The app and the keeper find it with `accountOf(user)` or the `AccountCreated` event. It holds the debt lines, the caps and any USDC waiting to repay debt. A plain USDC `transfer()` to the account runs no code, so `sweep()` lets anyone (the keeper included) apply that balance to the debt. `sweep()` is implemented in A2 (Track A); the keeper (B2) depends on it.
+- **Venue adapters are shared.** An adapter only accepts `borrow` calls from `factory.accountOf(user)` and sends the tokens to the caller. It must never trust `IArdoise(msg.sender).owner()`: any contract can claim a victim as its owner.
+- **Debt lines are USDC only** and their `accruedInterest` is an estimate; the venue's `debtOf` is what is actually owed. Borrowing EURC (R5) would need a new line format.
 
 ## Payment flow
 
@@ -39,12 +41,13 @@ sequenceDiagram
     A->>A: check caps, bestVenue(amount + maxFee)
     A->>G: checkMargin(user, venue, amount + maxFee)
     G-->>A: allowed
-    A->>V: borrow(user, amount + maxFee, account)
-    V->>L: borrowOnBehalfOf(spoke, USDC, amount, user)
+    A->>V: borrow(user, amount + maxFee)
+    V->>V: check factory.accountOf(user) == caller
+    V->>L: borrowOnBehalfOf(spoke, 0, amount + maxFee, user)
     L-->>V: USDC
     V-->>A: USDC
     alt destination is Arc
-        A->>U: transfer to payee on Arc
+        A->>A: USDC transfer to the payee on Arc
     else other chain
         A->>C: depositForBurnWithHook (forwarder mints on the payee's chain)
     end
@@ -57,7 +60,7 @@ Verified on Arc mainnet in test 0.1 (see the results in [`roadmap.md`](roadmap.m
 
 1. Supply cirBTC on the Main Spoke (`supply(2, amount, user)`) and enable it as collateral (`setUsingAsCollateral(2, true, user)`).
 2. Authorize the Aave position managers on the Main Spoke: `setUserPositionManager(TakerPositionManager, true)` to borrow on the user's behalf, `setUserPositionManager(GiverPositionManager, true)` to repay on the user's behalf.
-3. Give the Aave adapter a borrow allowance: `TakerPositionManager.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)`. The allowance decreases by the actual debt increase; `type(uint256).max` means unlimited.
+3. Give the Aave adapter a borrow allowance: `TakerPositionManager.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)`. The allowance decreases by the actual debt increase. Use a finite cap (for example the daily cap times a few days) rather than `type(uint256).max`: the adapter is shared by every user.
 
 The app runs these steps when the user activates their account.
 
