@@ -15,7 +15,7 @@ Paying with bitcoin usually means selling it, which loses the exposure and, in t
 
 ## The solution
 
-Ardoise turns a cirBTC position on Arc into a payment account. Each payment borrows exactly the amount from the best lending venue on Arc (Aave V4 or Morpho), delivers it on the payee's chain through CCTP or Gateway, and records one debt line per payment. A position guard refuses payments that would push the margin too low and repays debt before liquidation.
+Ardoise turns a cirBTC position on Arc into a payment account. Each payment borrows exactly the amount from the best lending venue on Arc (Aave V4 or Morpho), delivers it on the payee's chain through CCTP, and records one debt line per payment. A position guard refuses payments that would push the margin too low and repays debt before liquidation.
 
 ## How it works
 
