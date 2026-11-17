@@ -1,5 +1,5 @@
 import { zeroAddress, type Account, type Address, type Chain, type Hash, type PublicClient, type Transport, type WalletClient } from "viem";
-import { factoryAbi } from "@/lib/contracts/abis";
+import { accountAbi, factoryAbi } from "@/lib/contracts/abis";
 import { aaveSpokeAbi, aaveTakerAbi, type Deployment } from "@/lib/contracts/deployments";
 
 /** Where the owner stands in the one-time setup (docs/api.md, *One-time user setup on Aave V4*). */
@@ -13,7 +13,7 @@ export interface SetupState {
   account: Address | null;
   /** USDC the adapter may still borrow for the owner on Aave V4. */
   borrowAllowance: bigint;
-  /** The factory's default per-payment cap: an allowance below it blocks a full payment. */
+  /** The account's per-payment cap (the factory's default before it exists): an allowance below it blocks a full payment. */
   perPaymentCap: bigint;
 }
 
@@ -48,6 +48,11 @@ export async function readSetup(
     }),
     client.readContract({ address: deployment.factory, abi: factoryAbi, functionName: "defaultPerPaymentCap" }),
   ]);
+  // Once the account exists, its own cap counts: the owner may have raised it.
+  const cap =
+    account === zeroAddress
+      ? perPaymentCap
+      : (await client.readContract({ address: account, abi: accountAbi, functionName: "caps" }))[0];
   return {
     collateral,
     collateralEnabled,
@@ -55,7 +60,7 @@ export async function readSetup(
     giverApproved,
     account: account === zeroAddress ? null : account,
     borrowAllowance,
-    perPaymentCap,
+    perPaymentCap: cap,
   };
 }
 

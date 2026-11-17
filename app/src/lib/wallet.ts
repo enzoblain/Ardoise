@@ -28,7 +28,9 @@ export async function connectWallet(): Promise<ConnectedWallet> {
   } catch (error) {
     // 4902: the wallet does not know the chain yet. Anything else (the user
     // refusing the switch, 4001) must not turn into an "add network" prompt.
-    if ((error as { code?: number }).code !== 4902) throw error;
+    // Some MetaMask mobile versions wrap it in a -32603 error.
+    const wrapped = error as { code?: number; data?: { originalError?: { code?: number } } };
+    if (wrapped.code !== 4902 && wrapped.data?.originalError?.code !== 4902) throw error;
     await provider.request({
       method: "wallet_addEthereumChain",
       params: [
