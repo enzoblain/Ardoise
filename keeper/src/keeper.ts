@@ -36,8 +36,8 @@ const FIRST_RETRY_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 3_600_000;
 
 /**
- * How long one pass waits for a `sweep()` receipt. Arc confirms in about a
- * second; waiting longer would only keep the other accounts from being
+ * How long one pass waits for a `sweep()` receipt. Arc produces about two
+ * blocks per second; waiting longer would only keep the other accounts from being
  * checked, and the pending transaction is picked up again on later passes.
  */
 const RECEIPT_TIMEOUT_MS = 30_000;
@@ -91,10 +91,13 @@ function healthFactor(value: bigint): string {
  * own USDC balance to the account's debt, so the keeper wallet holds no user
  * funds and has no right to borrow, withdraw or move anything. The keeper
  * wallet only pays gas, so the bookkeeping below avoids paying twice for the
- * same funds or paying again and again for a `sweep()` that fails. One case
- * remains: if the RPC endpoint accepts a transaction but the answer is lost,
- * the keeper has no hash to track and may send a second one after the retry
- * delay; that costs one extra gas fee at most.
+ * same funds or paying again and again for a `sweep()` that fails. It does
+ * not rule duplicates out: the pending transactions are only kept in memory,
+ * so a second `sweep()` can be sent for the same funds after a restart, when
+ * the RPC endpoint accepts a transaction but its answer is lost, or when a
+ * transaction declared lost is in fact still waiting to be mined. The retry
+ * delay bounds this to one transaction per delay, and a duplicate that is
+ * mined costs its gas fee: `sweep()` then finds nothing left to repay.
  */
 export class Keeper {
   private readonly accounts = new Map<Address, WatchedAccount>();
@@ -226,10 +229,16 @@ export class Keeper {
       (min, position) => (position.healthFactor < min ? position.healthFactor : min),
       2n ** 256n - 1n,
     );
-    this.logOnce(watched.account, "state", describe(decision, usdcBalance, lowest));
+    const mayAttempt = this.canAttempt(watched.account);
+    const onHold = decision.action === "sweep" && !mayAttempt ? " (on hold after an earlier attempt)" : "";
+    this.logOnce(watched.account, "state", describe(decision, usdcBalance, lowest) + onHold);
+    // A new sweep decision must be reported again even if it repeats an older one.
+    if (decision.action !== "sweep" && !this.pending.has(watched.account)) {
+      this.lastLogged.delete(`${watched.account}:sweep`);
+    }
     // The state is read and logged even for an account on hold, so that a
     // margin warning is never hidden by an earlier failed attempt.
-    if (decision.action === "sweep" && this.canAttempt(watched.account)) await this.sweep(watched.account);
+    if (decision.action === "sweep" && mayAttempt) await this.sweep(watched.account);
   }
 
   /**
@@ -251,6 +260,7 @@ export class Keeper {
         return;
       }
       this.pending.delete(account);
+      this.lastLogged.delete(`${account}:sweep`);
       this.recordFailure(account, `sweep() ${sent.hash} has no receipt after 5 min, treating it as lost`);
     }
   }
