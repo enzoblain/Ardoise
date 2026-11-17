@@ -4,17 +4,28 @@ import { formatPercent } from "@/lib/format";
  * Bar showing how much margin the position keeps before liquidation, now and
  * after the payment, against the guard's minimum.
  *
+ * @param props.venueName Venue whose position is shown.
  * @param props.before Margin now, between 0 and 1.
  * @param props.after Margin after the payment, if known.
  * @param props.minimum Lowest margin the guard lets a payment reach.
  */
-export function MarginGauge({ before, after, minimum }: { before: number; after?: number; minimum: number }) {
+export function MarginGauge({
+  venueName,
+  before,
+  after,
+  minimum,
+}: {
+  venueName: string;
+  before: number;
+  after?: number;
+  minimum: number;
+}) {
   const shown = after ?? before;
   const tooLow = after !== undefined && after < minimum;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <span className="text-sm opacity-70">Margin before liquidation</span>
+        <span className="text-sm opacity-70">Margin before liquidation on {venueName}</span>
         <span className="font-semibold tabular-nums">
           {formatPercent(before)}
           {after !== undefined && (

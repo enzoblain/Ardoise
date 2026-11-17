@@ -65,7 +65,9 @@ async function readAave(): Promise<Venue> {
       args: [AAVE_USDC_ASSET_ID],
     }),
   ]);
-  // Hub rates are yearly, in RAY.
+  // Hub rates are yearly, in RAY. Liquidity is Hub-wide; if the Main Spoke
+  // has a lower draw cap, AaveV4Adapter.available() (A1) is the figure that
+  // counts, and C4 reads it instead of this.
   return { id: "aave-v4", name: "Aave V4", rateBps: Number((rate * 10_000n) / RAY), available: liquidity };
 }
 
@@ -91,6 +93,8 @@ async function readMorpho(): Promise<Venue> {
     id: "morpho",
     name: "Morpho",
     rateBps: Number((perSecond * SECONDS_PER_YEAR * 10_000n) / WAD),
+    // Stored totals, without the interest accrued since the last update:
+    // close enough for display; C4 reads the adapter's available() instead.
     available: totalSupplyAssets - totalBorrowAssets,
   };
 }
