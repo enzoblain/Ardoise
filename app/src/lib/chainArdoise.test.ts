@@ -11,7 +11,7 @@ import {
   type Log,
 } from "viem";
 import { describe, expect, it } from "vitest";
-import { PaymentFailed, WAD, type PaymentRequest, type Venue } from "@/lib/ardoise";
+import { PaymentFailed, PaymentUnconfirmed, WAD, type PaymentRequest, type Venue } from "@/lib/ardoise";
 import { createChainArdoise, toPaymentError } from "@/lib/chainArdoise";
 import { accountAbi } from "@/lib/contracts/abis";
 
@@ -30,6 +30,7 @@ interface FakeArc {
   caps: [bigint, bigint, bigint];
   allowed: bigint | null;
   simulateError?: Error;
+  receiptError?: Error;
   logs: Log[];
   logRanges: [bigint, bigint][];
 }
@@ -110,7 +111,8 @@ function client(arc: FakeArc) {
       return { result: 1n, request: {} };
     },
     async waitForTransactionReceipt() {
-      return { status: "success", logs: [paidLog(7n)] };
+      if (arc.receiptError) throw arc.receiptError;
+      return { status: "success", blockNumber: 31_800_000n, logs: [paidLog(7n)] };
     },
     async getBlockNumber() {
       return 31_800_000n;
@@ -204,13 +206,29 @@ describe("on-chain Ardoise client", () => {
     expect(quote.healthAfter).toBe((112n * WAD) / 100n);
   });
 
-  it("pays from the owner's wallet and returns the line with its transaction", async () => {
+  it("pays from the owner's wallet and builds the line from the Paid event", async () => {
     const { account, sent } = client(fakeArc());
     const line = await account.pay(request(1_000_000n));
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ address: ACCOUNT, functionName: "pay" });
-    expect(line).toMatchObject({ id: 7n, principal: 1_054_000n, memo: "Logo design", transactionHash: TX });
+    expect(line).toMatchObject({
+      id: 7n,
+      principal: 1_054_000n,
+      rateBps: 310,
+      destinationDomain: 6,
+      memo: "Logo design",
+      openedAt: 63_600_000,
+      transactionHash: TX,
+    });
     expect(line.venue.name).toBe("Aave V4");
+  });
+
+  it("reports a sent payment whose receipt cannot be read as unconfirmed, with its hash", async () => {
+    const { account } = client(fakeArc({ receiptError: new Error("request timed out\ndetails") }));
+    const error = await account.pay(request(1_000_000n)).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PaymentUnconfirmed);
+    expect((error as PaymentUnconfirmed).transactionHash).toBe(TX);
+    expect((error as PaymentUnconfirmed).message).toBe("request timed out");
   });
 
   it("reads the account's logs in slices from the factory's deployment", async () => {

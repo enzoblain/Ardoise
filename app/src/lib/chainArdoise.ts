@@ -15,6 +15,7 @@ import {
 } from "viem";
 import {
   PaymentFailed,
+  PaymentUnconfirmed,
   payeeToBytes32,
   type ArdoiseClient,
   type DebtLine,
@@ -231,12 +232,40 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
         if (reason.code !== "Reverted") throw new PaymentFailed(reason);
         throw error;
       }
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      // From here the payment is on its way: any failure to read its outcome
+      // must not look like a payment that can be retried.
+      let receipt: Awaited<ReturnType<typeof publicClient.waitForTransactionReceipt>>;
+      try {
+        receipt = await publicClient.waitForTransactionReceipt({ hash });
+      } catch (error) {
+        throw new PaymentUnconfirmed(hash, (error as Error).message.split("\n")[0]);
+      }
       if (receipt.status !== "success") throw new PaymentFailed({ code: "Reverted", message: `Transaction ${hash} reverted` });
       const [paid] = parseEventLogs({ abi: accountAbi, eventName: "Paid", logs: receipt.logs });
-      if (!paid) throw new Error(`No Paid event in ${hash}`);
-      const raw = await read<RawLine>(account, accountAbi, "line", [paid.args.lineId]);
-      return toLine(raw, hash);
+      if (!paid) throw new PaymentUnconfirmed(hash, "the transaction carries no Paid event");
+      // Built from the event and the receipt's block rather than read back
+      // with line(): a load-balanced RPC node may not have that block yet.
+      let openedAt = Math.floor(Date.now() / 1000);
+      try {
+        openedAt = Number((await publicClient.getBlock({ blockNumber: receipt.blockNumber })).timestamp);
+      } catch {
+        // The block time only dates the line; the local clock is close enough.
+      }
+      return toLine(
+        {
+          id: paid.args.lineId,
+          venue: paid.args.venue,
+          principal: paid.args.borrowed,
+          repaid: 0n,
+          accruedInterest: 0n,
+          rateBps: paid.args.rateBps,
+          destinationDomain: paid.args.destinationDomain,
+          openedAt,
+          payee: paid.args.payee,
+          memo: paid.args.memo,
+        },
+        hash,
+      );
     },
   };
 }

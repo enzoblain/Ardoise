@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isAddress, parseUnits, type Address } from "viem";
+import { isAddress, parseUnits, type Address, type Hex } from "viem";
 import {
   PaymentFailed,
+  PaymentUnconfirmed,
   marginFromHealth,
   type ArdoiseClient,
   type DebtLine,
@@ -58,6 +59,10 @@ export function PayScreen({
   const [receipt, setReceipt] = useState<DebtLine>();
   const [refusal, setRefusal] = useState<PaymentError>();
   const [failure, setFailure] = useState<string>();
+  // A payment sent whose outcome could not be read: never offer to pay again.
+  const [unconfirmed, setUnconfirmed] = useState<{ hash: Hex; reason: string }>();
+  const [readError, setReadError] = useState<string>();
+  const [feeNotice, setFeeNotice] = useState<string>();
 
   const amount = parseAmount(amountText);
   const payeeValid = isAddress(payee);
@@ -65,7 +70,10 @@ export function PayScreen({
   const maxFee = amount === undefined || schedule === undefined ? undefined : feeFor(schedule, amount);
 
   useEffect(() => {
-    account.minHealthFactor().then(setMinHealthFactor);
+    account
+      .minHealthFactor()
+      .then(setMinHealthFactor)
+      .catch((e: Error) => setReadError(e.message.split("\n")[0]));
   }, [account]);
 
   // The schedule only depends on the route, so it is fetched once per chain.
@@ -98,7 +106,12 @@ export function PayScreen({
         maxFee,
         memo,
       })
-      .then((q) => current && setQuote(q));
+      .then((q) => {
+        if (!current) return;
+        setQuote(q);
+        setReadError(undefined);
+      })
+      .catch((e: Error) => current && setReadError(e.message.split("\n")[0]));
     return () => {
       current = false;
     };
@@ -112,26 +125,32 @@ export function PayScreen({
     setSending(true);
     setRefusal(undefined);
     setFailure(undefined);
+    setFeeNotice(undefined);
     try {
-      // Circle's forwarder fee moves; a real payment borrows the current one.
-      let fee = maxFee;
+      // Circle's forwarder fee moves. If it changed, show the new borrow and
+      // its checks first: the user signs exactly what the screen displays.
       if (!account.simulated) {
-        const fresh = await fetchFeeSchedule(destination);
-        fee = feeFor(fresh, amount);
-        setSchedules((s) => ({ ...s, [destination.key]: fresh }));
+        const latest = await fetchFeeSchedule(destination);
+        const fee = feeFor(latest, amount);
+        if (fee !== maxFee) {
+          setSchedules((s) => ({ ...s, [destination.key]: latest }));
+          setFeeNotice(`Circle's fee just changed to ${formatUsdc(fee)} USDC. Check the amounts and pay again.`);
+          return;
+        }
       }
       const line = await account.pay({
         amount,
         destinationDomain: destination.cctpDomain,
         payee: payee as Address,
-        maxFee: fee,
+        maxFee,
         memo,
       });
       setReceipt(line);
       setPaymentCount((n) => n + 1);
       onPaid();
     } catch (e) {
-      if (e instanceof PaymentFailed) setRefusal(e.reason);
+      if (e instanceof PaymentUnconfirmed) setUnconfirmed({ hash: e.transactionHash, reason: e.message });
+      else if (e instanceof PaymentFailed) setRefusal(e.reason);
       else setFailure((e as Error).message || "The payment could not be sent.");
     } finally {
       setSending(false);
@@ -248,10 +267,21 @@ export function PayScreen({
       {blocking && error && <p className="text-sm text-red-600">{describeError(error)}</p>}
       {refusal && <p className="text-sm text-red-600">{describeError(refusal)}</p>}
       {failure && <p className="text-sm text-red-600">{failure}</p>}
+      {feeNotice && <p className="text-sm text-amber-700 dark:text-amber-400">{feeNotice}</p>}
+      {readError && <p className="text-sm text-red-600">Could not read the account on chain: {readError}</p>}
 
+      {unconfirmed && (
+        <p className="rounded-md bg-amber-500/15 px-3 py-2 text-sm">
+          The payment was sent but its confirmation could not be read ({unconfirmed.reason}). Check{" "}
+          <a className="underline" href={txUrl(network.arc, unconfirmed.hash)} target="_blank" rel="noreferrer">
+            the transaction
+          </a>{" "}
+          before paying again; the statement shows it once it is mined.
+        </p>
+      )}
       <button
         type="submit"
-        disabled={!payeeValid || !fresh || !!error || sending}
+        disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined}
         className="rounded-lg bg-foreground px-4 py-3 font-semibold text-background disabled:opacity-40"
       >
         {sending ? "Paying…" : amount !== undefined ? `Pay ${formatUsdc(amount)} USDC` : "Pay"}

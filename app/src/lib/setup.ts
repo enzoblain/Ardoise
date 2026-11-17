@@ -13,6 +13,8 @@ export interface SetupState {
   account: Address | null;
   /** USDC the adapter may still borrow for the owner on Aave V4. */
   borrowAllowance: bigint;
+  /** The factory's default per-payment cap: an allowance below it blocks a full payment. */
+  perPaymentCap: bigint;
 }
 
 /** Steps the app can run from the owner's wallet, in order. */
@@ -32,7 +34,7 @@ export async function readSetup(
   owner: Address,
 ): Promise<SetupState> {
   const spoke = { address: deployment.aaveSpoke, abi: aaveSpokeAbi } as const;
-  const [collateral, [collateralEnabled], takerApproved, giverApproved, account, borrowAllowance] = await Promise.all([
+  const [collateral, [collateralEnabled], takerApproved, giverApproved, account, borrowAllowance, perPaymentCap] = await Promise.all([
     client.readContract({ ...spoke, functionName: "getUserSuppliedAssets", args: [deployment.cirBtcReserveId, owner] }),
     client.readContract({ ...spoke, functionName: "getUserReserveStatus", args: [deployment.cirBtcReserveId, owner] }),
     client.readContract({ ...spoke, functionName: "isPositionManager", args: [owner, deployment.aaveTaker] }),
@@ -44,6 +46,7 @@ export async function readSetup(
       functionName: "borrowAllowance",
       args: [deployment.aaveSpoke, deployment.usdcReserveId, owner, deployment.aaveAdapter],
     }),
+    client.readContract({ address: deployment.factory, abi: factoryAbi, functionName: "defaultPerPaymentCap" }),
   ]);
   return {
     collateral,
@@ -52,6 +55,7 @@ export async function readSetup(
     giverApproved,
     account: account === zeroAddress ? null : account,
     borrowAllowance,
+    perPaymentCap,
   };
 }
 
@@ -68,7 +72,8 @@ export function missingSteps(state: SetupState): SetupStep[] {
   if (!state.takerApproved) steps.push("approveTaker");
   if (!state.giverApproved) steps.push("approveGiver");
   if (state.account === null) steps.push("createAccount");
-  if (state.borrowAllowance === 0n) steps.push("approveBorrow");
+  // Renewed once it no longer covers a full payment, not only when empty.
+  if (state.borrowAllowance < state.perPaymentCap) steps.push("approveBorrow");
   return steps;
 }
 

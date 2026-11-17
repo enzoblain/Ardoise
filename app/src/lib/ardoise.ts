@@ -134,8 +134,24 @@ export interface ArdoiseClient {
    * @returns The debt line it opened (`IArdoise.line(lineId)`), with the
    *   payment's transaction when it was sent on chain.
    * @throws {PaymentFailed} With the contract error that refused it.
+   * @throws {PaymentUnconfirmed} When the transaction was sent but its
+   *   outcome could not be read.
    */
   pay(request: PaymentRequest): Promise<DebtLine>;
+}
+
+/**
+ * Thrown by `ArdoiseClient.pay` when the payment was sent but its outcome
+ * could not be confirmed. It may well have gone through: the UI must show
+ * the transaction and not offer to pay again.
+ */
+export class PaymentUnconfirmed extends Error {
+  constructor(
+    readonly transactionHash: Hex,
+    cause: string,
+  ) {
+    super(cause);
+  }
 }
 
 /** Thrown by `ArdoiseClient.pay` with the contract error that refused it. */

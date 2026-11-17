@@ -25,7 +25,10 @@ export async function connectWallet(): Promise<ConnectedWallet> {
   const chainId = numberToHex(chain.id);
   try {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
-  } catch {
+  } catch (error) {
+    // 4902: the wallet does not know the chain yet. Anything else (the user
+    // refusing the switch, 4001) must not turn into an "add network" prompt.
+    if ((error as { code?: number }).code !== 4902) throw error;
     await provider.request({
       method: "wallet_addEthereumChain",
       params: [
