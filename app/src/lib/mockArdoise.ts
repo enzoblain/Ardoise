@@ -121,7 +121,7 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     const borrow = request.amount + request.maxFee;
     // IArdoise.bestVenue: lowest rate among the venues that can lend `borrow`.
     const venue = venues
-      .filter((v) => positions.has(v.id) && v.available >= borrow)
+      .filter((v) => v.borrowable !== false && positions.has(v.id) && v.available >= borrow)
       .sort((a, b) => a.rateBps - b.rateBps)[0];
     const position = venue && positionOf(venue.id);
     const base: PaymentQuote = {
@@ -133,6 +133,8 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     };
 
     // Errors in the order pay() checks them.
+    if (request.amount === 0n) return { ...base, error: { code: "ZeroAmount" } };
+    if (request.destinationDomain === ARC_DOMAIN && request.maxFee > 0n) return { ...base, error: { code: "FeeOnArc" } };
     if (!isAddress(request.payee) || request.payee === zeroAddress) {
       return { ...base, error: { code: "InvalidPayee" } };
     }
@@ -203,6 +205,7 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     simulated: true,
     health: async (venueId) => health(venueId),
     minHealthFactor: async () => options.minHealthFactor,
+    simulatedDropBps: async () => 0,
     caps: async () => ({ perPayment: options.perPaymentCap, daily: options.dailyCap, spentToday }),
     lines: async () => [...lines],
     quote: async (request) => quote(request),
@@ -216,6 +219,8 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
   };
 }
 
+// IArdoise.ARC_DOMAIN: a payment there is a plain USDC transfer.
+const ARC_DOMAIN = 26;
 // Stand-in address for the account that emits the mock's logs.
 const MOCK_ACCOUNT: Address = "0x000000000000000000000000000000000000a4d0";
 // Non-indexed fields of IArdoise.Paid, in order.

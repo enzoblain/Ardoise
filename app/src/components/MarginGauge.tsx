@@ -7,7 +7,8 @@ import { formatPercent } from "@/lib/format";
  * @param props.venueName Venue whose position is shown.
  * @param props.before Margin now, between 0 and 1.
  * @param props.after Margin after the payment, if known.
- * @param props.minimum Lowest margin the guard lets a payment reach.
+ * @param props.minimum Lowest margin the guard lets a payment reach;
+ *   undefined while no guard is set.
  */
 export function MarginGauge({
   venueName,
@@ -18,10 +19,10 @@ export function MarginGauge({
   venueName: string;
   before: number;
   after?: number;
-  minimum: number;
+  minimum?: number;
 }) {
   const shown = after ?? before;
-  const tooLow = after !== undefined && after < minimum;
+  const tooLow = after !== undefined && minimum !== undefined && after < minimum;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
@@ -54,15 +55,21 @@ export function MarginGauge({
             style={{ left: `${Math.max(after, 0) * 100}%`, width: `${(before - Math.max(after, 0)) * 100}%` }}
           />
         )}
-        {/* Drawn last so the guard's floor stays visible over the fill. */}
-        <div
-          className="absolute inset-y-0 left-0 bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.55)_0_4px,transparent_4px_8px)]"
-          style={{ width: `${minimum * 100}%` }}
-        />
-        <div className="absolute inset-y-0 w-0.5 bg-red-600" style={{ left: `${minimum * 100}%` }} />
+        {minimum !== undefined && (
+          <>
+            {/* Drawn last so the guard's floor stays visible over the fill. */}
+            <div
+              className="absolute inset-y-0 left-0 bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.55)_0_4px,transparent_4px_8px)]"
+              style={{ width: `${minimum * 100}%` }}
+            />
+            <div className="absolute inset-y-0 w-0.5 bg-red-600" style={{ left: `${minimum * 100}%` }} />
+          </>
+        )}
       </div>
       <p className="text-xs opacity-60">
-        Payments that would leave less than {formatPercent(minimum)} (red zone) are refused.
+        {minimum === undefined
+          ? "No position guard is deployed yet, so no payment can go through."
+          : `Payments that would leave less than ${formatPercent(minimum)} (red zone) are refused.`}
       </p>
     </div>
   );
