@@ -26,7 +26,8 @@ _Architecture overview and diagram to be added as the project is built._
 _Where and how each sponsor technology is used, with links to the relevant files._
 
 - **CCTP (Cross-Chain Transfer Protocol):** a payment to a payee on Base is burned on Arc and minted on Base by Circle's forwarder (CCTP fast transfer). The app tracks each delivery through Circle's attestation service (Iris): [`app/src/lib/delivery.ts`](app/src/lib/delivery.ts), shown on the payment page [`app/src/app/payments/[txHash]/page.tsx`](app/src/app/payments/[txHash]/page.tsx).
-- **Arc:** the app reads Arc Testnet or Arc mainnet, chosen by `NEXT_PUBLIC_ARDOISE_NETWORK`: [`app/src/lib/network.ts`](app/src/lib/network.ts).
+- **CCTP fees:** before each payment to Base, the app asks Iris for the fast-transfer and forwarder fee and borrows it on top of the amount (`maxFee` in `pay()`): [`app/src/lib/fees.ts`](app/src/lib/fees.ts).
+- **Arc:** the app reads Arc Testnet or Arc mainnet, chosen by `NEXT_PUBLIC_ARDOISE_NETWORK`: [`app/src/lib/network.ts`](app/src/lib/network.ts). The live USDC borrow rates of Aave V4 and Morpho against cirBTC are always read on Arc mainnet, where those markets are: [`app/src/lib/venues.ts`](app/src/lib/venues.ts).
 
 ## Getting started
 
@@ -77,7 +78,7 @@ set -a && source .env && set +a
 
 ```
 contracts/   Solidity contracts (Foundry); for now the frozen interfaces in src/interfaces/
-app/         Next.js + viem front end; for now the Arc connection and the cross-chain payment tracking page
+app/         Next.js + viem front end: pay screen (simulated account, live rates), cross-chain payment tracking page
 keeper/      Node keeper; for now follows Arc mainnet blocks
 docs/        Roadmap and contract interfaces (api.md)
 ```
