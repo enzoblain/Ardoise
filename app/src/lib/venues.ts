@@ -9,6 +9,7 @@ import type { Venue } from "@/lib/ardoise";
 // listed in docs/api.md and checked on chain.
 const AAVE_CORE_HUB = "0x17288dfc86205301064577b98B02b81017e6F79C";
 const AAVE_USDC_ASSET_ID = 0n;
+const AAVE_MAIN_SPOKE = "0xB843bdC3a87A05E77E07Df9FE48928b3A34b134d";
 const MORPHO = "0x34CD04070dD72b14E241112F6d83812Df5Af7fCD";
 // Flagship cirBTC/USDC market (86% LLTV), the one Circle's Borrow Kit uses.
 const MORPHO_CIRBTC_USDC: Hex =
@@ -68,7 +69,9 @@ async function readAave(): Promise<Venue> {
   // Hub rates are yearly, in RAY. Liquidity is Hub-wide; if the Main Spoke
   // has a lower draw cap, AaveV4Adapter.available() (A1) is the figure that
   // counts, and C4 reads it instead of this.
-  return { id: "aave-v4", name: "Aave V4", rateBps: Number((rate * 10_000n) / RAY), available: liquidity };
+  // Until the adapters are deployed (A1), the Main Spoke stands in for the
+  // venue address that Paid events will carry.
+  return { id: "aave-v4", address: AAVE_MAIN_SPOKE, name: "Aave V4", rateBps: Number((rate * 10_000n) / RAY), available: liquidity };
 }
 
 async function readMorpho(): Promise<Venue> {
@@ -91,6 +94,7 @@ async function readMorpho(): Promise<Venue> {
   // so it compares with Aave's.
   return {
     id: "morpho",
+    address: MORPHO,
     name: "Morpho",
     rateBps: Number((perSecond * SECONDS_PER_YEAR * 10_000n) / WAD),
     // Stored totals, without the interest accrued since the last update:

@@ -1,4 +1,4 @@
-import { isAddress, pad, type Address, type Hex } from "viem";
+import { isAddress, pad, type Address, type Hex, type Log } from "viem";
 
 /**
  * App-side view of the contract interfaces in contracts/src/interfaces
@@ -14,6 +14,8 @@ const USDC_TO_WAD = 10n ** 12n;
 /** A lending venue, as `IVenue` exposes it. */
 export interface Venue {
   id: string;
+  /** Address that `Paid` events carry as `venue`. */
+  address: Address;
   name: string;
   /** Yearly borrow rate (APR) in basis points. */
   rateBps: number;
@@ -99,6 +101,11 @@ export interface ArdoiseClient {
   caps(): Promise<Caps>;
   lines(): Promise<DebtLine[]>;
   quote(request: PaymentRequest): Promise<PaymentQuote>;
+  /**
+   * The account's `Paid` and `LineRepaid` logs, with the time of each block
+   * they were emitted in; the statement is built from them.
+   */
+  events(): Promise<{ logs: Log[]; blockTimes: Map<bigint, number> }>;
   /**
    * Sends the payment.
    * @returns The debt line it opened (`IArdoise.line(lineId)`).
