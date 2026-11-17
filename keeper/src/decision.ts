@@ -36,6 +36,11 @@ export interface VenuePosition {
 export interface Thresholds {
   minHealthFactor: bigint;
   targetHealthFactor: bigint;
+  /**
+   * Simulated drop of the collateral price set on the guard for the demo, in
+   * basis points; 0 when the simulation is off.
+   */
+  simulatedDropBps: bigint;
 }
 
 /** Everything the keeper reads about one account before deciding. */
@@ -63,6 +68,24 @@ export type Decision =
       shortfall: bigint;
     };
 
+const BPS = 10_000n;
+const MAX_UINT256 = 2n ** 256n - 1n;
+
+/**
+ * Position as the guard sees it under a simulated price drop: the same debt,
+ * and a health factor scaled by the drop, with the same rounding as
+ * `MarginGuard.simulatedHealth`. The keeper must judge a position the way
+ * the guard does, otherwise it would not repay when the guard refuses.
+ *
+ * @param position Position read from the venue.
+ * @param dropBps Simulated drop in basis points (0 = no simulation).
+ * @returns The position to decide on; unchanged without simulation or debt.
+ */
+export function applySimulatedDrop(position: VenuePosition, dropBps: bigint): VenuePosition {
+  if (dropBps === 0n || position.healthFactor === MAX_UINT256) return position;
+  return { ...position, healthFactor: (position.healthFactor * (BPS - dropBps)) / BPS };
+}
+
 /**
  * USDC a position must repay to return to the target health factor, assuming
  * the collateral value does not move.
@@ -89,7 +112,8 @@ export function repaymentToTarget(position: VenuePosition, targetHealthFactor: b
  * Sweeping is always in the user's interest when the account holds USDC and
  * has debt: the balance can do nothing else there, and repaying stops the
  * interest. The thresholds only change how the decision is labelled and
- * whether a shortfall is reported.
+ * whether a shortfall is reported. Under a simulated price drop, positions
+ * are judged with the simulated health factor.
  *
  * @param state What the keeper read about the account.
  * @returns `sweep` when a transaction is worth sending, otherwise `wait` with
@@ -105,6 +129,7 @@ export function decide(state: AccountState): Decision {
     thresholds === null
       ? 0n
       : state.positions
+          .map((position) => applySimulatedDrop(position, thresholds.simulatedDropBps))
           .filter((position) => position.debtUsd > 0n && position.healthFactor < thresholds.minHealthFactor)
           .reduce((sum, position) => sum + repaymentToTarget(position, thresholds.targetHealthFactor), 0n);
   const underMinimum = needed > 0n;

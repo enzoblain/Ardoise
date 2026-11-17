@@ -13,7 +13,14 @@ import {
 
 import { accountAbi, erc20Abi, factoryAbi, guardAbi, venueAbi } from "./abis.js";
 import { USDC_ADDRESS } from "./config.js";
-import { MIN_SWEEP_AMOUNT, decide, type Decision, type Thresholds, type VenuePosition } from "./decision.js";
+import {
+  MIN_SWEEP_AMOUNT,
+  applySimulatedDrop,
+  decide,
+  type Decision,
+  type Thresholds,
+  type VenuePosition,
+} from "./decision.js";
 
 /**
  * Largest block range asked in one `eth_getLogs` call. Public RPC endpoints
@@ -48,6 +55,9 @@ const RECEIPT_TIMEOUT_MS = 30_000;
  * account is retried instead of staying on hold forever.
  */
 const PENDING_DEADLINE_MS = 300_000;
+
+/** Log topics about the guard as a whole, printed without an account prefix. */
+const GLOBAL_TOPICS = new Set(["guard", "simulation"]);
 
 /** An Ardoise account and the wallet that owns it and its collateral. */
 interface WatchedAccount {
@@ -189,10 +199,35 @@ export class Keeper {
         publicClient.readContract({ address: guard, abi: guardAbi, functionName: "targetHealthFactor" }),
       ]);
       this.logRecovery(guard, "guard", `guard ${guard} can be read again`);
-      return { minHealthFactor, targetHealthFactor };
+      return { minHealthFactor, targetHealthFactor, simulatedDropBps: await this.readSimulatedDrop(guard) };
     } catch (error) {
       this.logOnce(guard, "guard", `guard ${guard} cannot be read, ignoring thresholds: ${errorMessage(error)}`);
       return null;
+    }
+  }
+
+  /**
+   * Reads the simulated price drop of the demo. It is an addition of
+   * `MarginGuard`, not part of `IGuard`, so a guard without it means no
+   * simulation.
+   */
+  private async readSimulatedDrop(guard: Address): Promise<bigint> {
+    try {
+      const dropBps = await this.options.publicClient.readContract({
+        address: guard,
+        abi: guardAbi,
+        functionName: "simulatedDropBps",
+      });
+      this.logOnce(
+        guard,
+        "simulation",
+        dropBps === 0n
+          ? "simulation off: positions are judged at the real collateral price"
+          : `SIMULATION: collateral price -${formatUnits(dropBps, 2)}%, positions are judged as if it had dropped`,
+      );
+      return dropBps;
+    } catch {
+      return 0n;
     }
   }
 
@@ -225,13 +260,14 @@ export class Keeper {
     ]);
 
     const decision = decide({ usdcBalance, positions, thresholds });
-    const lowest = positions.reduce(
-      (min, position) => (position.healthFactor < min ? position.healthFactor : min),
-      2n ** 256n - 1n,
-    );
+    const dropBps = thresholds?.simulatedDropBps ?? 0n;
+    const lowest = positions
+      .map((position) => applySimulatedDrop(position, dropBps).healthFactor)
+      .reduce((min, value) => (value < min ? value : min), 2n ** 256n - 1n);
     const mayAttempt = this.canAttempt(watched.account);
     const onHold = decision.action === "sweep" && !mayAttempt ? " (on hold after an earlier attempt)" : "";
-    this.logOnce(watched.account, "state", describe(decision, usdcBalance, lowest) + onHold);
+    const simulated = dropBps > 0n ? "[SIMULATION] " : "";
+    this.logOnce(watched.account, "state", simulated + describe(decision, usdcBalance, lowest) + onHold);
     // A new sweep decision must be reported again even if it repeats an older one.
     if (decision.action !== "sweep" && !this.pending.has(watched.account)) {
       this.lastLogged.delete(`${watched.account}:sweep`);
@@ -348,7 +384,7 @@ export class Keeper {
   /** Logs that `subject` works again if a failure was logged on this topic, and forgets it. */
   private logRecovery(subject: Address, topic: string, message: string): void {
     if (!this.lastLogged.delete(`${subject}:${topic}`)) return;
-    this.options.log(topic === "guard" ? message : `account ${subject}: ${message}`);
+    this.options.log(GLOBAL_TOPICS.has(topic) ? message : `account ${subject}: ${message}`);
   }
 
   /** Logs a line about `subject` unless it repeats the last one on the same topic. */
@@ -356,7 +392,7 @@ export class Keeper {
     const key = `${subject}:${topic}`;
     if (this.lastLogged.get(key) === message) return;
     this.lastLogged.set(key, message);
-    this.options.log(topic === "guard" ? message : `account ${subject}: ${message}`);
+    this.options.log(GLOBAL_TOPICS.has(topic) ? message : `account ${subject}: ${message}`);
   }
 }
 

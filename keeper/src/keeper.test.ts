@@ -43,6 +43,8 @@ interface FakeChain {
   /** Amount `sweep()` reports in simulation. */
   sweepRepays: bigint;
   guardReverts: boolean;
+  /** Simulated price drop reported by the guard, or `null` for a guard without the simulation. */
+  simulatedDropBps: bigint | null;
   logsFail: boolean;
   /** Makes the account's balance read fail. */
   callsFail: boolean;
@@ -62,6 +64,7 @@ function fakeChain(overrides: Partial<FakeChain> = {}): FakeChain {
     debt: 4_000n,
     sweepRepays: 100n * USDC,
     guardReverts: false,
+    simulatedDropBps: 0n,
     logsFail: false,
     callsFail: false,
     receipt: "success",
@@ -83,6 +86,10 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
     case GUARD: {
       if (chain.guardReverts) throw new Error("execution reverted");
       const { functionName } = decodeFunctionData({ abi: guardAbi, data });
+      if (functionName === "simulatedDropBps") {
+        if (chain.simulatedDropBps === null) throw new Error("execution reverted");
+        return encodeFunctionResult({ abi: guardAbi, functionName, result: chain.simulatedDropBps });
+      }
       const result = functionName === "minHealthFactor" ? (125n * WAD) / 100n : (15n * WAD) / 10n;
       return encodeFunctionResult({ abi: guardAbi, functionName, result });
     }
@@ -386,4 +393,32 @@ test("keeps checking known accounts when the log query fails", async () => {
   await keeper.tick();
   assert.equal(chain.sent, 2);
   assert.ok(logs.some((line) => line.startsWith("reading new accounts failed")));
+});
+
+test("under a simulated drop, labels the logs and sweeps to restore the margin", async () => {
+  // Health factor 1.95 for 4,000 USDC of debt; -40% brings it to 1.17, under the 1.25 minimum.
+  const chain = fakeChain({ simulatedDropBps: 4_000n });
+  const { keeper, logs } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.ok(logs.some((line) => line.startsWith("SIMULATION: collateral price -40%")));
+  assert.ok(logs.some((line) => line.includes("[SIMULATION] health factor 1.170") && line.includes("under the minimum")));
+  assert.equal(chain.sent, 1);
+});
+
+test("says when the simulation is turned off again", async () => {
+  const chain = fakeChain({ simulatedDropBps: 4_000n, balance: 0n });
+  const { keeper, logs } = setUp(chain);
+  await keeper.tick();
+  chain.simulatedDropBps = 0n;
+  await keeper.tick();
+  assert.ok(logs.some((line) => line.startsWith("simulation off")));
+  assert.ok(logs.some((line) => line.includes("health factor 1.950") && !line.includes("[SIMULATION]")));
+});
+
+test("works with a guard that has no simulation", async () => {
+  const chain = fakeChain({ simulatedDropBps: null });
+  const { keeper, logs } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.equal(chain.sent, 1);
+  assert.ok(!logs.some((line) => line.includes("SIMULATION")));
 });
