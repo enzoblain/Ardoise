@@ -68,7 +68,9 @@ contract MarginGuard is IGuard {
     /// @dev A safe payment costs a single `healthAfter` call, which is the only path that
     /// matters for gas: `pay()` reverts whenever the answer is lower than `amount`, so the
     /// search below runs in practice in `eth_call`s from the app (to show how much can still be
-    /// paid) or in transactions that revert anyway. Reverts if the venue's `healthAfter` reverts.
+    /// paid) or in transactions that revert anyway. Reverts if the venue's `healthAfter` reverts,
+    /// so the answer is exact for any amount the venue can project; a caller asking for "as much
+    /// as possible" should pass a large realistic amount rather than `type(uint256).max`.
     function checkMargin(address user, IVenue venue, uint256 amount) external view returns (uint256 allowed) {
         if (amount == 0) return 0;
 
@@ -80,8 +82,8 @@ contract MarginGuard is IGuard {
         if (venue.healthAfter(user, 0) < minHf) return 0;
 
         // Invariant: borrowing `low` keeps the margin, borrowing `high` does not. The interval
-        // halves at every step, so the search ends after at most 256 projections, and after
-        // about 40 for any realistic USDC amount.
+        // halves at every step, so the search ends after at most 256 iterations, and after
+        // 40 to 50 for realistic USDC amounts.
         uint256 low = 0;
         uint256 high = amount;
         while (high - low > 1) {

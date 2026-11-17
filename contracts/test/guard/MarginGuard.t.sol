@@ -107,9 +107,16 @@ contract MarginGuardTest is Test {
     }
 
     function test_checkMargin_hugeAmountStillFindsTheExactMaximum() public view {
-        // An app may pass a very large amount to ask how much can still be paid. The venue
-        // mock would overflow above 2^128, which no real amount reaches.
+        // An app may pass a very large amount to ask how much can still be paid. The amount
+        // stays within what the venue mock can project without overflowing.
         assertEq(guard.checkMargin(user, venue, type(uint128).max), MAX_DEBT);
+    }
+
+    function test_checkMargin_revertsWhenVenueRevertsDuringSearch() public {
+        // The request is over the threshold, so the guard projects the current position next.
+        vm.mockCallRevert(address(venue), abi.encodeCall(IVenue.healthAfter, (user, 0)), "oracle down");
+        vm.expectRevert("oracle down");
+        guard.checkMargin(user, venue, MAX_DEBT + 1);
     }
 
     function test_checkMargin_revertsWhenVenueReverts() public {
