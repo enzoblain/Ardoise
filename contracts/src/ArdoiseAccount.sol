@@ -255,8 +255,12 @@ contract ArdoiseAccount is IArdoise {
     // Repays through each line's venue inside the non-reentrant lock.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
     /// @inheritdoc IArdoise
-    /// @dev Lines whose venue debt is already 0 are closed on the way at no cost. Stops when the
-    /// balance runs out; what is left after every line is closed stays in the account.
+    /// @dev Lines whose venue debt is already 0 are closed on the way at no cost. A line whose
+    /// venue refuses the repayment is skipped rather than blocking the sweep, so the keeper is
+    /// never stuck behind one line. What is left once the open lines are covered repays the
+    /// owner's remaining debt on each venue of the factory: the line estimates use simple
+    /// interest while venues compound, and the owner may have debt opened outside Ardoise.
+    /// Anything left after that stays in the account.
     function sweep() external nonReentrant returns (uint256 repaid) {
         uint256 balance = usdc.balanceOf(address(this));
         uint256 count = _lines.length;
@@ -270,6 +274,24 @@ contract ArdoiseAccount is IArdoise {
             repaid += lineRepaid;
             balance -= spent;
         }
+        IVenue[] memory list = balance > 0 ? venues() : new IVenue[](0);
+        for (uint256 v = 0; v < list.length && balance > 0; ++v) {
+            (bool ok, uint256 debt) = _debtOf(list[v]);
+            if (!ok || debt == 0) continue;
+            (, uint256 venueRepaid, uint256 spent) = _venueRepay(list[v], _min(balance, debt), address(this));
+            repaid += venueRepaid;
+            balance -= spent;
+        }
+    }
+
+    /// @notice Whether a debt line is closed: fully repaid by its own estimate, or its venue
+    /// debt reached 0.
+    /// @dev Not part of `IArdoise`: `DebtLine` has no closed flag, and a line closed because the
+    /// venue debt reached 0 may show `repaid` below `principal`. Reverts with `UnknownLine`.
+    /// @param lineId Debt line identifier.
+    /// @return True if `repay` would revert with `LineAlreadyRepaid`.
+    function closed(uint256 lineId) external view returns (bool) {
+        return _line(lineId).closed;
     }
 
     // ----- Views -----
@@ -297,36 +319,76 @@ contract ArdoiseAccount is IArdoise {
     // Only reached from `repay` and `sweep`, both non-reentrant.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events, block-timestamp)
     /// @dev Repays up to `amount` of line `lineId` through its venue. `payer` is the caller for
-    /// `repay` (tokens are pulled from it and the unused part refunded) or the account itself for
-    /// `sweep`. Returns the debt the venue restored and the USDC the payer actually spent.
+    /// `repay` (a venue revert bubbles up) or the account itself for `sweep` (a venue revert
+    /// leaves the line untouched). Returns the debt the venue restored and the USDC spent.
     function _repayLine(uint256 lineId, Line storage l, uint256 amount, address payer)
         private
         returns (uint256 repaid, uint256 spent)
     {
-        uint256 owed = _outstanding(l);
-        uint256 toRepay = _min(amount, owed);
+        uint256 toRepay = _min(amount, _outstanding(l));
         IVenue venue = l.venue;
 
         if (toRepay > 0) {
-            uint256 balanceBefore = usdc.balanceOf(address(this));
-            if (payer != address(this)) {
-                _call(usdc.transferFrom(payer, address(this), toRepay));
-                balanceBefore += toRepay;
-            }
-            _call(usdc.approve(address(venue), toRepay));
-            repaid = venue.repay(owner, toRepay);
-            spent = balanceBefore - usdc.balanceOf(address(this));
-            if (spent < toRepay) {
-                _call(usdc.approve(address(venue), 0));
-                if (payer != address(this)) _call(usdc.transfer(payer, toRepay - spent));
-            }
+            bool ok;
+            (ok, repaid, spent) = _venueRepay(venue, toRepay, payer);
+            if (!ok) return (0, 0);
             l.repaid += repaid;
         }
 
         // The estimate may differ from what the venue charges: the venue's debt is the truth.
-        bool done = l.repaid >= l.principal + _interest(l) || venue.debtOf(owner) == 0;
+        (bool known, uint256 venueDebt) = _debtOf(venue);
+        bool done = l.repaid >= l.principal + _interest(l) || (known && venueDebt == 0);
         if (done) l.closed = true;
         if (repaid > 0 || done) emit LineRepaid(lineId, payer, repaid);
+    }
+
+    // Only reached from `repay` and `sweep`, both non-reentrant.
+    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth)
+    /// @dev Repays `amount` of the owner's debt on `venue`, pulling it from `payer` unless the
+    /// payer is the account itself, and refunding what the venue does not take. For an external
+    /// payer a venue revert bubbles up; for the account (`sweep`) it returns `ok = false` with
+    /// the approval cleared, so one failing venue cannot block the others.
+    function _venueRepay(IVenue venue, uint256 amount, address payer)
+        private
+        returns (bool ok, uint256 repaid, uint256 spent)
+    {
+        uint256 balanceBefore = usdc.balanceOf(address(this));
+        bool external_ = payer != address(this);
+        if (external_) {
+            // `payer` is always `msg.sender` here: `repay` is the only caller that passes another
+            // address than the account.
+            // forge-lint: disable-next-line(arbitrary-send-erc20)
+            _call(usdc.transferFrom(payer, address(this), amount));
+            balanceBefore += amount;
+        }
+        _call(usdc.approve(address(venue), amount));
+        try venue.repay(owner, amount) returns (uint256 restored) {
+            repaid = restored;
+            ok = true;
+        } catch (bytes memory reason) {
+            if (external_) {
+                assembly ("memory-safe") {
+                    // forge-lint: disable-next-line(require-revert-in-loop)
+                    revert(add(reason, 32), mload(reason))
+                }
+            }
+            _call(usdc.approve(address(venue), 0));
+            return (ok, repaid, spent); // all still zero: nothing was repaid
+        }
+        spent = balanceBefore - usdc.balanceOf(address(this));
+        if (spent < amount) {
+            _call(usdc.approve(address(venue), 0));
+            if (external_) _call(usdc.transfer(payer, amount - spent));
+        }
+    }
+
+    // forge-lint: disable-next-item(calls-loop)
+    /// @dev The owner's debt on `venue`; `ok` is false if the venue cannot answer.
+    function _debtOf(IVenue venue) private view returns (bool ok, uint256 debt) {
+        try venue.debtOf(owner) returns (uint256 d) {
+            ok = true;
+            debt = d;
+        } catch {}
     }
 
     // The timestamp only feeds an interest estimate; a few seconds of drift are irrelevant.

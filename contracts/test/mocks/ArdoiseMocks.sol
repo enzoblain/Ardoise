@@ -27,6 +27,8 @@ contract TokenVenue is IVenue {
     uint256 public shortfall;
     /// @notice Amount `borrow` sends on top of what is asked (venue rounding).
     uint256 public surplus;
+    /// @notice When true, `repay` reverts.
+    bool public repayBroken;
     /// @notice Call made back into `msg.sender` during `borrow`, if set.
     bytes public reentryCall;
     /// @notice Debt of each user.
@@ -56,6 +58,11 @@ contract TokenVenue is IVenue {
         broken = broken_;
         shortfall = shortfall_;
         surplus = surplus_;
+    }
+
+    /// @notice Makes `repay` revert or work again.
+    function setRepayBroken(bool broken_) external {
+        repayBroken = broken_;
     }
 
     /// @notice Sets the call made back into the borrower during `borrow`.
@@ -119,6 +126,7 @@ contract TokenVenue is IVenue {
 
     /// @inheritdoc IVenue
     function repay(address user, uint256 amount) external returns (uint256 repaid) {
+        require(!repayBroken, "repay refused");
         repaid = amount < debtOf[user] ? amount : debtOf[user];
         if (repaid == 0) return 0;
         token.transferFrom(msg.sender, address(this), repaid);

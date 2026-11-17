@@ -425,6 +425,59 @@ contract ArdoiseAccountTest is Test {
         account.sweep();
     }
 
+    function test_sweep_skipsLineWhoseVenueRefusesRepayment() public {
+        _payArc(1 * USDC); // line 1 on aave
+        aave.setMarket(310, 0);
+        _payArc(2 * USDC); // line 2 on morpho
+        aave.setRepayBroken(true);
+
+        usdc.mint(address(account), 2 * USDC);
+        assertEq(account.sweep(), 2 * USDC);
+        assertFalse(account.closed(1));
+        assertTrue(account.closed(2));
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.allowance(address(account), address(aave)), 0);
+    }
+
+    function test_sweep_repaysVenueDebtBeyondLineEstimates() public {
+        _payArc(1 * USDC);
+        // The venue compounded more than the line estimate (0 after no time).
+        aave.setDebt(owner, 1.2e6);
+        usdc.mint(address(account), 2 * USDC);
+        assertEq(account.sweep(), 1.2e6);
+        assertTrue(account.closed(1));
+        assertEq(aave.debtOf(owner), 0);
+        assertEq(usdc.balanceOf(address(account)), 0.8e6);
+    }
+
+    function test_sweep_repaysDebtOpenedOutsideArdoise() public {
+        morpho.setDebt(owner, 1 * USDC);
+        usdc.mint(address(account), 3 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.balanceOf(address(account)), 2 * USDC);
+    }
+
+    function test_repay_bubblesVenueRevert() public {
+        _payArc(1 * USDC);
+        aave.setRepayBroken(true);
+        _fund(stranger, 1 * USDC);
+        vm.expectRevert(bytes("repay refused"));
+        vm.prank(stranger);
+        account.repay(1, 1 * USDC);
+    }
+
+    function test_closed_reportsLineState() public {
+        _payArc(1 * USDC);
+        assertFalse(account.closed(1));
+        aave.setDebt(owner, 0); // repaid directly on the venue
+        account.repay(1, 0);
+        assertTrue(account.closed(1));
+        assertEq(account.line(1).repaid, 0);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.UnknownLine.selector, 2));
+        account.closed(2);
+    }
+
     // ----- reentrancy -----
 
     function test_reentrancy_venueCannotReenterDuringBorrow() public {
