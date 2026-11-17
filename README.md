@@ -25,6 +25,9 @@ _Architecture overview and diagram to be added as the project is built._
 
 _Where and how each sponsor technology is used, with links to the relevant files._
 
+- **CCTP (Cross-Chain Transfer Protocol):** a payment to a payee on Base is burned on Arc and minted on Base by Circle's forwarder (CCTP fast transfer). The app tracks each delivery through Circle's attestation service (Iris): [`app/src/lib/delivery.ts`](app/src/lib/delivery.ts), shown on the payment page [`app/src/app/payments/[txHash]/page.tsx`](app/src/app/payments/[txHash]/page.tsx).
+- **Arc:** the app reads Arc Testnet or Arc mainnet, chosen by `NEXT_PUBLIC_ARDOISE_NETWORK`: [`app/src/lib/network.ts`](app/src/lib/network.ts).
+
 ## Getting started
 
 ### Prerequisites
@@ -66,7 +69,7 @@ set -a && source .env && set +a
 
 ```bash
 (cd contracts && forge build && forge test)
-(cd app && npm run lint && npm run build)
+(cd app && npm run lint && npm test && npm run build)
 (cd keeper && npm run typecheck)
 ```
 
@@ -74,7 +77,7 @@ set -a && source .env && set +a
 
 ```
 contracts/   Solidity contracts (Foundry); empty scaffold for now
-app/         Next.js + viem front end; for now shows the Arc mainnet connection
+app/         Next.js + viem front end; for now the Arc connection and the cross-chain payment tracking page
 keeper/      Node keeper; for now follows Arc mainnet blocks
 docs/        Roadmap
 ```
