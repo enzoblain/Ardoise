@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { generatePrivateKey, privateKeyToAddress } from "viem/accounts";
+
 import { loadConfig } from "./config.js";
 
 const FACTORY = "0x00000000000000000000000000000000000000f1";
-/** Well-known first test key of local development nodes; it guards nothing. */
-const TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // secret-scan:allow
+/** Throwaway key made for this run, so that no key is written in the repository. */
+const TEST_KEY = generatePrivateKey();
 
 test("an empty environment means no factory, no key and the public RPC", () => {
   assert.deepEqual(loadConfig({}), {
@@ -24,7 +26,7 @@ test("reads the factory, its deploy block and the keeper wallet", () => {
   });
   assert.equal(config.factory, FACTORY);
   assert.equal(config.factoryDeployBlock, 31_770_000n);
-  assert.equal(config.keeperAccount?.address, "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+  assert.equal(config.keeperAccount?.address, privateKeyToAddress(TEST_KEY));
 });
 
 test("rejects an invalid factory address or deploy block", () => {
