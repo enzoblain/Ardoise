@@ -11,6 +11,7 @@ import { network } from "@/lib/network";
 import { connectWallet, type ConnectedWallet } from "@/lib/wallet";
 import { AccountSetup } from "@/components/AccountSetup";
 import { PayScreen } from "@/components/PayScreen";
+import { ProtectionPanel } from "@/components/ProtectionPanel";
 import { Statement } from "@/components/Statement";
 
 /**
@@ -20,7 +21,7 @@ import { Statement } from "@/components/Statement";
  * Without a wallet it runs the simulated demo account, so anyone can try the
  * flow. Once the owner connects a wallet on a network where the contracts
  * are deployed, it walks through the one-time setup, then switches to the
- * on-chain account.
+ * on-chain account and adds the Protection panel (Gateway reserve on Base).
  *
  * @param props.venues Venues with their live rates, read on the server.
  */
@@ -47,7 +48,10 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
   );
   const account = live ?? demo;
 
-  // A different wallet account or network invalidates everything read so far.
+  // A different wallet account invalidates everything read so far. A network
+  // switch does not: the Protection panel moves to Base to deposit and back,
+  // reads go through the app's own Arc client, and viem refuses to send a
+  // transaction while the wallet is on another chain than the one asked.
   useEffect(() => {
     if (!wallet) return;
     const reset = () => {
@@ -55,10 +59,8 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
       setAccountAddress(undefined);
     };
     wallet.provider.on("accountsChanged", reset);
-    wallet.provider.on("chainChanged", reset);
     return () => {
       wallet.provider.removeListener("accountsChanged", reset);
-      wallet.provider.removeListener("chainChanged", reset);
     };
   }, [wallet]);
 
@@ -93,6 +95,9 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
         <>
           <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
           <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
+          {live && wallet && accountAddress && (
+            <ProtectionPanel provider={wallet.provider} owner={wallet.address} account={accountAddress} />
+          )}
         </>
       )}
     </>
