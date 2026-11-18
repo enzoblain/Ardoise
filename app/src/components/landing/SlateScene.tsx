@@ -25,24 +25,29 @@ export function SlateScene() {
 
     const target = { ...REST };
     const current = { ...REST };
+    // 0 while the slate is at rest: frames only run while it is catching up
+    // with the pointer, not forever.
     let frame = 0;
 
-    const onMove = (e: PointerEvent) => {
-      const x = e.clientX / window.innerWidth - 0.5;
-      const y = e.clientY / window.innerHeight - 0.5;
-      target.ry = REST.ry + x * 2 * RANGE;
-      target.rx = REST.rx - y * 2 * RANGE;
-    };
     const tick = () => {
       current.rx += (target.rx - current.rx) * EASE;
       current.ry += (target.ry - current.ry) * EASE;
       el.style.setProperty("--rx", `${current.rx.toFixed(2)}deg`);
       el.style.setProperty("--ry", `${current.ry.toFixed(2)}deg`);
-      frame = requestAnimationFrame(tick);
+      const settled = Math.abs(target.rx - current.rx) < 0.01 && Math.abs(target.ry - current.ry) < 0.01;
+      frame = settled ? 0 : requestAnimationFrame(tick);
+    };
+    const onMove = (e: PointerEvent) => {
+      // Touch drags scroll the page; tilting on them would only add jank.
+      if (e.pointerType !== "mouse") return;
+      const x = e.clientX / window.innerWidth - 0.5;
+      const y = e.clientY / window.innerHeight - 0.5;
+      target.ry = REST.ry + x * 2 * RANGE;
+      target.rx = REST.rx - y * 2 * RANGE;
+      if (!frame) frame = requestAnimationFrame(tick);
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
-    frame = requestAnimationFrame(tick);
     return () => {
       window.removeEventListener("pointermove", onMove);
       cancelAnimationFrame(frame);

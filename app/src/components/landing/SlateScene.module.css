@@ -140,7 +140,7 @@
   .ticket { display: none; }
 }
 
-/* Static slate, every element in place, for people who reduce motion. */
+/* Static slate for people who reduce motion: lines and dot drawn, no ticket. */
 @media (prefers-reduced-motion: reduce) {
   .float, .shadow, .line, .dot, .ticket { animation: none; }
   .line { transform: translateZ(var(--z)); }

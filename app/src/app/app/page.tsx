@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * App page (`/app`): the pay screen and the statement, fed with live venue rates
  * from Arc mainnet, and the status of the Arc network the app is set to.
  */
-export default async function Home() {
+export default async function AppPage() {
   const [venues, blockNumber, chainId] = await Promise.all([
     readVenueRates().catch(() => null),
     arcClient.getBlockNumber().catch(() => null),
