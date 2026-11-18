@@ -107,7 +107,17 @@ Running against mainnet since 2026-11-18. It found the demo account `0xdcB201E7d
 
 Repayment proof (B2, B5): a plain 0.10 USDC transfer to the demo account ([transfer](https://explorer.arc.io/tx/0x578f203c3bdc3ea4b11c4d9c1862cd7b24627b28f00e71eb7e35d118c1402466), block 31853276) was followed 3 blocks later by `sweep()` from the keeper wallet ([sweep](https://explorer.arc.io/tx/0xe68ac63117e4ad5fee25fa63c8f7b70927dcdcca9b283f8201b2490247cf929a), block 31853279), which repaid 0.10 USDC against debt line #1 (`LineRepaid`). The owner's Aave USDC debt (`Spoke.getUserTotalDebt(0, owner)`) went from 1.515319 to 1.415319.
 
-The simulated price-drop demo (B3) is still to be recorded.
+Simulated price-drop demo (B3), with the repayment funded from the owner's Gateway reserve on Base (the automatic path of B4), run on 2026-11-18 from the keeper at commit [`7d7f958`](https://github.com/enzoblain/Ardoise/commit/7d7f958). Before the run: debt 1.265387 USDC, health factor 2.416, Gateway reserve on Base 0.824729 USDC with two signed 0.40 USDC standing orders in the keeper's `GATEWAY_ORDERS_FILE`.
+
+| Step | Transaction | Block |
+|---|---|---|
+| The guard owner sets a 55% simulated drop (`setSimulatedDrop(5500)`): the simulated health factor falls to 1.087, under the 1.25 minimum | [`0xa32faf51…`](https://explorer.arc.io/tx/0xa32faf511dfe15c0e6f1a6761933859e67a2908e7f61fc95384104f655c232e3) | 31957851 |
+| A 0.20 USDC `pay()` from the owner is refused by the guard: `PaymentRefused(200000, 0)` | [`0x433455e2…`](https://explorer.arc.io/tx/0x433455e25f1b9c35da979a996f9d798270a41ae353a00e63a48c568ef3c51fa9) (reverted) | 31957874 |
+| The keeper sees the simulated health factor under the minimum with nothing on the account (0.348109 USDC missing to reach the 1.5 target) and submits one standing order to Gateway; Circle's forwarder mints 0.40 USDC on the account | [`0x39ef15e9…`](https://explorer.arc.io/tx/0x39ef15e9635ef1500b2690bc2b452e6cab6d0b1ff32f81b153692ffd8cef6253) | 31957883 |
+| The keeper calls `sweep()`, which repays 0.40 USDC (`LineRepaid`) | [`0x420afd89…`](https://explorer.arc.io/tx/0x420afd89cbf7f80882be56c1b4f2328e7068a75421d2876d15a113a3a6a0da24) | 31957910 |
+| The guard owner clears the simulation (`setSimulatedDrop(0)`) | [`0x213d0b56…`](https://explorer.arc.io/tx/0x213d0b56297ca80c851e69d091e2f8ca2b1c648c5368eefaceeed605969290a7) | |
+
+From the keeper's first simulated reading (23:11:40 UTC) to the confirmed `sweep()` (23:11:57 UTC): 17 seconds. After the run: debt 0.865389 USDC, simulated health factor 1.590 (above the 1.5 target, so the keeper stopped), real health factor 3.533 once the simulation was cleared. The Gateway reserve went from 0.824729 to 0.399422 USDC: 0.40 USDC drawn plus a 0.025307 USDC Gateway fee. It no longer covers the second standing order (0.40 USDC plus the fee); deposit about 0.1 USDC on Base before running the demo again.
 
 ## How to deploy the guard
 
