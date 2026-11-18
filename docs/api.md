@@ -156,7 +156,13 @@ https://<app>/app?to=<payee>&chain=<base|arc>&amount=<USDC>&memo=<text>&id=<requ
 
 After creating a request, the payee's page waits for the payment ([`app/src/lib/requestWatch.ts`](../app/src/lib/requestWatch.ts)):
 
-- **Real payments:** it reads USDC `Transfer` logs to the payee on the requested chain, from the block the request was created at. The read runs every 4 s, in steps of 2,000 blocks. The first transfer of at least the requested amount (any non-zero amount if none was set) confirms the request. The page then shows the amount, the sender and the transaction. A payment to Base is minted by Circle, so its sender is the zero address and it is shown as "Delivered by Circle (CCTP)".
+- **Real payments:** it reads USDC `Transfer` logs to the payee on the requested chain, from the block the request was created at. The read runs every 4 s, backing off up to 30 s when the RPC throttles, in steps of 2,000 blocks.
+  - **Re-read tail:** each check re-reads the last 20 blocks, since a load-balanced RPC can serve logs from a node a few blocks behind.
+  - **What confirms:** the first transfer of at least the requested amount confirms the request. Without an amount, any transfer of at least 0.01 USDC does; smaller "address poisoning" dust is ignored.
+  - **What the page shows:** the amount, the sender and the transaction. A payment to Base is minted by Circle's forwarder, so its sender is the zero address (checked on the first mainnet payment) and it is shown as "Delivered by Circle (CCTP)".
+  - **Arc limit:** on Arc, a payment from Ardoise is an ERC-20 `transfer` and emits the event. USDC sent as Arc's native gas token in a transaction's value may not emit it, so it may not be seen.
   - **Any transfer counts:** the check reads the chain itself, so it confirms any transfer to the payee, whoever sends it. Two payments of the same amount to the same address cannot be told apart, which is why only blocks after the request count.
   - **Base RPC:** logs on Base are read through publicnode's public RPC, because Base's own public RPC refuses `eth_getLogs`.
-- **Demo payments:** the demo account moves nothing on chain. When it pays a request that carries an `id`, it posts `{ requestId, amount }` on the `BroadcastChannel` `ardoise-payment-requests`. A waiting page open in the same browser then shows the payment as received, labelled simulated.
+- **Demo payments:** the demo account moves nothing on chain. When it pays a request that carries an `id`, it posts `{ requestId, payee, chain, amount }` on the `BroadcastChannel` `ardoise-payment-requests`. A waiting page open in the same browser shows the payment as received, labelled simulated, but only if the id, payee and chain all match its request and the amount is enough.
+- **Editing a request** keeps its id and start block as long as the payee and chain stay the same, so the link already shared still works and a payment made meanwhile still counts.
+- **Privacy:** the reads go from the visitor's browser to public RPCs (publicnode for Base, Arc's own RPC), which see the payee address and the visitor's IP.
