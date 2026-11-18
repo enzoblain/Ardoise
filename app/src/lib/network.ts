@@ -1,4 +1,4 @@
-import type { Chain, Hex } from "viem";
+import type { Address, Chain, Hex } from "viem";
 import { arc, arcTestnet, base, baseSepolia } from "viem/chains";
 
 /** Which set of chains the app talks to. */
@@ -11,6 +11,14 @@ export interface PayoutChain {
   chain: Chain;
   /** CCTP domain id, the same on mainnet and testnet. */
   cctpDomain: number;
+  /** USDC's ERC-20 contract on this chain: what a payee receives. */
+  usdc: Address;
+  /**
+   * Public RPC used to read logs from the browser, when the chain's default
+   * one cannot: Base's own public RPC answers every `eth_getLogs` with
+   * "request limit reached", publicnode's serves 2,000-block ranges.
+   */
+  logsRpcUrl?: string;
 }
 
 interface Network {
@@ -30,12 +38,15 @@ const NETWORKS: Record<NetworkName, Network> = {
       label: "Arc Testnet",
       chain: arcTestnet,
       cctpDomain: 26,
+      usdc: "0x3600000000000000000000000000000000000000",
     },
     base: {
       key: "base",
       label: "Base Sepolia",
       chain: baseSepolia,
       cctpDomain: 6,
+      usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      logsRpcUrl: "https://base-sepolia-rpc.publicnode.com",
     },
   },
   mainnet: {
@@ -46,12 +57,15 @@ const NETWORKS: Record<NetworkName, Network> = {
       label: "Arc",
       chain: arc,
       cctpDomain: 26,
+      usdc: "0x3600000000000000000000000000000000000000",
     },
     base: {
       key: "base",
       label: "Base",
       chain: base,
       cctpDomain: 6,
+      usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      logsRpcUrl: "https://base-rpc.publicnode.com",
     },
   },
 };

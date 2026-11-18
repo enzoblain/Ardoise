@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MEMO_LENGTH, buildRequestUrl, cleanMemo, isRequestAmount, parseRequest } from "./paymentRequest";
+import { MAX_MEMO_LENGTH, buildRequestUrl, cleanMemo, isRequestAmount, newRequestId, parseRequest } from "./paymentRequest";
 
 const PAYEE = "0xdf41621b35b0c3512d1177DE1423747900fC7a77" as const;
 const ORIGIN = "https://ardoise-rust.vercel.app";
@@ -17,7 +17,7 @@ describe("buildRequestUrl", () => {
   });
 
   it("round-trips through parseRequest", () => {
-    const request = { payee: PAYEE, chain: "arc" as const, amount: "0.4", memo: "Café & co #3 = 50% + tip? ✓" };
+    const request = { payee: PAYEE, chain: "arc" as const, amount: "0.4", memo: "Café & co #3 = 50% + tip? ✓", id: newRequestId() };
     const url = new URL(buildRequestUrl(ORIGIN, request));
     expect(parseRequest(Object.fromEntries(url.searchParams))).toEqual(request);
   });
@@ -30,11 +30,12 @@ describe("parseRequest", () => {
   });
 
   it("drops an invalid amount and defaults to Base", () => {
-    expect(parseRequest({ to: PAYEE, amount: "-3", chain: "solana" })).toEqual({
+    expect(parseRequest({ to: PAYEE, amount: "-3", chain: "solana", id: "<script>" })).toEqual({
       payee: PAYEE,
       chain: "base",
       amount: undefined,
       memo: undefined,
+      id: undefined,
     });
   });
 
@@ -83,5 +84,13 @@ describe("cleanMemo", () => {
     const memo = cleanMemo("a".repeat(MAX_MEMO_LENGTH - 1) + "💸💸");
     expect(Array.from(memo)).toHaveLength(MAX_MEMO_LENGTH);
     expect(memo.endsWith("💸")).toBe(true);
+  });
+});
+
+describe("newRequestId", () => {
+  it("makes ids that parseRequest accepts, different each time", () => {
+    const a = newRequestId();
+    expect(parseRequest({ to: PAYEE, id: a })?.id).toBe(a);
+    expect(newRequestId()).not.toBe(a);
   });
 });
