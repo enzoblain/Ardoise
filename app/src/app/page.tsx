@@ -10,8 +10,8 @@ import { readVenueRates } from "@/lib/venues";
 export const revalidate = 60;
 
 const GITHUB = "https://github.com/enzoblain/Ardoise";
-// The first payment made from the app on Arc mainnet (roadmap C4, README "Demo").
 const EXPLORER = "https://explorer.arc.io";
+// The first payment made from the app on Arc mainnet (roadmap C4, README "Demo").
 const PAY_TX = "0x9dfdd3d8ba60968a8feaed312edd03ad8c238850e89ec3af05cb3aa8b5836aed";
 const MINT_TX = "0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408a4b";
 
