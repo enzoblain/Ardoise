@@ -1,6 +1,6 @@
 # Ardoise
 
-Pay anyone, on any chain, with your bitcoin without selling it: each payment borrows exactly the amount on Arc at the best available rate, and your position is protected from liquidation.
+Pay anyone on Arc or Base with your bitcoin without selling it: each payment borrows exactly the amount on Arc, from the cheapest lender Ardoise supports (Aave V4 today), and a guard keeps your position away from liquidation.
 
 Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)** (submission deadline: 2026-11-20 12:00 CST (UTC-6)), targeting: DeFi & Onchain Apps, Best use of Arc.
 

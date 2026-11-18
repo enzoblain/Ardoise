@@ -1,12 +1,14 @@
 # <img src="assets/logo/logo-mark.svg" alt="" width="40" align="top"> Ardoise
 
-> Pay anyone, on any chain, with your bitcoin without selling it: each payment borrows exactly the amount on Arc at the best available rate, and your position is protected from liquidation.
+> Pay anyone on Arc or Base with your bitcoin without selling it: each payment borrows exactly the amount on Arc, from the cheapest lender Ardoise supports (Aave V4 today), and a guard keeps your position away from liquidation.
 
 Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, tracks *DeFi & Onchain Apps* and *Best use of Arc*. Running on **Arc mainnet** with real cirBTC collateral on Aave V4.
 
 ## Demo
 
 - Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page explains Ardoise with live borrow rates; **Launch app** (or [`/app`](https://ardoise-rust.vercel.app/app)) opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
+- Payment requests: **https://ardoise-rust.vercel.app/request** makes a link and a QR code that open the pay screen filled in, and waits until the USDC arrives.
+- See the guard on the demo account: enter **60 USDC** on the pay screen. The margin would fall under the guard's minimum, so the payment is refused, with the largest amount still allowed.
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
@@ -204,7 +206,7 @@ What would come after the hackathon:
 - **Borrow on Morpho**, not only compare it: a Morpho adapter, so `bestVenue` picks between two real lenders, and EURC borrowing on Morpho's EURC/cirBTC market.
 - **Refinance between venues** when another lender becomes cheaper.
 - **A hosted keeper intake**, so standing orders can be signed from a deployed app, and several independent keepers.
-- **Passkey wallets** (Circle Modular Wallets) once they are available on Arc mainnet.
+- **Passkey wallets** (Circle Modular Wallets) in the app: they work on Arc mainnet (blocking test 0.2 in the roadmap), but the app only connects a browser wallet today.
 - **Per-user guard settings and a real price-drop alert**, instead of the shared thresholds.
 - **An audit**, then higher caps.
 
