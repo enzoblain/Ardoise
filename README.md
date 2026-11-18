@@ -176,7 +176,7 @@ set -a && source .env && set +a
 ### Test
 
 ```bash
-(cd contracts && forge build && forge test)
+(cd contracts && forge build && forge test)   # add ARC_FORK_URL=<Arc mainnet RPC> to run the mainnet fork tests
 (cd app && npm run lint && npm test && npm run build)
 (cd keeper && npm run typecheck)
 ```
