@@ -163,6 +163,23 @@ After creating a request, the payee's page waits for the payment ([`app/src/lib/
   - **Arc limit:** on Arc, a payment from Ardoise is an ERC-20 `transfer` and emits the event. USDC sent as Arc's native gas token in a transaction's value may not emit it, so it may not be seen.
   - **Any transfer counts:** the check reads the chain itself, so it confirms any transfer to the payee, whoever sends it. Two payments of the same amount to the same address cannot be told apart, which is why only blocks after the request count.
   - **Base RPC:** logs on Base are read through publicnode's public RPC, because Base's own public RPC refuses `eth_getLogs`.
-- **Demo payments:** the demo account moves nothing on chain. When it pays a request that carries an `id`, it posts `{ requestId, payee, chain, amount }` on the `BroadcastChannel` `ardoise-payment-requests`. A waiting page open in the same browser shows the payment as received, labelled simulated, but only if the id, payee and chain all match its request and the amount is enough.
+- **Demo payments:** the demo account moves nothing on chain. When it pays a request whose payee, chain and amount it matches, it publishes `{"type":"paid","simulated":true}` on the request's live session (below). The waiting page shows the payment as received, labelled simulated.
 - **Editing a request** keeps its id and start block as long as the payee and chain stay the same, so the link already shared still works and a payment made meanwhile still counts.
-- **Privacy:** the reads go from the visitor's browser to public RPCs (publicnode for Base, Arc's own RPC), which see the payee address and the visitor's IP.
+- **Privacy:** the reads go from the visitor's browser to public RPCs (publicnode for Base, Arc's own RPC) and to ntfy.sh, which see the payee address or the request's id, and the visitor's IP.
+
+### Live session
+
+A request with an `id` has a live session between the payee's waiting page and the payer's pay screen ([`app/src/lib/requestSession.ts`](../app/src/lib/requestSession.ts)). The app is hosted on Vercel, which cannot hold WebSockets, so both pages go through [ntfy.sh](https://ntfy.sh), a public pub/sub relay. They use the topic `ardoise-req-<id>`: they publish with `POST`, and subscribe over a WebSocket with `since=all`, which first replays the events the relay kept (12 hours), then streams new ones.
+
+| Event (JSON body) | Sent by | Meaning |
+|-------------------|---------|---------|
+| `{"type":"joined"}` | payer, on opening the link | starts the payer's 30 s, timed by the relay's clock so both sides agree |
+| `{"type":"cancelled"}` | payee | closes the request |
+| `{"type":"expired"}` | payee, when the 30 s end without a payment | closes the request |
+| `{"type":"paid","simulated":false}` | payee, once the USDC is seen on chain in time | tells the payer it was received |
+| `{"type":"paid","simulated":true}` | payer, after a demo payment that matches the request | confirms the demo on the payee's page |
+
+- **The first event of each kind wins.** A second payer opening the link does not restart the 30 s, and nothing reopens a closed request.
+- **Closing a request stops payments, but only through Ardoise's own screen.** Once a request is cancelled or its 30 s are over, the payer's Pay button is disabled. A transfer on chain cannot be refused, though. If one lands more than 60 s after the request closed, the payee's page shows it as "Paid after the request closed" and asks the payee to refund it if they do not accept it. The 60 s cover a payment sent just before the end and delivered by CCTP a few seconds later.
+- **Statuses only, nothing confirmed by them.** Messages carry statuses only, never an address or an amount. Anyone with the link can read the topic or publish to it. A real payment is only confirmed on chain, so a forged message can at most show a simulated payment or close the request early.
+- **If the relay is unreachable,** both pages say so after 6 s: the payer can pay without a time limit, and the payee's page still confirms the payment on chain.
