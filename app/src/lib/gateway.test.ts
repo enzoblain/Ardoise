@@ -81,6 +81,12 @@ describe("signOrder", () => {
     expect(parseOrders([order])).toHaveLength(1);
   });
 
+  it("signs with twice Gateway's fee estimate by default", async () => {
+    estimate();
+    const order = await signOrder({ contractSigner: false, signTypedData: async () => "0x1234" }, orderSpec(OWNER, ACCOUNT, 5_000_000n));
+    expect(order.burnIntent.maxFee).toBe("54666");
+  });
+
   it("leaves a browser wallet's order unflagged", async () => {
     estimate();
     const order = await signOrder({ contractSigner: false, signTypedData: async () => "0x1234" }, orderSpec(OWNER, ACCOUNT, 5_000_000n));

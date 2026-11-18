@@ -171,22 +171,29 @@ export async function gatewayBalance(depositor: Address): Promise<bigint> {
 }
 
 /**
+ * Multiplier on Gateway's fee estimate used to sign every order, standing or
+ * immediate: on mainnet an immediate repayment signed at the estimate was
+ * refused for 0.000222 USDC of missing fee, and a standing order may be
+ * submitted weeks later when the fee has moved. Gateway charges only the
+ * actual fee.
+ */
+export const FEE_HEADROOM = 2n;
+
+/**
  * Asks Gateway for the fee cap and validity of a spec, then has the owner
  * sign it. Signing costs no gas and needs no network switch: the EIP-712
  * domain has no chain id.
  *
  * @param signer The owner, depositor and signer of the spec.
  * @param spec Spec from `orderSpec`.
- * @param feeHeadroom Multiplier on the estimated fee cap. The estimate can
- *   fall just short of Circle's forwarding fee at submission, and a standing
- *   order may be submitted weeks later when the fee has moved, so orders are
- *   signed with room to spare; Gateway charges only the actual fee.
+ * @param feeHeadroom Multiplier on the estimated fee cap, `FEE_HEADROOM` by
+ *   default.
  * @returns The signed order, valid about 70 days on Base.
  */
 export async function signOrder(
   signer: IntentSigner,
   spec: TransferSpec,
-  feeHeadroom = 1n,
+  feeHeadroom = FEE_HEADROOM,
 ): Promise<StandingOrder> {
   const estimate = await gatewayPost<{ body: { burnIntent: { maxBlockHeight: string; maxFee: string } }[] }>(
     "/v1/estimate?enableForwarder=true",
