@@ -6,16 +6,17 @@ import {
   toPasskeyTransport,
   toWebAuthnCredential,
 } from "@circle-fin/modular-wallets-core";
-import { createPublicClient, type Hex, type Transport } from "viem";
-import { createBundlerClient, toWebAuthnAccount, type SmartAccount } from "viem/account-abstraction";
+import { createPublicClient, type Chain, type Hex, type Transport, type TypedDataDefinition } from "viem";
+import { createBundlerClient, toWebAuthnAccount, type SmartAccount, type WebAuthnAccount } from "viem/account-abstraction";
 import { network } from "@/lib/network";
-import type { Call, PasskeyWallet } from "@/lib/wallet";
+import type { Call, PasskeyAccount, PasskeyWallet } from "@/lib/wallet";
 
 const DEFAULT_CLIENT_URL = "https://modular-sdk.circle.com/v1/rpc/w3s/buidl";
 
 /**
  * Creates a passkey (`register`) or signs in with an existing one (`login`),
- * and returns the Circle smart account (MSCA) it owns on the app's Arc network.
+ * and returns the Circle smart account (MSCA) it owns on the app's Arc network,
+ * plus the same account on Base for the Gateway reserve.
  *
  * The account is counterfactual until its first user operation, which deploys
  * it. On Arc mainnet it pays its own gas in USDC, so it needs a small USDC
@@ -32,9 +33,6 @@ export async function connectPasskey(mode: "register" | "login", username: strin
   const clientKey = process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY;
   if (!clientKey) throw new Error("Passkeys are not configured: set NEXT_PUBLIC_CIRCLE_CLIENT_KEY.");
   const clientUrl = process.env.NEXT_PUBLIC_CIRCLE_CLIENT_URL || DEFAULT_CLIENT_URL;
-  const chain = network.arc.chain;
-  // Circle's path segment is the lowerCamelCase viem chain name.
-  const chainPath = network.name === "mainnet" ? "arc" : "arcTestnet";
 
   // The SDK is built against its own copy of viem; its objects work with the
   // app's viem at runtime, but their types come from two declarations of the
@@ -54,14 +52,55 @@ export async function connectPasskey(mode: "register" | "login", username: strin
     }
     throw error;
   }
+  const owner = toWebAuthnAccount({ credential: credential as never });
+  const arc = await passkeyAccount(owner, network.arc.chain, network.name === "mainnet" ? "arc" : "arcTestnet", clientUrl, clientKey);
+  let base: Promise<PasskeyAccount> | undefined;
+
+  return {
+    kind: "passkey",
+    ...arc,
+    // Circle's sign-in returns no name for an existing passkey.
+    username: mode === "register" ? username : undefined,
+    onBase() {
+      base ??= passkeyAccount(owner, network.base.chain, network.name === "mainnet" ? "base" : "baseSepolia", clientUrl, clientKey).then(
+        (account) => {
+          if (account.address.toLowerCase() !== arc.address.toLowerCase()) {
+            throw new Error(`Circle derived another address on ${network.base.label} (${account.address}); Gateway orders need the same one.`);
+          }
+          return account;
+        },
+      );
+      base.catch(() => (base = undefined));
+      return base;
+    },
+  };
+}
+
+/**
+ * The passkey's Circle smart account on one chain, with Circle's bundler.
+ *
+ * Gas: Circle's paymaster on testnets; on mainnets the account pays its own
+ * gas (USDC on Arc, ETH on Base), since Circle offers no paymaster there.
+ *
+ * @param owner The passkey, as a viem WebAuthn account.
+ * @param chain Chain of the account.
+ * @param chainPath Circle's path segment for the chain: the lowerCamelCase viem chain name.
+ * @param clientUrl Circle's Modular Wallets URL.
+ * @param clientKey Circle client key.
+ * @returns The account.
+ */
+async function passkeyAccount(
+  owner: WebAuthnAccount,
+  chain: Chain,
+  chainPath: string,
+  clientUrl: string,
+  clientKey: string,
+): Promise<PasskeyAccount> {
   const modularTransport = toModularTransport(`${clientUrl}/${chainPath}`, clientKey) as unknown as Transport;
   const client = createPublicClient({ chain, transport: modularTransport });
-  const account = await toCircleSmartAccount({
-    client: client as never,
-    owner: toWebAuthnAccount({ credential: credential as never }) as never,
-  });
+  const account = (await toCircleSmartAccount({ client: client as never, owner: owner as never })) as unknown as SmartAccount;
   const bundler = createBundlerClient({
-    account: account as unknown as SmartAccount,
+    account,
     chain,
     transport: modularTransport,
     paymaster: network.name === "testnet" ? true : undefined,
@@ -76,10 +115,7 @@ export async function connectPasskey(mode: "register" | "login", username: strin
   });
 
   return {
-    kind: "passkey",
     address: account.address,
-    // Circle's sign-in returns no name for an existing passkey.
-    username: mode === "register" ? username : undefined,
     submit(calls: Call[]): Promise<Hex> {
       return bundler.sendUserOperation({ calls: calls.map(({ to, data }) => ({ to, data })) });
     },
@@ -87,5 +123,6 @@ export async function connectPasskey(mode: "register" | "login", username: strin
       const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
       return { success: receipt.success, transactionHash: receipt.receipt.transactionHash };
     },
+    signTypedData: (typedData: TypedDataDefinition) => account.signTypedData(typedData as never),
   };
 }

@@ -1,4 +1,4 @@
-import { createWalletClient, custom, numberToHex, type Account, type Address, type Chain, type EIP1193Provider, type Hex, type Transport, type WalletClient } from "viem";
+import { createWalletClient, custom, numberToHex, type Account, type Address, type Chain, type EIP1193Provider, type Hex, type Transport, type TypedDataDefinition, type WalletClient } from "viem";
 import { network } from "@/lib/network";
 
 /** One contract call, as a smart account batches it. */
@@ -15,16 +15,10 @@ export interface BrowserWallet {
   provider: EIP1193Provider;
 }
 
-/**
- * A Circle smart account owned by a passkey (lib/passkey.ts): several calls
- * go in one user operation, signed with a single passkey prompt.
- */
-export interface PasskeyWallet {
-  kind: "passkey";
-  /** The smart account's address, which holds the collateral and owns the Ardoise account. */
+/** A passkey's Circle smart account (MSCA) on one chain, driven through Circle's bundler. */
+export interface PasskeyAccount {
+  /** The account's address; Circle derives the same one on every chain for a passkey. */
   address: Address;
-  /** The passkey's name, shown in the header; unknown after signing in with an existing passkey. */
-  username?: string;
   /**
    * Signs the calls as one user operation and hands it to Circle's bundler.
    *
@@ -37,27 +31,52 @@ export interface PasskeyWallet {
    * Waits until a submitted user operation is mined.
    *
    * @param userOpHash Hash returned by `submit`.
-   * @returns Whether the operation succeeded, and the Arc transaction that carried it.
+   * @returns Whether the operation succeeded, and the transaction that carried it.
    * @throws If the receipt cannot be read in time; the operation may still be mined.
    */
   confirm(userOpHash: Hex): Promise<{ success: boolean; transactionHash: Hex }>;
+  /**
+   * Signs EIP-712 typed data with the passkey, in the form the account's
+   * ERC-1271 `isValidSignature` accepts on this chain.
+   *
+   * @throws If the user cancels the passkey prompt.
+   */
+  signTypedData(typedData: TypedDataDefinition): Promise<Hex>;
 }
 
 /**
- * Sends calls from a passkey wallet in one user operation and waits for it.
+ * A Circle smart account owned by a passkey (lib/passkey.ts) on Arc: several
+ * calls go in one user operation, signed with a single passkey prompt.
+ */
+export interface PasskeyWallet extends PasskeyAccount {
+  kind: "passkey";
+  /** The passkey's name, shown in the header; unknown after signing in with an existing passkey. */
+  username?: string;
+  /**
+   * The same passkey's smart account on Base, the source chain of the Gateway
+   * reserve. Its first user operation there deploys it.
+   *
+   * @throws If Circle derives a different address on Base, which the keeper's
+   *   checks (signer = account owner) would refuse.
+   */
+  onBase(): Promise<PasskeyAccount>;
+}
+
+/** The connected wallet. */
+export type ConnectedWallet = BrowserWallet | PasskeyWallet;
+
+/**
+ * Sends calls from a passkey account in one user operation and waits for it.
  *
- * @returns The hash of the Arc transaction that carried it.
+ * @returns The hash of the transaction that carried it.
  * @throws If the operation is refused, cannot be confirmed, or reverts.
  */
-export async function sendFromPasskey(wallet: PasskeyWallet, calls: Call[]): Promise<Hex> {
+export async function sendFromPasskey(wallet: PasskeyAccount, calls: Call[]): Promise<Hex> {
   const userOpHash = await wallet.submit(calls);
   const { success, transactionHash } = await wallet.confirm(userOpHash);
   if (!success) throw new Error(`User operation ${userOpHash} reverted (transaction ${transactionHash})`);
   return transactionHash;
 }
-
-/** The connected wallet. */
-export type ConnectedWallet = BrowserWallet | PasskeyWallet;
 
 /**
  * Connects the browser wallet (MetaMask or any injected EIP-1193 wallet) on

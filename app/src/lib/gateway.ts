@@ -3,12 +3,8 @@ import {
   parseAbi,
   parseUnits,
   toHex,
-  type Account,
   type Address,
-  type Chain,
   type Hex,
-  type Transport,
-  type WalletClient,
 } from "viem";
 import { network } from "@/lib/network";
 
@@ -62,6 +58,16 @@ export interface TransferSpec {
 export interface StandingOrder {
   burnIntent: { maxBlockHeight: string; maxFee: string; spec: TransferSpec };
   signature: Hex;
+  /** Set when the signer is a smart account: Gateway then checks the signature with ERC-1271. */
+  contractSigner?: true;
+}
+
+/** Who signs burn intents: a browser wallet, or a passkey smart account (ERC-1271). */
+export interface IntentSigner {
+  /** Whether signatures come from a smart account, for Gateway's `contractSigner` flag. */
+  contractSigner: boolean;
+  /** Signs EIP-712 typed data as the depositor. */
+  signTypedData(typedData: ReturnType<typeof burnIntentTypedData>): Promise<Hex>;
 }
 
 const bytes32 = (address: Address): Hex => pad(address.toLowerCase() as Address, { size: 32 });
@@ -165,11 +171,11 @@ export async function gatewayBalance(depositor: Address): Promise<bigint> {
 }
 
 /**
- * Asks Gateway for the fee cap and validity of a spec, then has the wallet
+ * Asks Gateway for the fee cap and validity of a spec, then has the owner
  * sign it. Signing costs no gas and needs no network switch: the EIP-712
  * domain has no chain id.
  *
- * @param wallet Owner's wallet.
+ * @param signer The owner, depositor and signer of the spec.
  * @param spec Spec from `orderSpec`.
  * @param feeHeadroom Multiplier on the estimated fee cap. A standing order
  *   may be submitted weeks later, when Circle's forwarding fee has moved, so
@@ -177,7 +183,7 @@ export async function gatewayBalance(depositor: Address): Promise<bigint> {
  * @returns The signed order, valid about 70 days on Base.
  */
 export async function signOrder(
-  wallet: WalletClient<Transport, Chain | undefined, Account>,
+  signer: IntentSigner,
   spec: TransferSpec,
   feeHeadroom = 1n,
 ): Promise<StandingOrder> {
@@ -187,8 +193,8 @@ export async function signOrder(
   );
   const { maxBlockHeight, maxFee: estimatedFee } = estimate.body[0].burnIntent;
   const burnIntent = { maxBlockHeight, maxFee: (BigInt(estimatedFee) * feeHeadroom).toString(), spec };
-  const signature = await wallet.signTypedData({ account: wallet.account, ...burnIntentTypedData(burnIntent) });
-  return { burnIntent, signature };
+  const signature = await signer.signTypedData(burnIntentTypedData(burnIntent));
+  return signer.contractSigner ? { burnIntent, signature, contractSigner: true } : { burnIntent, signature };
 }
 
 /**
