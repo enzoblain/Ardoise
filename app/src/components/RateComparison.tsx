@@ -18,23 +18,22 @@ export function RateComparison({ venues, chosenId }: { venues: Venue[]; chosenId
           return (
             <li
               key={v.id}
-              className={`rounded-lg border p-3 ${chosen ? "border-emerald-500 bg-emerald-500/10" : "border-black/10 dark:border-white/15"}`}
+              className={`flex flex-col gap-1 rounded-2xl border p-4 transition-colors ${chosen ? "border-chalk/60 bg-sunken" : "border-line"}`}
             >
-              <div className="text-sm opacity-70">{v.name}</div>
-              <div className="text-xl font-semibold tabular-nums">{formatBps(v.rateBps)}</div>
-              {chosen && (
-                <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  Cheapest available, used for this payment
-                </div>
-              )}
+              <div className="flex items-center justify-between">
+                <span className="eyebrow">{v.name}</span>
+                {chosen && <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />}
+              </div>
+              <div className={`text-2xl font-semibold tracking-tight tabular-nums ${chosen ? "" : "text-muted"}`}>{formatBps(v.rateBps)}</div>
+              {chosen && <div className="text-xs text-accent">Cheapest available, used for this payment</div>}
               {v.borrowable === false && (
-                <div className="text-xs opacity-60">Comparison only: Ardoise has no {v.name} adapter yet</div>
+                <div className="text-xs text-faint">Comparison only: Ardoise has no {v.name} adapter yet</div>
               )}
             </li>
           );
         })}
       </ul>
-      <p className="text-xs opacity-60">Live USDC borrow rates (APR) against cirBTC on Arc mainnet.</p>
+      <p className="text-xs text-faint">Live USDC borrow rates (APR) against cirBTC on Arc mainnet.</p>
     </div>
   );
 }

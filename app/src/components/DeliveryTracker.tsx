@@ -80,8 +80,8 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
   const stage = delivery?.stage;
 
   return (
-    <div className="flex flex-col gap-4">
-      <ol className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
+      <ol className="flex flex-col gap-4">
         <Step
           done
           label={`Sent on ${network.arc.label}`}
@@ -114,27 +114,27 @@ export function DeliveryTracker({ sourceTxHash }: { sourceTxHash: Hex }) {
       </ol>
 
       {delivery?.amount && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <dt className="opacity-60">Sent</dt>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-2xl border border-line bg-sunken p-4 text-sm">
+          <dt className="text-muted">Sent</dt>
           <dd>{delivery.amount} USDC</dd>
-          <dt className="opacity-60">Received</dt>
+          <dt className="text-muted">Received</dt>
           <dd>{delivery.received} USDC</dd>
-          <dt className="opacity-60">Transfer fee</dt>
+          <dt className="text-muted">Transfer fee</dt>
           <dd>{delivery.fee} USDC</dd>
-          <dt className="opacity-60">Recipient</dt>
+          <dt className="text-muted">Recipient</dt>
           <dd className="break-all font-mono">{delivery.recipient}</dd>
         </dl>
       )}
 
       {stage === "not_found" && (
-        <p className="text-sm opacity-70">
+        <p className="text-sm text-muted">
           {gaveUp
             ? "Circle has no cross-chain transfer for this transaction. Check the hash. "
             : "Waiting for Circle to index the transfer. "}
           A same-chain payment on {network.arc.label} never shows up here.
         </p>
       )}
-      {error && <p className="text-sm text-red-600">Could not reach Circle: {error}</p>}
+      {error && <p className="text-sm text-danger">Could not reach Circle: {error}</p>}
     </div>
   );
 }
@@ -147,23 +147,30 @@ function Step(props: {
   href?: string;
   detail?: string;
 }) {
-  const icon = props.failed ? "✕" : props.done ? "✓" : props.active ? "…" : "○";
+  const icon = props.failed ? "✕" : props.done ? "✓" : "";
+  const badge = props.failed
+    ? "bg-danger text-background"
+    : props.done
+      ? "bg-chalk text-background"
+      : props.active
+        ? "border border-accent animate-pulse"
+        : "border border-line-strong";
   return (
     <li className="flex gap-3">
-      <span aria-hidden className="w-4 text-center font-mono">
+      <span aria-hidden className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs ${badge}`}>
         {icon}
       </span>
-      <span className="flex flex-col">
+      <span className="flex flex-col gap-0.5">
         {props.href ? (
-          <a href={props.href} target="_blank" rel="noreferrer" className="underline">
-            {props.label}
+          <a href={props.href} target="_blank" rel="noreferrer" className="underline decoration-line-strong underline-offset-4 hover:decoration-chalk">
+            {props.label} ↗
           </a>
         ) : (
-          <span className={props.done || props.active ? "" : "opacity-50"}>
+          <span className={props.done || props.active ? "" : "text-faint"}>
             {props.label}
           </span>
         )}
-        {props.detail && <span className="text-sm opacity-70">{props.detail}</span>}
+        {props.detail && <span className="text-sm text-muted">{props.detail}</span>}
       </span>
     </li>
   );

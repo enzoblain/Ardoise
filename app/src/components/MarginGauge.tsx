@@ -26,19 +26,19 @@ export function MarginGauge({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <span className="text-sm opacity-70">Margin before liquidation on {venueName}</span>
-        <span className="font-semibold tabular-nums">
+        <span className="eyebrow">Margin before liquidation on {venueName}</span>
+        <span className="text-lg font-semibold tabular-nums">
           {formatPercent(before)}
           {after !== undefined && (
             <>
               {" → "}
-              <span className={tooLow ? "text-red-600" : ""}>{formatPercent(after)}</span>
+              <span className={tooLow ? "text-danger" : ""}>{formatPercent(after)}</span>
             </>
           )}
         </span>
       </div>
       <div
-        className="relative h-3 overflow-hidden rounded-full bg-black/10 dark:bg-white/15"
+        className="relative h-2.5 overflow-hidden rounded-full bg-line-strong"
         role="meter"
         aria-valuemin={0}
         aria-valuemax={100}
@@ -46,12 +46,12 @@ export function MarginGauge({
         aria-label="Margin after the payment"
       >
         <div
-          className={`absolute inset-y-0 left-0 ${tooLow ? "bg-red-500" : "bg-emerald-500"}`}
+          className={`absolute inset-y-0 left-0 transition-[width] duration-500 ${tooLow ? "bg-danger" : "bg-chalk"}`}
           style={{ width: `${Math.max(shown, 0) * 100}%` }}
         />
         {after !== undefined && after < before && (
           <div
-            className="absolute inset-y-0 bg-emerald-500/35"
+            className="absolute inset-y-0 bg-chalk/25"
             style={{ left: `${Math.max(after, 0) * 100}%`, width: `${(before - Math.max(after, 0)) * 100}%` }}
           />
         )}
@@ -59,14 +59,14 @@ export function MarginGauge({
           <>
             {/* Drawn last so the guard's floor stays visible over the fill. */}
             <div
-              className="absolute inset-y-0 left-0 bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.55)_0_4px,transparent_4px_8px)]"
+              className="absolute inset-y-0 left-0 bg-[repeating-linear-gradient(135deg,rgba(248,113,113,0.5)_0_4px,transparent_4px_8px)]"
               style={{ width: `${minimum * 100}%` }}
             />
-            <div className="absolute inset-y-0 w-0.5 bg-red-600" style={{ left: `${minimum * 100}%` }} />
+            <div className="absolute inset-y-0 w-0.5 bg-danger" style={{ left: `${minimum * 100}%` }} />
           </>
         )}
       </div>
-      <p className="text-xs opacity-60">
+      <p className="text-xs text-faint">
         {minimum === undefined
           ? "No position guard is deployed yet, so no payment can go through."
           : `Payments that would leave less than ${formatPercent(minimum)} (red zone) are refused.`}

@@ -44,64 +44,66 @@ export function Statement({ account, venues, version }: { account: ArdoiseClient
     return () => clearInterval(timer);
   }, []);
 
-  if (error) return <p className="text-sm text-red-600">Could not read the statement: {error}</p>;
+  if (error) return <p className="text-sm text-danger">Could not read the statement: {error}</p>;
   if (!events) return null;
 
   let statement: StatementData;
   try {
     statement = buildStatement(events.account, events.logs, events.blockTimes, venues, now);
   } catch (e) {
-    return <p className="text-sm text-red-600">Could not read the statement: {(e as Error).message}</p>;
+    return <p className="text-sm text-danger">Could not read the statement: {(e as Error).message}</p>;
   }
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby="statement-title">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 id="statement-title" className="text-xl font-semibold">
+        <h2 id="statement-title" className="text-xl font-semibold tracking-tight">
           Statement
         </h2>
         <div className="text-right">
-          <div className="text-xl font-semibold tabular-nums">{formatUsdc(statement.totalOwed)} USDC</div>
-          <div className="text-xs opacity-60">
+          <div className="text-2xl font-semibold tracking-tight tabular-nums">{formatUsdc(statement.totalOwed)} USDC</div>
+          <div className="text-xs text-faint">
             owed, of which {formatUsdc(statement.totalInterest)} interest
           </div>
         </div>
       </div>
 
       {statement.lines.length === 0 ? (
-        <p className="text-sm opacity-70">No payments yet.</p>
+        <p className="rounded-2xl border border-dashed border-line-strong p-6 text-center text-sm text-muted">No payments yet: each payment adds one line here.</p>
       ) : (
-        <ol className="flex flex-col divide-y divide-black/10 dark:divide-white/10">
+        <ol className="flex flex-col divide-y divide-line border-t border-line">
           {statement.lines.map((line) => {
             const chain = chainByDomain(line.destinationDomain);
             return (
-              <li key={line.lineId.toString()} className="flex flex-col gap-1 py-3">
+              <li key={line.lineId.toString()} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 py-4">
+                <span className="mt-0.5 h-fit rounded-md border border-line-strong bg-sunken px-1.5 py-0.5 font-mono text-xs text-muted">
+                  #{line.lineId.toString()}
+                </span>
+                <div className="flex flex-col gap-1">
                 <div className="flex items-baseline justify-between gap-4">
                   <span className="font-medium">{line.memo || "Payment"}</span>
                   <span className="font-semibold tabular-nums">{formatUsdc(line.amount)} USDC</span>
                 </div>
-                <div className="flex flex-wrap justify-between gap-x-4 text-sm opacity-70">
-                  <span>
-                    To <span className="font-mono">{shortAddress(line.payee ?? line.payeeBytes32)}</span> on{" "}
-                    {chain?.label ?? `CCTP domain ${line.destinationDomain}`} · {formatDate(line.paidAt)}
-                  </span>
-                  <span>#{line.lineId.toString()}</span>
+                <div className="text-sm text-muted">
+                  To <span className="font-mono">{shortAddress(line.payee ?? line.payeeBytes32)}</span> on{" "}
+                  {chain?.label ?? `CCTP domain ${line.destinationDomain}`} · {formatDate(line.paidAt)}
                 </div>
-                <div className="text-sm opacity-70">
+                <div className="text-xs leading-relaxed text-faint">
                   Borrowed {formatUsdc(line.borrowed)} from {line.venueName} at {formatBps(line.rateBps)}
                   {line.maxFee > 0n && <> (incl. {formatUsdc(line.maxFee)} CCTP fee)</>} · interest{" "}
                   <span className="tabular-nums">{formatUsdc(line.accruedInterest)}</span>
                   {line.repaid > 0n && <> · repaid {formatUsdc(line.repaid)}</>} ·{" "}
-                  <span className={line.owed === 0n ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                  <span className={line.owed === 0n ? "text-chalk" : "text-muted"}>
                     {line.owed === 0n ? "repaid" : `owed ${formatUsdc(line.owed)}`}
                   </span>
+                </div>
                 </div>
               </li>
             );
           })}
         </ol>
       )}
-      <p className="text-xs opacity-60">
+      <p className="text-xs text-faint">
         Interest is an estimate at each line&apos;s opening rate; the lending venue&apos;s own debt figure is what is
         actually owed.
       </p>

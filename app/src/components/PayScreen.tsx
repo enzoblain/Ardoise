@@ -182,24 +182,28 @@ export function PayScreen({
         void send();
       }}
     >
-      <fieldset className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-sm opacity-70">Amount</span>
-          <div className="flex items-center gap-2 rounded-lg border border-black/15 px-3 dark:border-white/20">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xl font-semibold tracking-tight">Pay</h2>
+        <span className="eyebrow">Borrowed at payment time</span>
+      </div>
+      <fieldset className="flex flex-col gap-4">
+        <label className="flex flex-col gap-2">
+          <span className="eyebrow">Amount</span>
+          <div className="field flex items-center gap-2 py-2">
             <input
               inputMode="decimal"
-              className="w-full bg-transparent py-2 text-2xl font-semibold tabular-nums outline-none"
+              className="w-full bg-transparent text-4xl font-semibold tracking-tight tabular-nums outline-none"
               value={amountText}
               onChange={(e) => setAmountText(e.target.value)}
               aria-invalid={amountText !== "" && amount === undefined}
             />
-            <span className="opacity-60">USDC</span>
+            <span className="text-muted">USDC</span>
           </div>
         </label>
 
-        <div className="flex flex-col gap-1">
-          <span className="text-sm opacity-70">Payee&apos;s chain</span>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Payee's chain">
+        <div className="flex flex-col gap-2">
+          <span className="eyebrow">Payee&apos;s chain</span>
+          <div className="grid grid-cols-2 gap-1 rounded-full border border-line-strong bg-sunken p-1" role="radiogroup" aria-label="Payee's chain">
             {DESTINATIONS.map((chain) => (
               <button
                 key={chain.key}
@@ -207,7 +211,7 @@ export function PayScreen({
                 role="radio"
                 aria-checked={destination.key === chain.key}
                 onClick={() => setDestination(chain)}
-                className={`rounded-lg border px-3 py-2 text-left ${destination.key === chain.key ? "border-current font-medium" : "border-black/10 opacity-70 dark:border-white/15"}`}
+                className={`rounded-full px-3 py-2 text-sm transition-colors ${destination.key === chain.key ? "bg-chalk font-medium text-background" : "text-muted hover:text-foreground"}`}
               >
                 {chain.label}
               </button>
@@ -215,22 +219,22 @@ export function PayScreen({
           </div>
         </div>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-sm opacity-70">Payee address on {destination.label}</span>
+        <label className="flex flex-col gap-2">
+          <span className="eyebrow">Payee address on {destination.label}</span>
           <input
-            className="rounded-lg border border-black/15 px-3 py-2 font-mono text-sm outline-none dark:border-white/20"
+            className="field font-mono text-sm"
             placeholder="0x…"
             value={payee}
             onChange={(e) => setPayee(e.target.value.trim())}
             aria-invalid={payee !== "" && !payeeValid}
           />
-          {payee !== "" && !payeeValid && <span className="text-sm text-red-600">Not a valid address.</span>}
+          {payee !== "" && !payeeValid && <span className="text-sm text-danger">Not a valid address.</span>}
         </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-sm opacity-70">Memo (shown on the statement)</span>
+        <label className="flex flex-col gap-2">
+          <span className="eyebrow">Memo · shown on the statement</span>
           <input
-            className="rounded-lg border border-black/15 px-3 py-2 outline-none dark:border-white/20"
+            className="field"
             placeholder="Invoice #42"
             maxLength={120}
             value={memo}
@@ -251,27 +255,27 @@ export function PayScreen({
       )}
 
       {amount !== undefined && (
-        <dl className="grid grid-cols-[1fr_auto] gap-y-1 text-sm">
-          <dt className="opacity-70">Payee receives at least</dt>
+        <dl className="grid grid-cols-[1fr_auto] gap-y-2 rounded-2xl border border-line bg-sunken p-4 text-sm">
+          <dt className="text-muted">Payee receives at least</dt>
           <dd className="tabular-nums">{formatUsdc(amount)} USDC</dd>
-          <dt className="opacity-70">
+          <dt className="text-muted">
             {destination.key === "arc" ? "Transfer fee (on Arc)" : `Max. CCTP fee to ${destination.label} (Circle)`}
           </dt>
           <dd className="tabular-nums">{maxFee === undefined ? "…" : `${formatUsdc(maxFee)} USDC`}</dd>
-          <dt className="font-medium">You borrow</dt>
-          <dd className="font-medium tabular-nums">{maxFee === undefined ? "…" : `${formatUsdc(amount + maxFee)} USDC`}</dd>
+          <dt className="border-t border-line pt-2 font-medium">You borrow</dt>
+          <dd className="border-t border-line pt-2 font-semibold tabular-nums">{maxFee === undefined ? "…" : `${formatUsdc(amount + maxFee)} USDC`}</dd>
         </dl>
       )}
 
-      {feeError && <p className="text-sm text-red-600">Could not get the fee from Circle: {feeError}</p>}
-      {blocking && error && <p className="text-sm text-red-600">{describeError(error)}</p>}
-      {refusal && <p className="text-sm text-red-600">{describeError(refusal)}</p>}
-      {failure && <p className="text-sm text-red-600">{failure}</p>}
-      {feeNotice && <p className="text-sm text-amber-700 dark:text-amber-400">{feeNotice}</p>}
-      {readError && <p className="text-sm text-red-600">Could not read the account on chain: {readError}</p>}
+      {feeError && <p className="text-sm text-danger">Could not get the fee from Circle: {feeError}</p>}
+      {blocking && error && <p className="text-sm text-danger">{describeError(error)}</p>}
+      {refusal && <p className="text-sm text-danger">{describeError(refusal)}</p>}
+      {failure && <p className="text-sm text-danger">{failure}</p>}
+      {feeNotice && <p className="text-sm text-accent">{feeNotice}</p>}
+      {readError && <p className="text-sm text-danger">Could not read the account on chain: {readError}</p>}
 
       {unconfirmed && (
-        <p className="rounded-md bg-amber-500/15 px-3 py-2 text-sm">
+        <p className="rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
           The payment was sent but its confirmation could not be read ({unconfirmed.reason}). Check{" "}
           <a className="underline" href={txUrl(network.arc, unconfirmed.hash)} target="_blank" rel="noreferrer">
             the transaction
@@ -282,7 +286,7 @@ export function PayScreen({
       <button
         type="submit"
         disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined}
-        className="rounded-lg bg-foreground px-4 py-3 font-semibold text-background disabled:opacity-40"
+        className="btn-primary py-3.5 text-base"
       >
         {sending ? "Paying…" : amount !== undefined ? `Pay ${formatUsdc(amount)} USDC` : "Pay"}
       </button>
@@ -295,30 +299,33 @@ function Receipt({ line, simulated, onNew }: { line: DebtLine; simulated: boolea
   const crossChain = line.destinationDomain !== network.arc.cctpDomain;
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-xl font-semibold">{simulated ? "Payment simulated" : "Payment sent"}</h2>
+      <div className="flex items-center gap-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_16px_rgba(247,147,26,0.7)]" aria-hidden />
+        <h2 className="text-xl font-semibold tracking-tight">{simulated ? "Payment simulated" : "Payment sent"}</h2>
+      </div>
       {simulated && (
-        <p className="text-sm opacity-70">Nothing was borrowed or sent on chain: this demo account is simulated.</p>
+        <p className="text-sm text-muted">Nothing was borrowed or sent on chain: this demo account is simulated.</p>
       )}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="opacity-70">To</dt>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-2xl border border-line bg-sunken p-4 text-sm">
+        <dt className="text-muted">To</dt>
         <dd className="break-all font-mono">0x{line.payee.slice(-40)}</dd>
-        <dt className="opacity-70">On</dt>
+        <dt className="text-muted">On</dt>
         <dd>{chain?.label ?? `CCTP domain ${line.destinationDomain}`}</dd>
-        <dt className="opacity-70">Borrowed</dt>
+        <dt className="text-muted">Borrowed</dt>
         <dd>
           {formatUsdc(line.principal)} USDC from {line.venue.name} at {formatBps(line.rateBps)}
         </dd>
         {line.memo && (
           <>
-            <dt className="opacity-70">Memo</dt>
+            <dt className="text-muted">Memo</dt>
             <dd>{line.memo}</dd>
           </>
         )}
-        <dt className="opacity-70">Debt line</dt>
+        <dt className="text-muted">Debt line</dt>
         <dd>#{line.id.toString()}</dd>
         {line.transactionHash && (
           <>
-            <dt className="opacity-70">Transaction</dt>
+            <dt className="text-muted">Transaction</dt>
             <dd>
               <a className="underline" href={txUrl(network.arc, line.transactionHash)} target="_blank" rel="noreferrer">
                 {line.transactionHash.slice(0, 10)}… on {network.arc.label}
@@ -328,11 +335,11 @@ function Receipt({ line, simulated, onNew }: { line: DebtLine; simulated: boolea
         )}
       </dl>
       {line.transactionHash && crossChain && (
-        <Link href={`/payments/${line.transactionHash}`} className="rounded-lg bg-foreground px-4 py-2 text-center font-medium text-background">
+        <Link href={`/payments/${line.transactionHash}`} className="btn-primary">
           Track delivery on {chain?.label ?? "the payee's chain"}
         </Link>
       )}
-      <button type="button" onClick={onNew} className="rounded-lg border border-current px-4 py-2 font-medium">
+      <button type="button" onClick={onNew} className="btn-secondary">
         New payment
       </button>
     </div>

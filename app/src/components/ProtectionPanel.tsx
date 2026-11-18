@@ -183,19 +183,19 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
   return (
     <section className="flex flex-col gap-4" aria-labelledby="protection-title">
       <div>
-        <h2 id="protection-title" className="text-xl font-semibold">
+        <h2 id="protection-title" className="text-xl font-semibold tracking-tight">
           Protection from {network.base.label}
         </h2>
-        <p className="text-sm opacity-80">
+        <p className="mt-1 text-sm leading-relaxed text-muted">
           Keep USDC in Circle Gateway on {network.base.label}. If your margin falls under the guard&apos;s minimum, the
           keeper uses your standing orders to repay your debt instead of letting the position be liquidated. Orders can
           only pay your own Ardoise account.
         </p>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border border-black/10 p-3 dark:border-white/15">
+      <div className="flex flex-col gap-3 rounded-2xl border border-line bg-sunken p-4">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm opacity-70">Gateway reserve on {network.base.label}</span>
+          <span className="eyebrow">Gateway reserve on {network.base.label}</span>
           <span className="font-semibold tabular-nums">{balance === undefined ? "…" : `${formatUsdc(balance)} USDC`}</span>
         </div>
         <AmountAction
@@ -207,9 +207,9 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
         />
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border border-black/10 p-3 dark:border-white/15">
+      <div className="flex flex-col gap-3 rounded-2xl border border-line bg-sunken p-4">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm opacity-70">Standing orders held by the keeper</span>
+          <span className="eyebrow">Standing orders held by the keeper</span>
           <span className="font-semibold tabular-nums">
             {!KEEPER_URL ? "not available" : orders === undefined ? "…" : `${orders.length} · ${formatUsdc(total)} USDC`}
           </span>
@@ -217,7 +217,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
         {KEEPER_URL ? (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <select
-              className="rounded-md border border-black/15 bg-transparent px-2 py-1.5 dark:border-white/20"
+              className="field px-3 py-2"
               value={orderCount}
               onChange={(e) => setOrderCount(Number(e.target.value))}
               aria-label="Number of orders"
@@ -238,17 +238,17 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
             />
           </div>
         ) : (
-          <p className="text-xs opacity-60">
+          <p className="text-xs text-faint">
             {network.name === "mainnet"
               ? "Standing orders are signed from the app running next to the keeper, whose order intake only accepts local requests. Deposits and one-click repayment work here."
               : "The keeper relays standing orders on Arc mainnet only."}
           </p>
         )}
-        <p className="text-xs opacity-60">Each order is a signature, not a transaction: no gas. Valid about 70 days.</p>
+        <p className="text-xs text-faint">Each order is a signature, not a transaction: no gas. Valid about 70 days.</p>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-lg border border-black/10 p-3 dark:border-white/15">
-        <span className="text-sm opacity-70">Repay now from {network.base.label}</span>
+      <div className="flex flex-col gap-3 rounded-2xl border border-line bg-sunken p-4">
+        <span className="eyebrow">Repay now from {network.base.label}</span>
         <AmountAction
           value={repayText}
           onChange={setRepayText}
@@ -261,7 +261,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
             type="button"
             onClick={applyNow}
             disabled={busy !== undefined}
-            className="w-fit rounded-lg border border-current px-3 py-1.5 text-sm font-medium disabled:opacity-40"
+            className="btn-secondary w-fit px-4 py-2 text-sm"
           >
             {busy === "sweep" ? "Confirm in your wallet…" : "Apply to my debt now"}
           </button>
@@ -269,7 +269,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
       </div>
 
       {message && (
-        <p className="text-sm">
+        <p className="text-sm text-muted">
           {message.text}{" "}
           {message.tx && (
             <a
@@ -283,7 +283,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
           )}
         </p>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
     </section>
   );
 }
@@ -299,17 +299,17 @@ function AmountAction(props: {
     <div className="flex items-center gap-2">
       <input
         inputMode="decimal"
-        className="w-24 rounded-md border border-black/15 bg-transparent px-2 py-1.5 text-sm tabular-nums dark:border-white/20"
+        className="field w-28 px-3 py-2 text-sm tabular-nums"
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
         aria-label="Amount in USDC"
       />
-      <span className="text-sm opacity-60">USDC</span>
+      <span className="text-sm text-muted">USDC</span>
       <button
         type="button"
         onClick={props.onClick}
         disabled={props.disabled || !/^\d+(\.\d{1,6})?$/.test(props.value) || Number(props.value) <= 0}
-        className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background disabled:opacity-40"
+        className="btn-primary px-4 py-2 text-sm"
       >
         {props.label}
       </button>
