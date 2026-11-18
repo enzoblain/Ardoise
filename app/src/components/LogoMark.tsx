@@ -2,7 +2,8 @@
  * The Ardoise mark: a slate with ledger lines in chalk and the payment being
  * written in bitcoin orange. Inlined rather than loaded as an image so it
  * renders with the page; the paths are copied from `assets/logo/logo-mark.svg`,
- * which stays the source of truth for the brand files.
+ * which stays the source of truth for the brand files. When the mark changes,
+ * update this file and `app/src/app/icon.svg` (a copy of `assets/logo/favicon.svg`) by hand.
  *
  * @param props.size Rendered width and height in pixels.
  * @param props.className Extra classes for the `<svg>` element.

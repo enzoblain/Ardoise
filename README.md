@@ -1,9 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/logo-full.svg">
-  <img src="assets/logo/logo-black.svg" alt="Ardoise" width="320">
-</picture>
-
-# Ardoise
+# <img src="assets/logo/logo-mark.svg" alt="" width="40" align="top"> Ardoise
 
 > Pay anyone, on any chain, with your bitcoin without selling it: each payment borrows exactly the amount on Arc at the best available rate, and your position is protected from liquidation.
 

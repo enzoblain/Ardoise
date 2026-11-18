@@ -147,6 +147,7 @@
     <div class="wrap">
       <div class="label">Color palette</div>
       <h2>Slate, chalk and one orange dot</h2>
+      <p style="margin: -16px 0 28px; color: var(--muted)">The logo uses these colors today; the app interface does not use them yet.</p>
       <div class="palette">
         <div class="chip"><div class="sw" style="background: #0A0A0A; color: #FAFAFA">#0A0A0A</div><div class="meta"><b>Background</b><span>Page and app icon base</span></div></div>
         <div class="chip"><div class="sw" style="background: #111111; color: #FAFAFA">#111111</div><div class="meta"><b>Surface</b><span>The slate, cards, elevated elements</span></div></div>
@@ -177,18 +178,16 @@
       <div class="label">Developer reference</div>
       <h2>Drop it into the app</h2>
       <div class="dev">
-<pre><span class="c">// tailwind.config.js, theme.extend</span>
-<span class="k">colors</span>: {
-  <span class="k">brand</span>: {
-    <span class="k">primary</span>: <span class="s">'#0A0A0A'</span>,
-    <span class="k">surface</span>: <span class="s">'#111111'</span>,
-    <span class="k">border</span>: <span class="s">'#2E2E2E'</span>,
-    <span class="k">chalk</span>: <span class="s">'#F5F5F0'</span>,
-    <span class="k">muted</span>: <span class="s">'#A1A1A1'</span>,
-    <span class="k">text</span>: <span class="s">'#FAFAFA'</span>,
-    <span class="k">accent</span>: <span class="s">'#F7931A'</span>,
-  },
-},</pre>
+<pre><span class="c">/* app/src/app/globals.css (Tailwind v4) */</span>
+<span class="k">@theme</span> {
+  <span class="k">--color-brand-primary</span>: <span class="s">#0A0A0A</span>;
+  <span class="k">--color-brand-surface</span>: <span class="s">#111111</span>;
+  <span class="k">--color-brand-border</span>: <span class="s">#2E2E2E</span>;
+  <span class="k">--color-brand-chalk</span>: <span class="s">#F5F5F0</span>;
+  <span class="k">--color-brand-muted</span>: <span class="s">#A1A1A1</span>;
+  <span class="k">--color-brand-text</span>: <span class="s">#FAFAFA</span>;
+  <span class="k">--color-brand-accent</span>: <span class="s">#F7931A</span>;
+}</pre>
 <pre><span class="c">assets/logo/</span>
 ├── <span class="s">logo-mark.svg</span>      <span class="c">64×64 mark, canonical</span>
 ├── <span class="s">logo-full.svg</span>      <span class="c">320×72 mark + wordmark, dark bg</span>
