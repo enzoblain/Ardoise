@@ -10,7 +10,9 @@ Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardo
 |----------|---------|---------------------|
 | `ArdoiseFactory` | [`0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`](https://explorer.arc.io/address/0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD) |
 | `AaveV4Adapter` (USDC on the Aave V4 Main Spoke) | [`0x38B564d0b3d57216A34d83FbF08DE48744567b38`](https://explorer.arc.io/address/0x38B564d0b3d57216A34d83FbF08DE48744567b38) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0x38B564d0b3d57216A34d83FbF08DE48744567b38) |
-| `MarginGuard` | **Pending (task B5)** | — |
+| `MarginGuard` (min health factor 1.25, target 1.5, owner = admin) | [`0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080`](https://explorer.arc.io/address/0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080) |
+
+The guard was deployed on 2026-11-18 with [`script/DeployGuard.s.sol`](script/DeployGuard.s.sol) (task B5, [PR #18](https://github.com/enzoblain/Ardoise/pull/18)) from commit [`b2c0f55`](https://github.com/enzoblain/Ardoise/commit/b2c0f55), in block [31848228](https://explorer.arc.io/block/31848228), by the factory admin: [deploy `MarginGuard`](https://explorer.arc.io/tx/0xe06eb6271c82a06ceebddbd00e0b1c936442e0f25992dc0b42df0ed44c2c1dd0), [`factory.setGuard`](https://explorer.arc.io/tx/0x33621a5269aaf01dca0883563259adeacafebf8eae5134f9ca77175c91a1a92f). Checked after mining: `factory.guard()` returns the guard, `factory.venues()` is unchanged, the guard's owner is the admin, thresholds are 1.25e18 / 1.5e18 and `simulatedDropBps()` is 0.
 
 Accounts (`ArdoiseAccount`) are deployed by the factory through `createAccount()`; find one with `accountOf(owner)` or the `AccountCreated` event.
 
@@ -54,7 +56,7 @@ Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`
 
 ### Pending
 
-- [ ] **Guard (B5):** run [`script/DeployGuard.s.sol`](script/DeployGuard.s.sol) from the factory admin (see *How to deploy the guard* below): it deploys `MarginGuard(admin, 1.25e18, 1.5e18)` and calls `factory.setGuard(guard)`; its checks run on forge's simulated result before anything is sent, so confirm the mined state with *Checks once B5 is done*. Verify it on Sourcify and add it to the table above. Simulated against mainnet on 2026-11-18 as the admin: all checks pass, about 741k gas (≈ 0.034 USDC).
+- [x] **Guard (B5):** deployed and set on 2026-11-18 (see the table above); sources verified on Sourcify.
 - [ ] **Demo account:** owned by the project test wallet, which holds the cirBTC collateral on the Main Spoke and has already authorized the Taker and Giver position managers. It needs `factory.createAccount()` and `Taker.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)` for this adapter (see docs/api.md, *One-time user setup on Aave V4*).
 - [ ] **Keeper:** in the repo-root `.env`, set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009` and `KEEPER_PRIVATE_KEY` (a dedicated wallet holding a little USDC for gas), then run `(cd keeper && npm start)`. Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. The app needs `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` (`.env.example` defaults to testnet). For Gateway standing orders (B4), also set `GATEWAY_ORDERS_FILE` (outside the repository), `GATEWAY_INTAKE_PORT=8787`, and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app.
 
@@ -62,8 +64,8 @@ Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`
 
 Read-only, against `https://rpc.mainnet.arc.io`, comparing with the A4 state above:
 
-- [ ] `factory.guard()` returns the deployed `MarginGuard`, and `guard.minHealthFactor()` / `targetHealthFactor()` return `1.25e18` / `1.5e18`.
-- [ ] `factory.venues()` still returns `[0x38B564d0b3d57216A34d83FbF08DE48744567b38]` and `factory.admin()` the project wallet: B5 must not redeploy the factory or the adapter.
+- [x] `factory.guard()` returns the deployed `MarginGuard`, and `guard.minHealthFactor()` / `targetHealthFactor()` return `1.25e18` / `1.5e18`.
+- [x] `factory.venues()` still returns `[0x38B564d0b3d57216A34d83FbF08DE48744567b38]` and `factory.admin()` the project wallet: B5 must not redeploy the factory or the adapter.
 - [ ] `factory.accountOf(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7)` returns the demo account, and `Taker.borrowAllowance(MainSpoke, 0, demoWallet, AaveV4Adapter)` is not zero.
 - [ ] `guard.checkMargin(demoWallet, AaveV4Adapter, 1e6)` returns `1e6` while the demo position is healthy.
 - [ ] A first `pay()` from the demo account succeeds on mainnet (record its explorer link here), then the keeper finds the account from block 31777009.
