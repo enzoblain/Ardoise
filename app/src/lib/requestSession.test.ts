@@ -117,11 +117,19 @@ describe("payerMayPay", () => {
 
 describe("clockOffset", () => {
   it("estimates the offset from an event that just arrived", () => {
-    expect(clockOffset(T + 2_000, T)).toBe(2_000);
-    expect(clockOffset(T - 30_000, T)).toBe(-30_000);
+    expect(clockOffset(undefined, T + 2_000, T)).toBe(2_000);
+    expect(clockOffset(undefined, T - 30_000, T)).toBe(-30_000);
   });
 
-  it("ignores replayed events", () => {
-    expect(clockOffset(T - 3_600_000, T)).toBeUndefined();
+  it("ignores events more than a minute old", () => {
+    expect(clockOffset(undefined, T - 3_600_000, T)).toBeUndefined();
+    expect(clockOffset(500, T - 3_600_000, T)).toBe(500);
+  });
+
+  it("recovers from a replay after a reload, so the 30 s do not restart", () => {
+    // Reload 20 s after opening: the replayed `joined` arrives first, then the payer's own live echo.
+    const afterReplay = clockOffset(undefined, T, T + 20_000);
+    expect(afterReplay).toBe(-20_000);
+    expect(clockOffset(afterReplay, T + 20_000, T + 20_150)).toBe(-150);
   });
 });
