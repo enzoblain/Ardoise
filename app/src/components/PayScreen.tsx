@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isAddress, parseUnits, type Address } from "viem";
+import { isAddress, parseUnits, type Address, type Hex } from "viem";
 import {
   PaymentFailed,
+  PaymentUnconfirmed,
   marginFromHealth,
   type ArdoiseClient,
   type DebtLine,
@@ -13,7 +14,8 @@ import {
 } from "@/lib/ardoise";
 import { computeMaxFee, fetchFeeSchedule, type IrisFee } from "@/lib/fees";
 import { formatBps, formatUsdc } from "@/lib/format";
-import { chainByDomain, network, type PayoutChain } from "@/lib/network";
+import Link from "next/link";
+import { chainByDomain, network, txUrl, type PayoutChain } from "@/lib/network";
 import { MarginGauge } from "@/components/MarginGauge";
 import { RateComparison } from "@/components/RateComparison";
 
@@ -45,7 +47,8 @@ export function PayScreen({
   const [payee, setPayee] = useState("");
   const [memo, setMemo] = useState("");
 
-  const [minHealthFactor, setMinHealthFactor] = useState<bigint>();
+  // `null`: no guard is set yet; undefined: not read yet.
+  const [minHealthFactor, setMinHealthFactor] = useState<bigint | null>();
   // Circle's fee schedule per route: `null` for Arc (no fee), absent while loading.
   const [schedules, setSchedules] = useState<Record<string, IrisFee[] | null>>({});
   const [feeError, setFeeError] = useState<string>();
@@ -56,6 +59,10 @@ export function PayScreen({
   const [receipt, setReceipt] = useState<DebtLine>();
   const [refusal, setRefusal] = useState<PaymentError>();
   const [failure, setFailure] = useState<string>();
+  // A payment sent whose outcome could not be read: never offer to pay again.
+  const [unconfirmed, setUnconfirmed] = useState<{ hash: Hex; reason: string }>();
+  const [readError, setReadError] = useState<string>();
+  const [feeNotice, setFeeNotice] = useState<string>();
 
   const amount = parseAmount(amountText);
   const payeeValid = isAddress(payee);
@@ -63,7 +70,10 @@ export function PayScreen({
   const maxFee = amount === undefined || schedule === undefined ? undefined : feeFor(schedule, amount);
 
   useEffect(() => {
-    account.minHealthFactor().then(setMinHealthFactor);
+    account
+      .minHealthFactor()
+      .then(setMinHealthFactor)
+      .catch((e: Error) => setReadError(e.message.split("\n")[0]));
   }, [account]);
 
   // The schedule only depends on the route, so it is fetched once per chain.
@@ -96,7 +106,12 @@ export function PayScreen({
         maxFee,
         memo,
       })
-      .then((q) => current && setQuote(q));
+      .then((q) => {
+        if (!current) return;
+        setQuote(q);
+        setReadError(undefined);
+      })
+      .catch((e: Error) => current && setReadError(e.message.split("\n")[0]));
     return () => {
       current = false;
     };
@@ -110,7 +125,19 @@ export function PayScreen({
     setSending(true);
     setRefusal(undefined);
     setFailure(undefined);
+    setFeeNotice(undefined);
     try {
+      // Circle's forwarder fee moves. If it changed, show the new borrow and
+      // its checks first: the user signs exactly what the screen displays.
+      if (!account.simulated) {
+        const latest = await fetchFeeSchedule(destination);
+        const fee = feeFor(latest, amount);
+        if (fee !== maxFee) {
+          setSchedules((s) => ({ ...s, [destination.key]: latest }));
+          setFeeNotice(`Circle's fee just changed to ${formatUsdc(fee)} USDC. Check the amounts and pay again.`);
+          return;
+        }
+      }
       const line = await account.pay({
         amount,
         destinationDomain: destination.cctpDomain,
@@ -122,7 +149,8 @@ export function PayScreen({
       setPaymentCount((n) => n + 1);
       onPaid();
     } catch (e) {
-      if (e instanceof PaymentFailed) setRefusal(e.reason);
+      if (e instanceof PaymentUnconfirmed) setUnconfirmed({ hash: e.transactionHash, reason: e.message });
+      else if (e instanceof PaymentFailed) setRefusal(e.reason);
       else setFailure((e as Error).message || "The payment could not be sent.");
     } finally {
       setSending(false);
@@ -218,7 +246,7 @@ export function PayScreen({
           venueName={quote.venue.name}
           before={marginFromHealth(quote.healthBefore.healthFactor)}
           after={quote.healthAfter !== undefined ? marginFromHealth(quote.healthAfter) : undefined}
-          minimum={marginFromHealth(minHealthFactor)}
+          minimum={minHealthFactor === null ? undefined : marginFromHealth(minHealthFactor)}
         />
       )}
 
@@ -239,10 +267,21 @@ export function PayScreen({
       {blocking && error && <p className="text-sm text-red-600">{describeError(error)}</p>}
       {refusal && <p className="text-sm text-red-600">{describeError(refusal)}</p>}
       {failure && <p className="text-sm text-red-600">{failure}</p>}
+      {feeNotice && <p className="text-sm text-amber-700 dark:text-amber-400">{feeNotice}</p>}
+      {readError && <p className="text-sm text-red-600">Could not read the account on chain: {readError}</p>}
 
+      {unconfirmed && (
+        <p className="rounded-md bg-amber-500/15 px-3 py-2 text-sm">
+          The payment was sent but its confirmation could not be read ({unconfirmed.reason}). Check{" "}
+          <a className="underline" href={txUrl(network.arc, unconfirmed.hash)} target="_blank" rel="noreferrer">
+            the transaction
+          </a>{" "}
+          before paying again; the statement shows it once it is mined.
+        </p>
+      )}
       <button
         type="submit"
-        disabled={!payeeValid || !fresh || !!error || sending}
+        disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined}
         className="rounded-lg bg-foreground px-4 py-3 font-semibold text-background disabled:opacity-40"
       >
         {sending ? "Paying…" : amount !== undefined ? `Pay ${formatUsdc(amount)} USDC` : "Pay"}
@@ -253,6 +292,7 @@ export function PayScreen({
 
 function Receipt({ line, simulated, onNew }: { line: DebtLine; simulated: boolean; onNew: () => void }) {
   const chain = chainByDomain(line.destinationDomain);
+  const crossChain = line.destinationDomain !== network.arc.cctpDomain;
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-xl font-semibold">{simulated ? "Payment simulated" : "Payment sent"}</h2>
@@ -276,7 +316,22 @@ function Receipt({ line, simulated, onNew }: { line: DebtLine; simulated: boolea
         )}
         <dt className="opacity-70">Debt line</dt>
         <dd>#{line.id.toString()}</dd>
+        {line.transactionHash && (
+          <>
+            <dt className="opacity-70">Transaction</dt>
+            <dd>
+              <a className="underline" href={txUrl(network.arc, line.transactionHash)} target="_blank" rel="noreferrer">
+                {line.transactionHash.slice(0, 10)}… on {network.arc.label}
+              </a>
+            </dd>
+          </>
+        )}
       </dl>
+      {line.transactionHash && crossChain && (
+        <Link href={`/payments/${line.transactionHash}`} className="rounded-lg bg-foreground px-4 py-2 text-center font-medium text-background">
+          Track delivery on {chain?.label ?? "the payee's chain"}
+        </Link>
+      )}
       <button type="button" onClick={onNew} className="rounded-lg border border-current px-4 py-2 font-medium">
         New payment
       </button>
@@ -310,5 +365,13 @@ function describeError(error: PaymentError): string {
       return error.allowed > 0n
         ? `Refused to protect your position: it would leave too little margin. You can borrow up to ${formatUsdc(error.allowed)} USDC (fees included) right now.`
         : "Refused to protect your position: there is no margin left to borrow against.";
+    case "GuardNotSet":
+      return "Payments are not live yet: the position guard is not deployed on this network.";
+    case "FeeOnArc":
+      return "A payment on Arc carries no transfer fee.";
+    case "ZeroAmount":
+      return "Enter an amount above zero.";
+    case "Reverted":
+      return `The payment would fail on chain: ${error.message}`;
   }
 }

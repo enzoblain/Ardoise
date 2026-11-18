@@ -24,11 +24,6 @@ export default async function Home() {
       <header className="flex flex-col gap-1">
         <h1 className="text-3xl font-semibold">Ardoise</h1>
         <p className="opacity-80">Pay anyone, on any chain, with your bitcoin without selling it.</p>
-        <p className="rounded-md bg-amber-500/15 px-3 py-2 text-sm">
-          Demo account: the position, guard and payments are simulated in your browser until the contracts are
-          deployed. Rates are live from Arc mainnet; fees are quoted by Circle for {network.arc.label} →{" "}
-          {network.base.label}.
-        </p>
       </header>
       {venues ? (
         <AccountScreen venues={venues} />

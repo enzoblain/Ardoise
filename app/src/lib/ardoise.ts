@@ -15,9 +15,9 @@ const USDC_TO_WAD = 10n ** 12n;
 export interface Venue {
   id: string;
   /**
-   * Address `Paid` events carry as `venue`: the `IVenue` adapter. Until the
-   * adapters are deployed (A1), the underlying protocol contract stands in;
-   * C4 must replace it, or statement lines show a raw address.
+   * Address `Paid` events carry as `venue`: the `IVenue` adapter. A venue
+   * with no adapter yet (Morpho, R5) uses its protocol contract and is shown
+   * for comparison only.
    */
   address: Address;
   name: string;
@@ -25,6 +25,8 @@ export interface Venue {
   rateBps: number;
   /** Borrowable USDC right now, 6 decimals. */
   available: bigint;
+  /** False when the account cannot borrow there yet (no adapter); shown for comparison. Defaults to true. */
+  borrowable?: boolean;
 }
 
 /** `IArdoise.health(venue)`. */
@@ -53,6 +55,8 @@ export interface DebtLine {
   openedAt: number;
   payee: Hex;
   memo: string;
+  /** Transaction of the payment, when it was sent on chain. */
+  transactionHash?: Hex;
 }
 
 /** Arguments of `IArdoise.pay()`, with the payee as an EVM address. */
@@ -69,7 +73,14 @@ export type PaymentError =
   | { code: "InvalidPayee" }
   | { code: "CapExceeded"; remaining: bigint }
   | { code: "NoVenueAvailable" }
-  | { code: "PaymentRefused"; allowed: bigint };
+  | { code: "PaymentRefused"; allowed: bigint }
+  /** No guard is set on the factory yet, so every payment reverts. */
+  | { code: "GuardNotSet" }
+  /** A payment on Arc carries no CCTP fee. */
+  | { code: "FeeOnArc" }
+  | { code: "ZeroAmount" }
+  /** Any other revert (a missing Aave allowance, for example), with its message. */
+  | { code: "Reverted"; message: string };
 
 /** What `pay()` would do, computed before sending it. */
 export interface PaymentQuote {
@@ -81,15 +92,16 @@ export interface PaymentQuote {
   healthBefore?: Health;
   /** Health factor on `venue` after borrowing `borrow`. */
   healthAfter?: bigint;
-  /** Minimum health factor the guard allows after a payment. */
-  minHealthFactor: bigint;
+  /** Minimum health factor the guard allows after a payment; `null` without a guard. */
+  minHealthFactor: bigint | null;
   /** Why `pay()` would revert, if it would. */
   error?: PaymentError;
 }
 
 /**
- * The account operations the app needs. A mock implements it until the
- * contracts are deployed (C1); the on-chain implementation comes with C4.
+ * The account operations the app needs: the in-browser mock (`mockArdoise`)
+ * for the demo account, the deployed contracts (`chainArdoise`) once a
+ * wallet is connected.
  */
 export interface ArdoiseClient {
   /** True for the in-browser mock, so the UI can say the data is simulated. */
@@ -100,8 +112,14 @@ export interface ArdoiseClient {
    * @param venueId Venue to read.
    */
   health(venueId: string): Promise<Health>;
-  /** `IGuard.minHealthFactor()`: lowest health factor a payment may leave. */
-  minHealthFactor(): Promise<bigint>;
+  /** `IGuard.minHealthFactor()`: lowest health factor a payment may leave; `null` while no guard is set. */
+  minHealthFactor(): Promise<bigint | null>;
+  /**
+   * Simulated collateral price drop the guard applies for the demo, in basis
+   * points; 0 when the simulation is off. `health()` and `quote()` already
+   * reflect it, the way the guard judges positions.
+   */
+  simulatedDropBps(): Promise<number>;
   caps(): Promise<Caps>;
   lines(): Promise<DebtLine[]>;
   quote(request: PaymentRequest): Promise<PaymentQuote>;
@@ -113,10 +131,27 @@ export interface ArdoiseClient {
   events(): Promise<{ account: Address; logs: Log[]; blockTimes: Map<bigint, number> }>;
   /**
    * Sends the payment.
-   * @returns The debt line it opened (`IArdoise.line(lineId)`).
+   * @returns The debt line it opened (`IArdoise.line(lineId)`), with the
+   *   payment's transaction when it was sent on chain.
    * @throws {PaymentFailed} With the contract error that refused it.
+   * @throws {PaymentUnconfirmed} When the transaction was sent but its
+   *   outcome could not be read.
    */
   pay(request: PaymentRequest): Promise<DebtLine>;
+}
+
+/**
+ * Thrown by `ArdoiseClient.pay` when the payment was sent but its outcome
+ * could not be confirmed. It may well have gone through: the UI must show
+ * the transaction and not offer to pay again.
+ */
+export class PaymentUnconfirmed extends Error {
+  constructor(
+    readonly transactionHash: Hex,
+    cause: string,
+  ) {
+    super(cause);
+  }
 }
 
 /** Thrown by `ArdoiseClient.pay` with the contract error that refused it. */
