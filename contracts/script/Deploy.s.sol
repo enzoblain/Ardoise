@@ -53,6 +53,11 @@ contract Deploy is Script {
         uint256 finality = vm.envOr("ARDOISE_MIN_FINALITY_THRESHOLD", uint256(2000));
         require(finality <= type(uint32).max, "finality threshold too large");
         address guard = vm.envOr("ARDOISE_GUARD", address(0));
+        // Checked before anything is sent: a guard without code would make every payment revert
+        // while decoding its answer.
+        if (guard != address(0)) {
+            require(guard.code.length > 0 && IGuard(guard).minHealthFactor() > 1e18, "ARDOISE_GUARD is not a guard");
+        }
 
         vm.startBroadcast(deployerKey);
         factory = new ArdoiseFactory(
@@ -76,11 +81,7 @@ contract Deploy is Script {
         venues[0] = adapter;
         venues[1] = morpho;
         factory.setVenues(venues);
-        if (guard != address(0)) {
-            // A guard without code would make every payment revert while decoding its answer.
-            require(guard.code.length > 0 && IGuard(guard).minHealthFactor() > 1e18, "ARDOISE_GUARD is not a guard");
-            factory.setGuard(IGuard(guard));
-        }
+        if (guard != address(0)) factory.setGuard(IGuard(guard));
         vm.stopBroadcast();
 
         console.log("ArdoiseFactory:", address(factory));
