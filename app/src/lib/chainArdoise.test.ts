@@ -126,10 +126,12 @@ function client(arc: FakeArc) {
     },
   };
   const sent: unknown[] = [];
+  const calls: string[] = [];
   const walletClient = {
     account: { address: OWNER },
     chain: { id: 5042 },
     async writeContract(request: unknown) {
+      calls.push("write");
       sent.push(request);
       return TX;
     },
@@ -141,8 +143,9 @@ function client(arc: FakeArc) {
     account: ACCOUNT,
     venues: [AAVE],
     fromBlock: 31_777_009n,
+    ensureArc: async () => void calls.push("ensureArc"),
   });
-  return { account, sent };
+  return { account, sent, calls };
 }
 
 const request = (amount: bigint, overrides: Partial<PaymentRequest> = {}): PaymentRequest => ({
@@ -221,6 +224,12 @@ describe("on-chain Ardoise client", () => {
       transactionHash: TX,
     });
     expect(line.venue.name).toBe("Aave V4");
+  });
+
+  it("brings the wallet back to Arc before signing a payment", async () => {
+    const { account, calls } = client(fakeArc());
+    await account.pay(request(1_000_000n));
+    expect(calls).toEqual(["ensureArc", "write"]);
   });
 
   it("reports a sent payment whose receipt cannot be read as unconfirmed, with its hash", async () => {

@@ -45,6 +45,11 @@ export interface ChainArdoiseOptions {
   venues: Venue[];
   /** First block to read the account's logs from (the factory's deployment). */
   fromBlock: bigint;
+  /**
+   * Brings the wallet back to Arc before a payment is signed, for example
+   * after the Protection panel moved it to Base; omitted for a read-only view.
+   */
+  ensureArc?: () => Promise<void>;
 }
 
 /**
@@ -217,6 +222,7 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     async pay(request) {
       const walletClient = options.walletClient;
       if (walletClient === null) throw new Error("Connect the owner's wallet to pay.");
+      await options.ensureArc?.();
       let hash: Hex;
       try {
         hash = await walletClient.writeContract({

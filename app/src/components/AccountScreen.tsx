@@ -8,7 +8,7 @@ import { createChainArdoise } from "@/lib/chainArdoise";
 import { deployment } from "@/lib/contracts/deployments";
 import { createMockArdoise } from "@/lib/mockArdoise";
 import { network } from "@/lib/network";
-import { connectWallet, type ConnectedWallet } from "@/lib/wallet";
+import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { AccountSetup } from "@/components/AccountSetup";
 import { PayScreen } from "@/components/PayScreen";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
@@ -42,6 +42,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
             account: accountAddress,
             venues,
             fromBlock: deployment.deployBlock,
+            ensureArc: () => switchChain(wallet.provider, network.arc.chain),
           })
         : undefined,
     [wallet, accountAddress, venues],
