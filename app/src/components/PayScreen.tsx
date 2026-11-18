@@ -16,6 +16,7 @@ import { computeMaxFee, fetchFeeSchedule, type IrisFee } from "@/lib/fees";
 import { formatBps, formatUsdc } from "@/lib/format";
 import Link from "next/link";
 import { chainByDomain, network, txUrl, type PayoutChain } from "@/lib/network";
+import { MAX_MEMO_LENGTH, type PaymentRequest } from "@/lib/paymentRequest";
 import { MarginGauge } from "@/components/MarginGauge";
 import { RateComparison } from "@/components/RateComparison";
 
@@ -31,21 +32,26 @@ const DESTINATIONS: PayoutChain[] = [network.base, network.arc];
  *
  * @param props.account Account client the payment goes through.
  * @param props.venues Venues with their live rates, read on the server.
+ * @param props.request Payment request the form starts from, if the page was opened from one.
  * @param props.onPaid Called after each successful payment.
  */
 export function PayScreen({
   account,
   venues,
+  request,
   onPaid,
 }: {
   account: ArdoiseClient;
   venues: Venue[];
+  request?: PaymentRequest;
   onPaid: () => void;
 }) {
-  const [amountText, setAmountText] = useState("20");
-  const [destination, setDestination] = useState<PayoutChain>(network.base);
-  const [payee, setPayee] = useState("");
-  const [memo, setMemo] = useState("");
+  const [amountText, setAmountText] = useState(request?.amount ?? "20");
+  const [destination, setDestination] = useState<PayoutChain>(request?.chain === "arc" ? network.arc : network.base);
+  const [payee, setPayee] = useState<string>(request?.payee ?? "");
+  const [memo, setMemo] = useState(request?.memo ?? "");
+  // The request the form was opened from, until it is paid.
+  const [openRequest, setOpenRequest] = useState(request);
 
   // `null`: no guard is set yet; undefined: not read yet.
   const [minHealthFactor, setMinHealthFactor] = useState<bigint | null>();
@@ -63,6 +69,14 @@ export function PayScreen({
   const [unconfirmed, setUnconfirmed] = useState<{ hash: Hex; reason: string }>();
   const [readError, setReadError] = useState<string>();
   const [feeNotice, setFeeNotice] = useState<string>();
+
+  // Once a request is paid, drop it from the page and its address, so a reload
+  // or a second visit to the same tab does not fill in the same payment again.
+  function closeRequest() {
+    if (!openRequest) return;
+    setOpenRequest(undefined);
+    window.history.replaceState(null, "", "/app");
+  }
 
   const amount = parseAmount(amountText);
   const payeeValid = isAddress(payee);
@@ -147,9 +161,13 @@ export function PayScreen({
       });
       setReceipt(line);
       setPaymentCount((n) => n + 1);
+      closeRequest();
       onPaid();
     } catch (e) {
-      if (e instanceof PaymentUnconfirmed) setUnconfirmed({ hash: e.transactionHash, reason: e.message });
+      if (e instanceof PaymentUnconfirmed) {
+        setUnconfirmed({ hash: e.transactionHash, reason: e.message });
+        closeRequest();
+      }
       else if (e instanceof PaymentFailed) setRefusal(e.reason);
       else setFailure((e as Error).message || "The payment could not be sent.");
     } finally {
@@ -186,6 +204,21 @@ export function PayScreen({
         <h2 className="text-xl font-semibold tracking-tight">Pay</h2>
         <span className="eyebrow">Borrowed at payment time</span>
       </div>
+      {openRequest && (
+        <p className="flex items-start gap-2.5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
+          <span>
+            <span className="font-medium">Payment request</span>
+            <span className="text-muted">
+              {" "}
+              filled in below. Check the whole payee address before you pay: the link was made by the payee, not by
+              Ardoise.
+            </span>
+            {/* In full: a shortened address is easy to imitate with a lookalike one. */}
+            <span className="mt-1 block break-all font-mono text-xs text-foreground">{openRequest.payee}</span>
+          </span>
+        </p>
+      )}
       <fieldset className="flex flex-col gap-4">
         <label className="flex flex-col gap-2">
           <span className="eyebrow">Amount</span>
@@ -236,7 +269,7 @@ export function PayScreen({
           <input
             className="field"
             placeholder="Invoice #42"
-            maxLength={120}
+            maxLength={MAX_MEMO_LENGTH}
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
           />

@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { AccountScreen } from "@/components/AccountScreen";
-import { LogoMark } from "@/components/LogoMark";
+import { AppHeader } from "@/components/AppHeader";
 import { arcClient } from "@/lib/arc";
 import { network } from "@/lib/network";
+import { parseRequest } from "@/lib/paymentRequest";
 import { readVenueRates } from "@/lib/venues";
 
 // Rates move with every block; read them on each request.
@@ -10,9 +10,16 @@ export const dynamic = "force-dynamic";
 
 /**
  * App page (`/app`): the pay screen and the statement, fed with live venue rates
- * from Arc mainnet, and the status of the Arc network the app is set to.
+ * from Arc mainnet, and the status of the Arc network the app is set to. A
+ * payment request link (`/app?to=…`, see `lib/paymentRequest.ts`) fills in the
+ * pay screen.
  */
-export default async function AppPage() {
+export default async function AppPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const request = parseRequest(await searchParams);
   const [venues, blockNumber, chainId] = await Promise.all([
     readVenueRates().catch(() => null),
     arcClient.getBlockNumber().catch(() => null),
@@ -28,24 +35,22 @@ export default async function AppPage() {
 
   return (
     <div className="min-h-screen">
-      <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-5">
-        <h1 className="text-lg font-semibold tracking-tight">
-          <Link href="/" className="flex items-center gap-2.5">
-            <LogoMark size={28} />
-            Ardoise
-          </Link>
-        </h1>
-        <span className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${wrongNetwork || blockNumber === null ? "bg-danger" : "bg-accent"}`}
-            aria-hidden
-          />
-          {status}
-        </span>
-      </header>
+      <AppHeader
+        current="pay"
+        status={
+          <span className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${wrongNetwork || blockNumber === null ? "bg-danger" : "bg-accent"}`}
+              aria-hidden
+            />
+            {status}
+          </span>
+        }
+      />
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pb-16">
+        <h1 className="sr-only">Ardoise: pay with your bitcoin</h1>
         {venues ? (
-          <AccountScreen venues={venues} />
+          <AccountScreen venues={venues} request={request} />
         ) : (
           <p className="card text-danger">Could not read the lending rates from Arc mainnet. Try again in a moment.</p>
         )}

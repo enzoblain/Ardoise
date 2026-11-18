@@ -132,3 +132,21 @@ Source: [`aave-dao/aave-address-book`](https://github.com/aave-dao/aave-address-
 - `AaveV4Adapter.available()` is the Hub liquidity capped by the room left under the Main Spoke draw cap; on mainnet the draw cap is the binding limit (about 26.3M USDC on 2026-11-17). It returns 0 when the reserve is paused, frozen or not borrowable, or the Spoke is inactive or halted, so `pay()` can fall back to another venue.
 - `AaveV4Adapter.rate()` is the Hub's base drawn rate; a cirBTC borrower also pays the Aave V4 risk premium of their position.
 - `AaveV4Adapter.healthAfter()` uses the collateral factors the position was last refreshed with. A borrow refreshes them first, so right after governance lowers a collateral factor the projection can be higher than the health factor the borrow leaves.
+
+## Payment request links
+
+A payee asks to be paid with a link to the app, built on `/request` and shared as is or as a QR code. Opening it fills in the pay screen; nothing is stored or sent on chain until the payer pays. Built and read by [`app/src/lib/paymentRequest.ts`](../app/src/lib/paymentRequest.ts).
+
+```
+https://<app>/app?to=<payee>&chain=<base|arc>&amount=<USDC>&memo=<text>
+```
+
+| Parameter | Required | Value | If invalid |
+|-----------|----------|-------|------------|
+| `to` | yes | EVM address that receives the USDC; a mixed-case address must have a valid checksum | the whole request is ignored |
+| `chain` | no | `base` or `arc` | `base` |
+| `amount` | no | USDC as a decimal, more than 0, at most 6 decimals (`12.5`) | left empty for the payer to fill in |
+| `memo` | no | Text for the payer's statement | bidirectional controls removed, cut to 120 characters |
+
+- **The link comes from the payee, not from Ardoise.** The pay screen shows the full payee address and asks the payer to check it, since a shortened address is easy to imitate.
+- **One payment per opening.** Once the payment is sent, the app drops the request from the page and its address, so reloading does not fill in the same payment again.
