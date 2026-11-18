@@ -60,7 +60,7 @@ export function PayScreen({
   const [refusal, setRefusal] = useState<PaymentError>();
   const [failure, setFailure] = useState<string>();
   // A payment sent whose outcome could not be read: never offer to pay again.
-  const [unconfirmed, setUnconfirmed] = useState<{ hash: Hex; reason: string }>();
+  const [unconfirmed, setUnconfirmed] = useState<{ hash: Hex; reason: string; userOperation: boolean }>();
   const [readError, setReadError] = useState<string>();
   const [feeNotice, setFeeNotice] = useState<string>();
 
@@ -149,7 +149,7 @@ export function PayScreen({
       setPaymentCount((n) => n + 1);
       onPaid();
     } catch (e) {
-      if (e instanceof PaymentUnconfirmed) setUnconfirmed({ hash: e.transactionHash, reason: e.message });
+      if (e instanceof PaymentUnconfirmed) setUnconfirmed({ hash: e.transactionHash, reason: e.message, userOperation: e.userOperation });
       else if (e instanceof PaymentFailed) setRefusal(e.reason);
       else setFailure((e as Error).message || "The payment could not be sent.");
     } finally {
@@ -276,11 +276,21 @@ export function PayScreen({
 
       {unconfirmed && (
         <p className="rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
-          The payment was sent but its confirmation could not be read ({unconfirmed.reason}). Check{" "}
-          <a className="underline" href={txUrl(network.arc, unconfirmed.hash)} target="_blank" rel="noreferrer">
-            the transaction
-          </a>{" "}
-          before paying again; the statement shows it once it is mined.
+          The payment was sent but its confirmation could not be read ({unconfirmed.reason}).{" "}
+          {unconfirmed.userOperation ? (
+            <>
+              Its user operation is <span className="font-mono">{unconfirmed.hash.slice(0, 10)}…</span>; check the statement
+              before paying again: it shows the payment once it is mined.
+            </>
+          ) : (
+            <>
+              Check{" "}
+              <a className="underline" href={txUrl(network.arc, unconfirmed.hash)} target="_blank" rel="noreferrer">
+                the transaction
+              </a>{" "}
+              before paying again; the statement shows it once it is mined.
+            </>
+          )}
         </p>
       )}
       <button

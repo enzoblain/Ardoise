@@ -111,7 +111,7 @@ Verified on Arc mainnet in test 0.1 (see the results in [`roadmap.md`](roadmap.m
 2. Authorize the Aave position managers on the Main Spoke: `setUserPositionManager(TakerPositionManager, true)` to borrow on the user's behalf, `setUserPositionManager(GiverPositionManager, true)` to repay on the user's behalf.
 3. Give the Aave adapter a borrow allowance: `TakerPositionManager.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)`. The allowance decreases by the actual debt increase. Use a finite cap (for example the daily cap times a few days) rather than `type(uint256).max`: the adapter is shared by every user.
 
-The app runs these steps when the user activates their account.
+The app runs these steps when the user activates their account. A browser wallet signs steps 2 and 3 one transaction at a time and supplies cirBTC on Aave itself. A passkey smart account (Circle Modular Wallets) runs everything, including `approve` of its cirBTC to the Main Spoke, step 1 and steps 2 and 3, in one user operation (`activationCalls` in [`app/src/lib/setup.ts`](../app/src/lib/setup.ts)); its payments are one user operation calling `pay()` each.
 
 ## Aave V4 on Arc mainnet
 

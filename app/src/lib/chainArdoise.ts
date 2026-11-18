@@ -1,6 +1,7 @@
 import {
   BaseError,
   ContractFunctionRevertedError,
+  encodeFunctionData,
   isAddress,
   parseEventLogs,
   zeroAddress,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/ardoise";
 import { accountAbi, guardAbi, venueAbi } from "@/lib/contracts/abis";
 import { network } from "@/lib/network";
+import type { PasskeyWallet } from "@/lib/wallet";
 
 const BPS = 10_000n;
 // Public RPC endpoints reject wide `eth_getLogs` ranges; read history in slices.
@@ -35,8 +37,10 @@ const LOG_RANGE = 10_000n;
 /** What the on-chain client needs. */
 export interface ChainArdoiseOptions {
   publicClient: PublicClient<Transport, Chain>;
-  /** Signs payments; `null` for a read-only view. */
+  /** Signs payments; `null` for a read-only view, or when `smartAccount` signs them. */
   walletClient: WalletClient<Transport, Chain, Account> | null;
+  /** Sends payments from a passkey smart account instead of `walletClient`. */
+  smartAccount?: Pick<PasskeyWallet, "submit" | "confirm">;
   /** Owner of the account and of the collateral position. */
   owner: Address;
   /** The owner's `ArdoiseAccount`. */
@@ -220,19 +224,23 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     },
 
     async pay(request) {
-      const walletClient = options.walletClient;
-      if (walletClient === null) throw new Error("Connect the owner's wallet to pay.");
+      const { walletClient, smartAccount } = options;
+      if (walletClient === null && !smartAccount) throw new Error("Connect the owner's wallet to pay.");
       await options.ensureArc?.();
-      let hash: Hex;
+      let sent: Hex;
       try {
-        hash = await walletClient.writeContract({
-          address: account,
-          abi: accountAbi,
-          functionName: "pay",
-          args: payArgs(request),
-          account: walletClient.account,
-          chain: walletClient.chain,
-        });
+        sent = smartAccount
+          ? await smartAccount.submit([
+              { to: account, data: encodeFunctionData({ abi: accountAbi, functionName: "pay", args: payArgs(request) }) },
+            ])
+          : await walletClient!.writeContract({
+              address: account,
+              abi: accountAbi,
+              functionName: "pay",
+              args: payArgs(request),
+              account: walletClient!.account,
+              chain: walletClient!.chain,
+            });
       } catch (error) {
         const reason = toPaymentError(error);
         if (reason.code !== "Reverted") throw new PaymentFailed(reason);
@@ -240,6 +248,17 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       }
       // From here the payment is on its way: any failure to read its outcome
       // must not look like a payment that can be retried.
+      let hash = sent;
+      if (smartAccount) {
+        let operation: Awaited<ReturnType<typeof smartAccount.confirm>>;
+        try {
+          operation = await smartAccount.confirm(sent);
+        } catch (error) {
+          throw new PaymentUnconfirmed(sent, (error as Error).message.split("\n")[0], true);
+        }
+        hash = operation.transactionHash;
+        if (!operation.success) throw new PaymentFailed({ code: "Reverted", message: `User operation ${sent} reverted` });
+      }
       let receipt: Awaited<ReturnType<typeof publicClient.waitForTransactionReceipt>>;
       try {
         receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -247,7 +266,12 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
         throw new PaymentUnconfirmed(hash, (error as Error).message.split("\n")[0]);
       }
       if (receipt.status !== "success") throw new PaymentFailed({ code: "Reverted", message: `Transaction ${hash} reverted` });
-      const [paid] = parseEventLogs({ abi: accountAbi, eventName: "Paid", logs: receipt.logs });
+      // A bundler transaction may carry other accounts' operations: keep this account's event.
+      const [paid] = parseEventLogs({
+        abi: accountAbi,
+        eventName: "Paid",
+        logs: receipt.logs.filter((log) => log.address.toLowerCase() === account.toLowerCase()),
+      });
       if (!paid) throw new PaymentUnconfirmed(hash, "the transaction carries no Paid event");
       // Built from the event and the receipt's block rather than read back
       // with line(): a load-balanced RPC node may not have that block yet.

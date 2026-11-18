@@ -16,6 +16,8 @@ export interface Deployment {
   /** Reserve ids on the Main Spoke. */
   usdcReserveId: bigint;
   cirBtcReserveId: bigint;
+  /** cirBTC, Circle's wrapped bitcoin on Arc (8 decimals): the collateral. */
+  cirBtc: Address;
 }
 
 // From contracts/deployments.md (A4, PR #14). The contracts only exist on
@@ -29,6 +31,7 @@ export const MAINNET_DEPLOYMENT: Deployment = {
   aaveAdapter: "0x38B564d0b3d57216A34d83FbF08DE48744567b38",
   usdcReserveId: 0n,
   cirBtcReserveId: 2n,
+  cirBtc: "0x171A4217b86A807A64eB94757Db6849fb4bDbAA0",
 };
 
 /** The deployment of the selected network, or `null` where nothing is deployed. */
@@ -40,6 +43,16 @@ export const aaveSpokeAbi = parseAbi([
   "function setUserPositionManager(address positionManager, bool approve)",
   "function getUserSuppliedAssets(uint256 reserveId, address user) view returns (uint256)",
   "function getUserReserveStatus(uint256 reserveId, address user) view returns (bool, bool)",
+  // Supplying and enabling collateral, which a passkey account batches into its
+  // activation; selectors checked against the mainnet calls of test 0.1.
+  "function supply(uint256 reserveId, uint256 amount, address onBehalfOf)",
+  "function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral, address onBehalfOf)",
+]);
+
+/** The ERC-20 calls on cirBTC: its balance in the wallet, and the approval before supplying it. */
+export const erc20Abi = parseAbi([
+  "function balanceOf(address owner) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
 ]);
 export const aaveTakerAbi = parseAbi([
   "function borrowAllowance(address spoke, uint256 reserveId, address owner, address spender) view returns (uint256)",
