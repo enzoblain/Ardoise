@@ -7,7 +7,7 @@ import type { Deployment } from "@/lib/contracts/deployments";
 import { formatUsdc } from "@/lib/format";
 import { network, txUrl } from "@/lib/network";
 import { missingSteps, readSetup, runStep, type SetupState, type SetupStep } from "@/lib/setup";
-import type { ConnectedWallet } from "@/lib/wallet";
+import { switchChain, type ConnectedWallet } from "@/lib/wallet";
 
 // Allowance given to the shared adapter: three days at the default daily cap
 // (20 USDC), finite as docs/api.md recommends. It shrinks as the adapter
@@ -63,6 +63,8 @@ export function AccountSetup({
     setRunning(step);
     setError(undefined);
     try {
+      // The wallet may still be on Base after a deposit from the Protection panel.
+      await switchChain(wallet.provider, network.arc.chain);
       setLastTx(await runStep(step, wallet.client, arcClient, deployment, BORROW_CAP));
       await refresh();
     } catch (e) {

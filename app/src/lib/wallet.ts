@@ -22,6 +22,22 @@ export async function connectWallet(): Promise<ConnectedWallet> {
   const provider = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
   if (!provider) throw new Error("No browser wallet found. Install MetaMask, or use the demo account.");
   const chain = network.arc.chain;
+  await switchChain(provider, chain);
+  const [address] = await provider.request({ method: "eth_requestAccounts" });
+  if (!address) throw new Error("The wallet shared no account.");
+  const client = createWalletClient({ account: address, chain, transport: custom(provider) });
+  return { address, client, provider };
+}
+
+/**
+ * Switches the browser wallet to `chain`, adding it first if the wallet does
+ * not know it yet.
+ *
+ * @param provider Browser wallet.
+ * @param chain Chain to select.
+ * @throws If the user refuses the switch or the addition.
+ */
+export async function switchChain(provider: EIP1193Provider, chain: Chain): Promise<void> {
   const chainId = numberToHex(chain.id);
   try {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
@@ -44,8 +60,4 @@ export async function connectWallet(): Promise<ConnectedWallet> {
       ],
     });
   }
-  const [address] = await provider.request({ method: "eth_requestAccounts" });
-  if (!address) throw new Error("The wallet shared no account.");
-  const client = createWalletClient({ account: address, chain, transport: custom(provider) });
-  return { address, client, provider };
 }

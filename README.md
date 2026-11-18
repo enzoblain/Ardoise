@@ -17,7 +17,7 @@ Paying with bitcoin usually means selling it, which loses the exposure and, in t
 
 Ardoise turns a cirBTC position on Arc into a payment account. Each payment borrows exactly the amount from the best lending venue on Arc (Aave V4 or Morpho), delivers it on the payee's chain through CCTP, and records one debt line per payment. A position guard refuses payments that would push the margin too low and repays debt before liquidation.
 
-Without a wallet, anyone can try the flow on a demo account simulated in the browser; connecting a wallet on Arc mainnet activates a real account. Every payment appears as a line in the account statement (amount, venue, rate, payee, memo, interest so far), built from the account's `Paid` and `LineRepaid` events.
+Without a wallet, anyone can try the flow on a demo account simulated in the browser; connecting a wallet on Arc mainnet activates a real account. Every payment appears as a line in the account statement (amount, venue, rate, payee, memo, interest so far), built from the account's `Paid` and `LineRepaid` events. Below the statement, the Protection panel lets the owner keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay debt when the margin gets too low, or repay from Base in one click (the keeper side was tested end to end on testnet; the mainnet test is pending).
 
 ## How it works
 

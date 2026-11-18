@@ -6,10 +6,8 @@ import {
   createWalletClient,
   custom,
   http,
-  numberToHex,
   parseUnits,
   type Address,
-  type Chain,
   type EIP1193Provider,
   type Hex,
 } from "viem";
@@ -30,6 +28,7 @@ import {
   type StandingOrder,
 } from "@/lib/gateway";
 import { network, txUrl } from "@/lib/network";
+import { switchChain } from "@/lib/wallet";
 
 /**
  * The keeper's standing-order intake; public, it holds no secret. The keeper
@@ -316,29 +315,6 @@ function AmountAction(props: {
       </button>
     </div>
   );
-}
-
-/** Switches the wallet to `chain`, adding it first if the wallet does not know it (4902). */
-async function switchChain(provider: EIP1193Provider, chain: Chain): Promise<void> {
-  const chainId = numberToHex(chain.id);
-  try {
-    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
-  } catch (error) {
-    const wrapped = error as { code?: number; data?: { originalError?: { code?: number } } };
-    if (wrapped.code !== 4902 && wrapped.data?.originalError?.code !== 4902) throw error;
-    await provider.request({
-      method: "wallet_addEthereumChain",
-      params: [
-        {
-          chainId,
-          chainName: chain.name,
-          nativeCurrency: chain.nativeCurrency,
-          rpcUrls: [...chain.rpcUrls.default.http],
-          blockExplorerUrls: chain.blockExplorers ? [chain.blockExplorers.default.url] : undefined,
-        },
-      ],
-    });
-  }
 }
 
 function firstLine(error: unknown): string {
