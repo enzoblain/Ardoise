@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isHash } from "viem";
-import { AppHeader } from "@/components/AppHeader";
 import { DeliveryTracker } from "@/components/DeliveryTracker";
+import { LogoMark } from "@/components/LogoMark";
 
 /**
  * Payment page: tracks the delivery of one cross-chain payment, identified
@@ -17,7 +18,15 @@ export default async function PaymentPage({
 
   return (
     <div className="min-h-screen">
-      <AppHeader />
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+        <Link href="/" className="flex items-center gap-2.5 text-lg font-semibold tracking-tight">
+          <LogoMark size={28} />
+          Ardoise
+        </Link>
+        <Link href="/app" className="text-sm text-muted transition-colors hover:text-foreground">
+          ← Back to the app
+        </Link>
+      </header>
       <main className="mx-auto max-w-xl px-6 pt-8 pb-16">
         <div className="card flex flex-col gap-5">
           <div className="flex flex-col gap-1">

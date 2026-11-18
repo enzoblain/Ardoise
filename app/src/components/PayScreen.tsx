@@ -16,9 +16,6 @@ import { computeMaxFee, fetchFeeSchedule, type IrisFee } from "@/lib/fees";
 import { formatBps, formatUsdc } from "@/lib/format";
 import Link from "next/link";
 import { chainByDomain, network, txUrl, type PayoutChain } from "@/lib/network";
-import { MAX_MEMO_LENGTH, paysRequest, type PaymentRequest } from "@/lib/paymentRequest";
-import { deadlineOf, payerMayPay, publish } from "@/lib/requestSession";
-import { useNow, useReached, useRequestSession } from "@/components/useRequestSession";
 import { MarginGauge } from "@/components/MarginGauge";
 import { RateComparison } from "@/components/RateComparison";
 
@@ -34,34 +31,21 @@ const DESTINATIONS: PayoutChain[] = [network.base, network.arc];
  *
  * @param props.account Account client the payment goes through.
  * @param props.venues Venues with their live rates, read on the server.
- * @param props.request Payment request the form starts from, if the page was opened from one.
  * @param props.onPaid Called after each successful payment.
  */
 export function PayScreen({
   account,
   venues,
-  request,
   onPaid,
 }: {
   account: ArdoiseClient;
   venues: Venue[];
-  request?: PaymentRequest;
   onPaid: () => void;
 }) {
-  const [amountText, setAmountText] = useState(request?.amount ?? "20");
-  const [destination, setDestination] = useState<PayoutChain>(request?.chain === "arc" ? network.arc : network.base);
-  const [payee, setPayee] = useState<string>(request?.payee ?? "");
-  const [memo, setMemo] = useState(request?.memo ?? "");
-  // The request the form was opened from, until it is paid.
-  const [openRequest, setOpenRequest] = useState(request);
-  // Its live session: opening the page starts the payer's 30 s (not the payee's
-  // own preview); the payee may cancel.
-  const session = useRequestSession(openRequest?.id, !openRequest?.preview);
-  const sessionDeadline = deadlineOf(session.state);
-  const deadlinePassed = useReached(sessionDeadline, session.offset);
-  // Only whether the deadline passed matters here, so the clock is either side of it.
-  const requestOpen =
-    !openRequest?.id || payerMayPay(session.relay, session.state, deadlinePassed ? Infinity : -Infinity);
+  const [amountText, setAmountText] = useState("20");
+  const [destination, setDestination] = useState<PayoutChain>(network.base);
+  const [payee, setPayee] = useState("");
+  const [memo, setMemo] = useState("");
 
   // `null`: no guard is set yet; undefined: not read yet.
   const [minHealthFactor, setMinHealthFactor] = useState<bigint | null>();
@@ -79,14 +63,6 @@ export function PayScreen({
   const [unconfirmed, setUnconfirmed] = useState<{ hash: Hex; reason: string }>();
   const [readError, setReadError] = useState<string>();
   const [feeNotice, setFeeNotice] = useState<string>();
-
-  // Once a request is paid, drop it from the page and its address, so a reload
-  // or a second visit to the same tab does not fill in the same payment again.
-  function closeRequest() {
-    if (!openRequest) return;
-    setOpenRequest(undefined);
-    window.history.replaceState(null, "", "/app");
-  }
 
   const amount = parseAmount(amountText);
   const payeeValid = isAddress(payee);
@@ -145,7 +121,7 @@ export function PayScreen({
   const fresh = quote !== undefined && amount !== undefined && maxFee !== undefined && quote.borrow === amount + maxFee;
 
   async function send() {
-    if (amount === undefined || maxFee === undefined || !payeeValid || !fresh || !requestOpen) return;
+    if (amount === undefined || maxFee === undefined || !payeeValid || !fresh) return;
     setSending(true);
     setRefusal(undefined);
     setFailure(undefined);
@@ -171,23 +147,9 @@ export function PayScreen({
       });
       setReceipt(line);
       setPaymentCount((n) => n + 1);
-      // A real payment reaches the payee's waiting page through the chain; a
-      // simulated one moves nothing, so it tells that page through the relay,
-      // and only if it pays what was asked (payee and chain stay editable).
-      if (
-        account.simulated &&
-        openRequest?.id &&
-        paysRequest({ payee, chain: destination.key, amount }, openRequest)
-      ) {
-        publish(openRequest.id, { type: "paid", simulated: true }).catch(() => {});
-      }
-      closeRequest();
       onPaid();
     } catch (e) {
-      if (e instanceof PaymentUnconfirmed) {
-        setUnconfirmed({ hash: e.transactionHash, reason: e.message });
-        closeRequest();
-      }
+      if (e instanceof PaymentUnconfirmed) setUnconfirmed({ hash: e.transactionHash, reason: e.message });
       else if (e instanceof PaymentFailed) setRefusal(e.reason);
       else setFailure((e as Error).message || "The payment could not be sent.");
     } finally {
@@ -224,42 +186,6 @@ export function PayScreen({
         <h2 className="text-xl font-semibold tracking-tight">Pay</h2>
         <span className="eyebrow">Borrowed at payment time</span>
       </div>
-      {openRequest && (
-        <p className="flex items-start gap-2.5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
-          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
-          <span>
-            <span className="font-medium">Payment request</span>
-            <span className="text-muted">
-              {" "}
-              filled in below. Check the whole payee address before you pay: the link was made by the payee, not by
-              Ardoise.
-            </span>
-            {/* In full: a shortened address is easy to imitate with a lookalike one. */}
-            <span className="mt-1 block break-all font-mono text-xs text-foreground">{openRequest.payee}</span>
-            {openRequest.id && (
-              <span className={`mt-2 flex items-baseline justify-between gap-3 font-medium ${requestOpen ? "text-foreground" : "text-danger"}`}>
-                {/* Announced when the status changes, not on every second of the countdown. */}
-                <span aria-live="polite">
-                  {session.state.closedBy === "cancelled"
-                    ? "The payee cancelled this request: it can no longer be paid."
-                    : !requestOpen && session.relay !== "connecting"
-                      ? "This request expired: it had to be paid within 30 seconds of opening it."
-                      : session.relay === "connecting"
-                        ? "Connecting to the request…"
-                        : sessionDeadline === undefined && session.relay === "down"
-                          ? "The live session is unavailable: no time limit applies."
-                          : openRequest.preview
-                            ? "Preview: the payer's 30 seconds start when they open the link."
-                            : "You have 30 seconds to pay this request."}
-                </span>
-                {requestOpen && sessionDeadline !== undefined && (
-                  <PayerCountdown deadline={sessionDeadline} offset={session.offset} />
-                )}
-              </span>
-            )}
-          </span>
-        </p>
-      )}
       <fieldset className="flex flex-col gap-4">
         <label className="flex flex-col gap-2">
           <span className="eyebrow">Amount</span>
@@ -310,7 +236,7 @@ export function PayScreen({
           <input
             className="field"
             placeholder="Invoice #42"
-            maxLength={MAX_MEMO_LENGTH}
+            maxLength={120}
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
           />
@@ -359,22 +285,12 @@ export function PayScreen({
       )}
       <button
         type="submit"
-        disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined || !requestOpen}
+        disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined}
         className="btn-primary py-3.5 text-base"
       >
         {sending ? "Paying…" : amount !== undefined ? `Pay ${formatUsdc(amount)} USDC` : "Pay"}
       </button>
     </form>
-  );
-}
-
-/** Seconds left to pay a request; re-renders itself only, once a second. */
-function PayerCountdown({ deadline, offset }: { deadline: number; offset: number }) {
-  const now = useNow(1_000, true, offset);
-  return (
-    <span className="shrink-0 tabular-nums" aria-hidden>
-      {Math.max(0, Math.ceil((deadline - now) / 1000))} s
-    </span>
   );
 }
 
