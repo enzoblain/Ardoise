@@ -150,21 +150,48 @@ contract ArdoiseAccount is IArdoise {
     // is treated as unavailable rather than blocking payments.
     // forge-lint: disable-next-item(calls-loop)
     /// @inheritdoc IArdoise
-    /// @dev Venues whose `available()` or `rate()` reverts are skipped; ties go to the first
-    /// venue in the factory's list.
+    /// @dev Venues whose `available()` or `rate()` reverts are skipped, and so is a venue whose
+    /// guard check reverts; ties go to the first venue in the factory's list. The guard is asked
+    /// in order of rate and the first venue it allows in full wins, so a cheaper venue where the
+    /// owner has no position (or not enough margin) never blocks a payment another venue can
+    /// make. When no venue is allowed in full, the one allowing the most is returned, and
+    /// `pay()` then reverts with `PaymentRefused` and that amount. Without a guard, the cheapest
+    /// venue with enough liquidity is returned.
     function bestVenue(uint256 amount) public view returns (IVenue venue) {
         IVenue[] memory list = venues();
-        uint256 bestRate = type(uint256).max;
-        for (uint256 i = 0; i < list.length; ++i) {
+        uint256 n = list.length;
+        uint256[] memory rates = new uint256[](n);
+        bool[] memory candidate = new bool[](n);
+        for (uint256 i = 0; i < n; ++i) {
             try list[i].available() returns (uint256 liquidity) {
                 if (liquidity < amount) continue;
             } catch {
                 continue;
             }
             try list[i].rate() returns (uint256 rateBps) {
-                if (rateBps < bestRate) {
-                    bestRate = rateBps;
-                    venue = list[i];
+                rates[i] = rateBps;
+                candidate[i] = true;
+            } catch {
+                continue;
+            }
+        }
+        IGuard currentGuard = guard();
+        uint256 mostAllowed = 0;
+        venue = IVenue(address(0));
+        for (uint256 k = 0; k < n; ++k) {
+            // Next candidate in order of rate, the earlier one on a tie.
+            uint256 next = n;
+            for (uint256 i = 0; i < n; ++i) {
+                if (candidate[i] && (next == n || rates[i] < rates[next])) next = i;
+            }
+            if (next == n) break;
+            candidate[next] = false;
+            if (address(currentGuard) == address(0)) return list[next];
+            try currentGuard.checkMargin(owner, list[next], amount) returns (uint256 allowed) {
+                if (allowed >= amount) return list[next];
+                if (address(venue) == address(0) || allowed > mostAllowed) {
+                    venue = list[next];
+                    mostAllowed = allowed;
                 }
             } catch {
                 continue;

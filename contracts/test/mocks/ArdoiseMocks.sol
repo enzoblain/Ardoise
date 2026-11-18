@@ -144,14 +144,34 @@ contract MockGuard is IGuard {
     /// @notice Venue of the last `checkMargin` call.
     IVenue public lastVenue;
 
+    /// @notice Per-venue caps set with `setVenueCap`, which override `cap` for that venue.
+    mapping(IVenue => uint256) public venueCap;
+    mapping(IVenue => bool) public hasVenueCap;
+    /// @notice Venues whose check reverts.
+    mapping(IVenue => bool) public broken;
+
     /// @notice Sets the largest amount allowed.
     function setCap(uint256 cap_) external {
         cap = cap_;
     }
 
+    /// @notice Sets the largest amount allowed on one venue, as when the owner's position there
+    /// is smaller or missing.
+    function setVenueCap(IVenue venue, uint256 cap_) external {
+        venueCap[venue] = cap_;
+        hasVenueCap[venue] = true;
+    }
+
+    /// @notice Makes the check revert for one venue.
+    function setBroken(IVenue venue, bool broken_) external {
+        broken[venue] = broken_;
+    }
+
     /// @inheritdoc IGuard
-    function checkMargin(address, IVenue, uint256 amount) external view returns (uint256) {
-        return amount < cap ? amount : cap;
+    function checkMargin(address, IVenue venue, uint256 amount) external view returns (uint256) {
+        require(!broken[venue], "guard: venue unreadable");
+        uint256 limit = hasVenueCap[venue] ? venueCap[venue] : cap;
+        return amount < limit ? amount : limit;
     }
 
     /// @inheritdoc IGuard

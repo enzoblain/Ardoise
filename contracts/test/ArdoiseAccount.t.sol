@@ -166,6 +166,40 @@ contract ArdoiseAccountTest is Test {
         assertEq(address(account.bestVenue(10 * USDC)), address(aave));
     }
 
+    function test_bestVenue_passesOverACheaperVenueTheGuardRefuses() public {
+        // No position on the cheaper venue: the guard allows nothing there.
+        guard.setVenueCap(aave, 0);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        vm.prank(owner);
+        account.pay(10 * USDC, ARC, _b(payee), 0, "");
+        assertEq(usdc.balanceOf(payee), 10 * USDC);
+        assertEq(morpho.debtOf(owner), 10 * USDC);
+        assertEq(aave.debtOf(owner), 0);
+    }
+
+    function test_bestVenue_partialAllowanceElsewhereLosesToAFullOne() public {
+        guard.setVenueCap(aave, 4 * USDC);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        assertEq(address(account.bestVenue(4 * USDC)), address(aave));
+    }
+
+    function test_pay_refusedEverywhereReportsTheMostAnyVenueAllows() public {
+        guard.setVenueCap(aave, 3 * USDC);
+        guard.setVenueCap(morpho, 6 * USDC);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.PaymentRefused.selector, 10 * USDC, 6 * USDC));
+        vm.prank(owner);
+        account.pay(10 * USDC, ARC, _b(payee), 0, "");
+    }
+
+    function test_bestVenue_skipsVenueWhoseGuardCheckReverts() public {
+        guard.setBroken(aave, true);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        guard.setBroken(morpho, true);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.NoVenueAvailable.selector, 10 * USDC));
+        account.bestVenue(10 * USDC);
+    }
+
     function test_pay_revertsWhenNoVenueHasLiquidity() public {
         aave.setMarket(310, 1 * USDC);
         morpho.setMarket(450, 1 * USDC);

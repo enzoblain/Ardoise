@@ -114,8 +114,10 @@ interface IArdoise {
     function venues() external view returns (IVenue[] memory);
 
     /// @notice Venue `pay()` would use for `amount`: the lowest `rate()` among the venues whose
-    /// `available()` covers `amount`. The guard is checked afterwards, so a margin that is too
-    /// low surfaces as `PaymentRefused`, not as `NoVenueAvailable`.
+    /// `available()` covers `amount` and where the guard allows the owner to borrow all of it,
+    /// so a venue where the owner has no position is passed over. If the guard allows the full
+    /// amount nowhere, the venue allowing the most is returned and `pay()` reverts with
+    /// `PaymentRefused`, not `NoVenueAvailable`.
     /// @param amount Amount to borrow, fees included.
     /// @return venue Chosen venue; reverts with `NoVenueAvailable` if none qualifies.
     function bestVenue(uint256 amount) external view returns (IVenue venue);
