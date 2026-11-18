@@ -240,7 +240,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
         ) : (
           <p className="text-xs opacity-60">
             {network.name === "mainnet"
-              ? "Set NEXT_PUBLIC_KEEPER_URL to the keeper's order intake to sign orders here."
+              ? "Standing orders are signed from the app running next to the keeper, whose order intake only accepts local requests. Deposits and one-click repayment work here."
               : "The keeper relays standing orders on Arc mainnet only."}
           </p>
         )}
