@@ -52,13 +52,13 @@ The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadca
 Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`, `factory.guard()` = zero address, `adapter.rate()` = 310 bps, `adapter.available()` = 26.32M USDC (the Main Spoke draw cap is the binding limit).
 
 > [!NOTE]
-> **Payments are live on mainnet since 2026-11-18**: the guard is set and the first payment is recorded below. Only the keeper run on mainnet is pending.
+> **Payments are live on mainnet since 2026-11-18**: the guard is set, the first payment is recorded below and the keeper runs against mainnet (see *Keeper*). Only the simulated price-drop demo (B3) is left to record.
 
 ### Pending
 
 - [x] **Guard (B5):** deployed and set on 2026-11-18 (see the table above); sources verified on Sourcify.
 - [x] **Demo account:** created on 2026-11-18 from the app: [`0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD), owned by the project test wallet, with a 60 USDC borrow allowance for the adapter (see *Checks once B5 is done*).
-- [ ] **Keeper:** in the repo-root `.env`, set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009` and `KEEPER_PRIVATE_KEY` (a dedicated wallet holding a little USDC for gas), then run `(cd keeper && npm start)`. Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. The app needs `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` (`.env.example` defaults to testnet). For Gateway standing orders (B4), also set `GATEWAY_ORDERS_FILE` (outside the repository), `GATEWAY_INTAKE_PORT=8787`, and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app.
+- [x] **Keeper:** configured and running against mainnet, end-to-end repayment proven (see *Keeper* below). For Gateway standing orders (B4), set `GATEWAY_ORDERS_FILE` (outside the repository), `GATEWAY_INTAKE_PORT=8787`, and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app. The app needs `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` (`.env.example` defaults to testnet).
 
 ### Checks once B5 is done
 
@@ -68,7 +68,46 @@ Read-only, against `https://rpc.mainnet.arc.io`, comparing with the A4 state abo
 - [x] `factory.venues()` still returns `[0x38B564d0b3d57216A34d83FbF08DE48744567b38]` and `factory.admin()` the project wallet: B5 must not redeploy the factory or the adapter.
 - [x] `factory.accountOf(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7)` returns the demo account, and `Taker.borrowAllowance(MainSpoke, 0, demoWallet, AaveV4Adapter)` is not zero. Checked on 2026-11-18: account `0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`, allowance 60 USDC.
 - [x] `guard.checkMargin(demoWallet, AaveV4Adapter, 1e6)` returns `1e6` while the demo position is healthy. Checked on 2026-11-18 after the first payment: returns `1e6`.
-- [x] A first `pay()` from the demo account succeeds on mainnet: account [`0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD) paid 0.40 USDC to Base from the app on 2026-11-18, borrowing 0.45523 USDC on Aave V4 through the guard (debt line #1): [pay on Arc](https://explorer.arc.io/tx/0x9dfdd3d8ba60968a8feaed312edd03ad8c238850e89ec3af05cb3aa8b5836aed), [mint on Base](https://basescan.org/tx/0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408a4b) (0.40 USDC to the payee, 0.05523 USDC forwarder fee). The keeper part is pending (PR #19).
+- [x] A first `pay()` from the demo account succeeds on mainnet: account [`0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD) paid 0.40 USDC to Base from the app on 2026-11-18, borrowing 0.45523 USDC on Aave V4 through the guard (debt line #1): [pay on Arc](https://explorer.arc.io/tx/0x9dfdd3d8ba60968a8feaed312edd03ad8c238850e89ec3af05cb3aa8b5836aed), [mint on Base](https://basescan.org/tx/0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408a4b) (0.40 USDC to the payee, 0.05523 USDC forwarder fee). The keeper then found the account and repaid against its debt (see *Keeper* below).
+
+## Keeper
+
+The keeper (tasks B2 and B5) runs off chain, on the machine of whoever operates it. It is not a contract and holds no role: `sweep()` is public, so its wallet can only pay gas to apply the USDC already sitting on an account to that account's debt.
+
+| Item | Value |
+|------|-------|
+| Keeper wallet | [`0xfA1Fd59bD90961d68AB60f66EE242e1Dd7c45541`](https://explorer.arc.io/address/0xfA1Fd59bD90961d68AB60f66EE242e1Dd7c45541), a dedicated wallet created for the keeper, funded with 1 USDC for gas on 2026-11-18 |
+| Factory watched | `0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, accounts read from block `31777009` |
+| RPC | `https://rpc.mainnet.arc.io` (the default when `ARC_RPC_URL` is empty) |
+
+### Configuration
+
+In the repo-root `.env` (gitignored; the variables are described in [`.env.example`](../.env.example)):
+
+```sh
+ARC_RPC_URL=                                                        # empty: public Arc mainnet RPC
+KEEPER_PRIVATE_KEY=                                                 # key of the keeper wallet, never committed or printed
+ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD
+ARDOISE_FACTORY_DEPLOY_BLOCK=31777009
+```
+
+Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. Without `KEEPER_PRIVATE_KEY` the keeper runs dry: it logs its decisions and sends nothing. To replace the wallet, create one with `cast wallet new`, put its key in `.env` only and send it about 1 USDC on Arc.
+
+### Start and logs
+
+```sh
+(cd keeper && npm install && npm start)
+```
+
+The keeper runs in the foreground and writes to standard output, one line per event, prefixed with an ISO timestamp and `[keeper]`; redirect it to keep a file, for example `npm start >> ~/ardoise-keeper.log 2>&1` (outside the repository). It logs the factory and the wallet address at start, then only changes: an account found, a decision that changed, a `sweep()` sent with its transaction hash, a failure and its recovery. The key is never logged. It makes one pass every 15 seconds (about ten reads): the public Arc RPC answers 429 when polled too often, so each request is retried with an exponential delay and a pass that still fails doubles the wait before the next one, up to 2 minutes. Use a dedicated endpoint in `ARC_RPC_URL` to run several keepers or other tools from the same address. It stops with Ctrl+C and can be restarted at any time: it keeps no state and rebuilds the account list from `ARDOISE_FACTORY_DEPLOY_BLOCK`.
+
+### State
+
+Running against mainnet since 2026-11-18. It found the demo account `0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD` from block 31777009.
+
+Repayment proof (B2, B5): a plain 0.10 USDC transfer to the demo account ([transfer](https://explorer.arc.io/tx/0x578f203c3bdc3ea4b11c4d9c1862cd7b24627b28f00e71eb7e35d118c1402466), block 31853276) was followed 3 blocks later by `sweep()` from the keeper wallet ([sweep](https://explorer.arc.io/tx/0xe68ac63117e4ad5fee25fa63c8f7b70927dcdcca9b283f8201b2490247cf929a), block 31853279), which repaid 0.10 USDC against debt line #1 (`LineRepaid`). The owner's Aave USDC debt (`Spoke.getUserTotalDebt(0, owner)`) went from 1.515319 to 1.415319.
+
+The simulated price-drop demo (B3) is still to be recorded.
 
 ## How to deploy the guard
 
