@@ -185,5 +185,8 @@ A request with an `id` has a live session between the payee's waiting page and t
   - show a demo report;
   - start the payer's 30 s before they open the link;
   - close the request early.
+- **The 30 s limit is cooperative.** It is enforced by Ardoise's own pay screen, not on chain, and only once the payer's opening reached the relay. A payer who opens the link with `preview=1`, or blocks ntfy.sh, never starts it. Their payment is then judged against the cancel or expiry message only, and the payee still sees it on chain.
+- **Clock offset.** Each side estimates the relay's clock as the largest `relay time − receive time` of the events it receives. A replayed event (after a reload) gives a lower value, so it does not restart the 30 s once a live event arrives; the payer's own `joined` echo provides one.
+- **A demo report can be set aside.** The payee's "Demo payment reported" view has a "Back to the request" button, so a forged report does not take the link, QR code and Cancel away.
 - **If the relay is unreachable** before the session is known, both pages say so within 6 s. The payer can then pay without a time limit, and the payee's page still confirms the payment on chain.
 - **The relay's limits apply.** ntfy.sh limits anonymous requests per IP, which a shared network (conference Wi-Fi) could reach. A failed cancel is reported to the payee so they can retry.
