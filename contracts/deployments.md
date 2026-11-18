@@ -107,6 +107,17 @@ Running against mainnet since 2026-11-18. It found the demo account `0xdcB201E7d
 
 Repayment proof (B2, B5): a plain 0.10 USDC transfer to the demo account ([transfer](https://explorer.arc.io/tx/0x578f203c3bdc3ea4b11c4d9c1862cd7b24627b28f00e71eb7e35d118c1402466), block 31853276) was followed 3 blocks later by `sweep()` from the keeper wallet ([sweep](https://explorer.arc.io/tx/0xe68ac63117e4ad5fee25fa63c8f7b70927dcdcca9b283f8201b2490247cf929a), block 31853279), which repaid 0.10 USDC against debt line #1 (`LineRepaid`). The owner's Aave USDC debt (`Spoke.getUserTotalDebt(0, owner)`) went from 1.515319 to 1.415319.
 
+Gateway repayment from Base (B4, manual path), run on 2026-11-18 from the app with the demo wallet, the keeper running on the same machine:
+
+| Step | Transaction | Result |
+|------|-------------|--------|
+| Deposit 1 USDC into Circle Gateway on Base | [`0x68283d5a…`](https://basescan.org/tx/0x68283d5a9d0747ccda803ba68af23214fa8d2c01d908833933ab2a204dd8b67e) | Credited by Gateway about 15 min later (Base finality) |
+| Sign 2 standing orders of 0.4 USDC | none (signatures) | The keeper intake stored 2 orders |
+| Repay 0.15 USDC now from Base: Gateway transfer with Circle's forwarder, minted on Arc to the account | [`0x66530e48…`](https://explorer.arc.io/tx/0x66530e482f4f1b2d1bffe4105050438ef2d944eee09fc9aae54d8b341ba7dce0) | 0.15 USDC on the account |
+| `sweep()` by the keeper, 4 s after the USDC arrived | [`0x14463968…`](https://explorer.arc.io/tx/0x1446396825e0bce282c7de8dbf74acd4e1a4a6c891bbabf6be1c721ed5399764) | Debt 1.415 → 1.265 USDC, health factor 2.224 → 2.488 |
+
+Left after the run: 0.82 USDC in the Gateway reserve and 2 standing orders held by the keeper, enough for the automatic path. The first "Repay now" attempt was refused by Gateway because the order was signed with the exact fee estimate and the forwarding fee rose by 0.000222 USDC before submission; a retry went through (the app should sign immediate repayments with some fee headroom, as it does for standing orders).
+
 Simulated price-drop demo (B3), with the repayment funded from the owner's Gateway reserve on Base (the automatic path of B4), run on 2026-11-18 from the keeper at commit [`7d7f958`](https://github.com/enzoblain/Ardoise/commit/7d7f958). Before the run: debt 1.265387 USDC, health factor 2.416, Gateway reserve on Base 0.824729 USDC with two signed 0.40 USDC standing orders in the keeper's `GATEWAY_ORDERS_FILE`.
 
 | Step | Transaction | Block |
