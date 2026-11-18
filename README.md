@@ -105,7 +105,7 @@ The collateral never moves to Ardoise: the account can only borrow within the al
 - **Variable rates.** Rates move with each block; the debt line stores the rate at payment time and its interest is an estimate. The venue's debt is what is actually owed.
 - **Fees.** The whole `maxFee` is charged on CCTP payments even when Circle's actual fee is lower, so the app quotes it tightly from Iris.
 - **Trusted admin.** The factory admin chooses the venues and the guard every account uses. It is the team's dedicated project wallet.
-- **Demo simulation.** For the demo, the guard's owner can simulate a bitcoin drop. It only makes Ardoise stricter (payments refused, keeper repays earlier), never touches Aave or anyone's real position, and must be set back to 0 after the demo (the demo itself is still to be recorded; [details](docs/api.md#price-drop-simulation-demo-only)).
+- **Demo simulation.** For the demo, the guard's owner can simulate a bitcoin drop. It only makes Ardoise stricter (payments refused, keeper repays earlier), never touches Aave or anyone's real position, and must be set back to 0 after the demo (it ran on Arc mainnet on 2026-11-18, [transactions](contracts/deployments.md#state); [details](docs/api.md#price-drop-simulation-demo-only)).
 - **Not audited.** The contracts were written during the hackathon week and have 131 Foundry tests, but no audit. Use small amounts only.
 
 ## Deployed contracts
