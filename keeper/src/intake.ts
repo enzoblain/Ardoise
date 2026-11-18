@@ -27,6 +27,8 @@ import { errorMessage } from "./keeper.js";
 export const MAX_ORDERS_PER_REQUEST = 10;
 export const MAX_ORDERS_PER_OWNER = 40;
 const MAX_BODY_BYTES = 64 * 1024;
+/** Magic suffix of an ERC-6492 signature (an account not deployed yet). */
+const ERC6492_SUFFIX = "6492649264926492649264926492649264926492649264926492649264926492";
 /** Requests allowed per client address per minute. */
 const RATE_LIMIT = 30;
 
@@ -148,8 +150,16 @@ export async function checkOrders(
     // the chain rather than taken from the sender, and an account that is not
     // deployed yet (its signature then verifies only as ERC-6492) is refused.
     const contract = await checks.isContract(owner);
+    if (order.signature.toLowerCase().endsWith(ERC6492_SUFFIX)) {
+      // isValidSignature does not unwrap ERC-6492, so Gateway would refuse it forever.
+      const reason = contract
+        ? "the order was signed before the smart account was deployed on the source chain: sign it again"
+        : "the depositor's smart account is not deployed on the source chain yet: deposit first";
+      results.push({ index, status: "rejected", reason });
+      continue;
+    }
     if (!contract && size(order.signature) !== 65) {
-      results.push({ index, status: "rejected", reason: "the depositor's smart account is not deployed on the source chain yet: deposit first" });
+      results.push({ index, status: "rejected", reason: "a wallet signature must be 65 bytes" });
       continue;
     }
     candidates.push({ burnIntent: order.burnIntent, signature: order.signature, ...(contract ? { contractSigner: true as const } : {}) });

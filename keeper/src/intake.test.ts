@@ -95,13 +95,16 @@ test("flags a deployed smart account's orders for ERC-1271 from the chain, whate
   assert.equal(claimed.orders[0].contractSigner, undefined);
 });
 
-test("refuses a smart account that is not deployed on the source chain yet", async () => {
+test("refuses ERC-6492 signatures, which Gateway cannot check, before or after the deployment", async () => {
   const order = await signedOrder();
-  // An ERC-6492 signature verifies for an undeployed account, but Gateway cannot check it.
+  // An ERC-6492 signature verifies for an undeployed account, but isValidSignature does not unwrap it.
   const wrapped = { ...order, signature: `${order.signature}${"00".repeat(64)}6492649264926492649264926492649264926492649264926492649264926492` as Hex };
-  const result = await acceptOrders([wrapped], [], GATEWAY_MAINNET, { ...checks, verifySignature: async () => true });
-  assert.equal(result.results[0].status, "rejected");
-  assert.match((result.results[0] as { reason: string }).reason, /not deployed/);
+  const verifying = { ...checks, verifySignature: async () => true };
+  const before = await acceptOrders([wrapped], [], GATEWAY_MAINNET, verifying);
+  assert.match((before.results[0] as { reason: string }).reason, /not deployed/);
+  const after = await acceptOrders([wrapped], [], GATEWAY_MAINNET, { ...verifying, isContract: async () => true });
+  assert.match((after.results[0] as { reason: string }).reason, /sign it again/);
+  assert.equal(after.orders.length, 0);
 });
 
 test("rejects orders that do not pay the depositor's account, are forged or come from someone without an account", async () => {
