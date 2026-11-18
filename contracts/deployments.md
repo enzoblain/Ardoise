@@ -51,8 +51,8 @@ The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadca
 
 Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`, `factory.guard()` = zero address, `adapter.rate()` = 310 bps, `adapter.available()` = 26.32M USDC (the Main Spoke draw cap is the binding limit).
 
-> [!WARNING]
-> **Payments are not live yet.** No guard is set, so every `pay()` reverts with `GuardNotSet()`; repayments and `sweep()` already work. The items below are pending. When they are done, update this section and run the checks that follow.
+> [!NOTE]
+> **Payments are live on mainnet since 2026-11-18**: the guard is set and the first payment is recorded below. Only the keeper run on mainnet is pending.
 
 ### Pending
 
