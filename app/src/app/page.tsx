@@ -1,4 +1,5 @@
 import { AccountScreen } from "@/components/AccountScreen";
+import { LogoMark } from "@/components/LogoMark";
 import { arcClient } from "@/lib/arc";
 import { network } from "@/lib/network";
 import { readVenueRates } from "@/lib/venues";
@@ -22,7 +23,10 @@ export default async function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-6 p-6 sm:p-8">
       <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold">Ardoise</h1>
+        <h1 className="flex items-center gap-3 text-3xl font-semibold">
+          <LogoMark size={36} />
+          Ardoise
+        </h1>
         <p className="opacity-80">Pay anyone, on any chain, with your bitcoin without selling it.</p>
       </header>
       {venues ? (
