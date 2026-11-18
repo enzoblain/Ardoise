@@ -11,6 +11,20 @@ if (existsSync(rootEnv)) {
   process.loadEnvFile(rootEnv);
 }
 
-const nextConfig: NextConfig = {};
+// A wallet signs payments and standing orders on these pages, so no other
+// site may frame them (clickjacking). Both headers: older browsers ignore CSP.
+const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+        ],
+      },
+    ];
+  },
+};
 
 export default nextConfig;
