@@ -33,6 +33,8 @@ export interface ReceivedPayment {
   amount: bigint;
   transactionHash: Hex;
   blockNumber: bigint;
+  /** Time of the block it landed in, in ms; set by `RequestWatcher.check`. */
+  landedAt?: number;
 }
 
 /** One USDC transfer log, as read from the chain. */
@@ -112,7 +114,7 @@ export class RequestWatcher {
   /**
    * Reads the blocks added since the last check.
    *
-   * @returns The payment if it arrived, otherwise `undefined`.
+   * @returns The payment, with the time it landed, if it arrived; otherwise `undefined`.
    * @throws If the RPC fails; the next check resumes from the same block.
    */
   async check(): Promise<ReceivedPayment | undefined> {
@@ -126,7 +128,11 @@ export class RequestWatcher {
         toBlock,
       });
       const payment = matchPayment(logs, this.minAmount);
-      if (payment) return payment;
+      if (payment) {
+        // The block time tells whether the payment came before the request closed.
+        const block = await this.client.getBlock({ blockNumber: payment.blockNumber });
+        return { ...payment, landedAt: Number(block.timestamp) * 1000 };
+      }
       this.next = toBlock + 1n;
     }
     // Next time, start a little before the newest block read (see REREAD_BLOCKS).
@@ -148,40 +154,4 @@ export async function currentBlock(chain: PayoutChain): Promise<bigint> {
 
 function logsClient(chain: PayoutChain): PublicClient {
   return createPublicClient({ chain: chain.chain, transport: http(chain.logsRpcUrl) }) as PublicClient;
-}
-
-/** Channel a simulated payment uses to reach a waiting page in the same browser. */
-export const DEMO_CHANNEL = "ardoise-payment-requests";
-
-/** Message posted on `DEMO_CHANNEL` when the demo account pays a request. */
-export interface DemoPaymentMessage {
-  requestId: string;
-  /** Address the demo payment was sent to. */
-  payee: string;
-  /** Chain it was sent on, as `PayoutChain.key`. */
-  chain: string;
-  /** USDC units, as a decimal string (bigint does not cross the channel as is). */
-  amount: string;
-}
-
-/**
- * Checks that a demo payment message pays a request: same request, same payee
- * and chain (both stay editable on the pay screen), and enough USDC.
- *
- * @param data Whatever arrived on the channel.
- * @param request The request the page waits for.
- * @param minAmount Smallest amount that pays it, in USDC units.
- * @returns The amount paid, or `undefined` if the message does not pay this request.
- */
-export function demoPaymentAmount(
-  data: unknown,
-  request: { id: string; payee: string; chain: string },
-  minAmount: bigint,
-): bigint | undefined {
-  const msg = data as Partial<DemoPaymentMessage> | null;
-  if (!msg || msg.requestId !== request.id || msg.chain !== request.chain) return undefined;
-  if (typeof msg.payee !== "string" || msg.payee.toLowerCase() !== request.payee.toLowerCase()) return undefined;
-  if (typeof msg.amount !== "string" || !/^\d+$/.test(msg.amount)) return undefined;
-  const amount = BigInt(msg.amount);
-  return amount >= (minAmount > 0n ? minAmount : MIN_ANY_AMOUNT) ? amount : undefined;
 }

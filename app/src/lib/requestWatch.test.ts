@@ -7,7 +7,6 @@ import {
   REREAD_BLOCKS,
   RequestWatcher,
   blockRanges,
-  demoPaymentAmount,
   matchPayment,
   type TransferLog,
 } from "./requestWatch";
@@ -60,14 +59,18 @@ describe("RequestWatcher", () => {
   it("reads new blocks filtered on the payee, re-reading the last few, and finds the payment", async () => {
     const getLogs = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([log(12_500_000n, 7)]);
     const getBlockNumber = vi.fn().mockResolvedValueOnce(1_000n).mockResolvedValueOnce(1_010n);
-    const client = { getLogs, getBlockNumber } as unknown as PublicClient;
+    const getBlock = vi.fn().mockResolvedValue({ timestamp: 1_800_000_000n });
+    const client = { getLogs, getBlockNumber, getBlock } as unknown as PublicClient;
     const watcher = new RequestWatcher(network.base, PAYEE, 12_500_000n, 900n, client);
 
     expect(await watcher.check()).toBeUndefined();
     expect(getLogs).toHaveBeenLastCalledWith(
       expect.objectContaining({ address: network.base.usdc, args: { to: PAYEE }, fromBlock: 900n, toBlock: 1_000n }),
     );
-    expect((await watcher.check())?.transactionHash).toBe(hash(7));
+    const payment = await watcher.check();
+    expect(payment?.transactionHash).toBe(hash(7));
+    expect(payment?.landedAt).toBe(1_800_000_000_000);
+    expect(getBlock).toHaveBeenCalledWith({ blockNumber: 107n });
     // A node a few blocks behind may have answered the first read: the tail is read again.
     expect(getLogs).toHaveBeenLastCalledWith(expect.objectContaining({ fromBlock: 1_001n - REREAD_BLOCKS, toBlock: 1_010n }));
   });
@@ -98,23 +101,5 @@ describe("RequestWatcher", () => {
     await expect(watcher.check()).rejects.toThrow("429");
     await watcher.check();
     expect(getLogs).toHaveBeenLastCalledWith(expect.objectContaining({ fromBlock: 100n }));
-  });
-});
-
-describe("demoPaymentAmount", () => {
-  const request = { id: "abcdefgh12345678", payee: PAYEE, chain: "base" };
-  const msg = { requestId: request.id, payee: PAYEE.toLowerCase(), chain: "base", amount: "7500000" };
-
-  it("returns the amount of a message that pays the request", () => {
-    expect(demoPaymentAmount(msg, request, 7_500_000n)).toBe(7_500_000n);
-  });
-
-  it("rejects another request, payee or chain, too little, or a malformed message", () => {
-    expect(demoPaymentAmount({ ...msg, requestId: "other" }, request, 0n)).toBeUndefined();
-    expect(demoPaymentAmount({ ...msg, payee: PAYER }, request, 0n)).toBeUndefined();
-    expect(demoPaymentAmount({ ...msg, chain: "arc" }, request, 0n)).toBeUndefined();
-    expect(demoPaymentAmount(msg, request, 7_500_001n)).toBeUndefined();
-    expect(demoPaymentAmount({ ...msg, amount: "1e9" }, request, 0n)).toBeUndefined();
-    expect(demoPaymentAmount(null, request, 0n)).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MEMO_LENGTH, buildRequestUrl, cleanMemo, isRequestAmount, newRequestId, parseRequest } from "./paymentRequest";
+import { MAX_MEMO_LENGTH, buildRequestUrl, cleanMemo, isRequestAmount, newRequestId, parseRequest, paysRequest } from "./paymentRequest";
 
 const PAYEE = "0xdf41621b35b0c3512d1177DE1423747900fC7a77" as const;
 const ORIGIN = "https://ardoise-rust.vercel.app";
@@ -92,5 +92,28 @@ describe("newRequestId", () => {
     const a = newRequestId();
     expect(parseRequest({ to: PAYEE, id: a })?.id).toBe(a);
     expect(newRequestId()).not.toBe(a);
+  });
+});
+
+describe("paysRequest", () => {
+  const request = { payee: PAYEE, chain: "base" as const, amount: "7.5" };
+
+  it("accepts the same payee and chain with enough USDC", () => {
+    expect(paysRequest({ payee: PAYEE.toLowerCase(), chain: "base", amount: 7_500_000n }, request)).toBe(true);
+    expect(paysRequest({ payee: PAYEE, chain: "base", amount: 1n }, { ...request, amount: undefined })).toBe(true);
+  });
+
+  it("refuses another payee, another chain or too little", () => {
+    expect(paysRequest({ payee: "0x1111111111111111111111111111111111111111", chain: "base", amount: 7_500_000n }, request)).toBe(false);
+    expect(paysRequest({ payee: PAYEE, chain: "arc", amount: 7_500_000n }, request)).toBe(false);
+    expect(paysRequest({ payee: PAYEE, chain: "base", amount: 7_499_999n }, request)).toBe(false);
+  });
+});
+
+describe("preview links", () => {
+  it("round-trips the preview flag and leaves it out otherwise", () => {
+    const url = new URL(buildRequestUrl(ORIGIN, { payee: PAYEE, chain: "base", id: "abcdefgh", preview: true }));
+    expect(parseRequest(Object.fromEntries(url.searchParams))?.preview).toBe(true);
+    expect(parseRequest({ to: PAYEE, preview: "yes" })).not.toHaveProperty("preview");
   });
 });

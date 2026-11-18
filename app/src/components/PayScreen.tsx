@@ -16,8 +16,9 @@ import { computeMaxFee, fetchFeeSchedule, type IrisFee } from "@/lib/fees";
 import { formatBps, formatUsdc } from "@/lib/format";
 import Link from "next/link";
 import { chainByDomain, network, txUrl, type PayoutChain } from "@/lib/network";
-import { MAX_MEMO_LENGTH, type PaymentRequest } from "@/lib/paymentRequest";
-import { DEMO_CHANNEL, type DemoPaymentMessage } from "@/lib/requestWatch";
+import { MAX_MEMO_LENGTH, paysRequest, type PaymentRequest } from "@/lib/paymentRequest";
+import { deadlineOf, payerMayPay, publish } from "@/lib/requestSession";
+import { useNow, useReached, useRequestSession } from "@/components/useRequestSession";
 import { MarginGauge } from "@/components/MarginGauge";
 import { RateComparison } from "@/components/RateComparison";
 
@@ -53,6 +54,14 @@ export function PayScreen({
   const [memo, setMemo] = useState(request?.memo ?? "");
   // The request the form was opened from, until it is paid.
   const [openRequest, setOpenRequest] = useState(request);
+  // Its live session: opening the page starts the payer's 30 s (not the payee's
+  // own preview); the payee may cancel.
+  const session = useRequestSession(openRequest?.id, !openRequest?.preview);
+  const sessionDeadline = deadlineOf(session.state);
+  const deadlinePassed = useReached(sessionDeadline, session.offset);
+  // Only whether the deadline passed matters here, so the clock is either side of it.
+  const requestOpen =
+    !openRequest?.id || payerMayPay(session.relay, session.state, deadlinePassed ? Infinity : -Infinity);
 
   // `null`: no guard is set yet; undefined: not read yet.
   const [minHealthFactor, setMinHealthFactor] = useState<bigint | null>();
@@ -136,7 +145,7 @@ export function PayScreen({
   const fresh = quote !== undefined && amount !== undefined && maxFee !== undefined && quote.borrow === amount + maxFee;
 
   async function send() {
-    if (amount === undefined || maxFee === undefined || !payeeValid || !fresh) return;
+    if (amount === undefined || maxFee === undefined || !payeeValid || !fresh || !requestOpen) return;
     setSending(true);
     setRefusal(undefined);
     setFailure(undefined);
@@ -163,17 +172,14 @@ export function PayScreen({
       setReceipt(line);
       setPaymentCount((n) => n + 1);
       // A real payment reaches the payee's waiting page through the chain; a
-      // simulated one moves nothing, so it tells that page directly when it is
-      // open in the same browser.
-      if (account.simulated && openRequest?.id && typeof BroadcastChannel !== "undefined") {
-        const channel = new BroadcastChannel(DEMO_CHANNEL);
-        channel.postMessage({
-          requestId: openRequest.id,
-          payee,
-          chain: destination.key,
-          amount: amount.toString(),
-        } satisfies DemoPaymentMessage);
-        channel.close();
+      // simulated one moves nothing, so it tells that page through the relay,
+      // and only if it pays what was asked (payee and chain stay editable).
+      if (
+        account.simulated &&
+        openRequest?.id &&
+        paysRequest({ payee, chain: destination.key, amount }, openRequest)
+      ) {
+        publish(openRequest.id, { type: "paid", simulated: true }).catch(() => {});
       }
       closeRequest();
       onPaid();
@@ -230,6 +236,27 @@ export function PayScreen({
             </span>
             {/* In full: a shortened address is easy to imitate with a lookalike one. */}
             <span className="mt-1 block break-all font-mono text-xs text-foreground">{openRequest.payee}</span>
+            {openRequest.id && (
+              <span className={`mt-2 flex items-baseline justify-between gap-3 font-medium ${requestOpen ? "text-foreground" : "text-danger"}`}>
+                {/* Announced when the status changes, not on every second of the countdown. */}
+                <span aria-live="polite">
+                  {session.state.closedBy === "cancelled"
+                    ? "The payee cancelled this request: it can no longer be paid."
+                    : !requestOpen && session.relay !== "connecting"
+                      ? "This request expired: it had to be paid within 30 seconds of opening it."
+                      : session.relay === "connecting"
+                        ? "Connecting to the request…"
+                        : sessionDeadline === undefined && session.relay === "down"
+                          ? "The live session is unavailable: no time limit applies."
+                          : openRequest.preview
+                            ? "Preview: the payer's 30 seconds start when they open the link."
+                            : "You have 30 seconds to pay this request."}
+                </span>
+                {requestOpen && sessionDeadline !== undefined && (
+                  <PayerCountdown deadline={sessionDeadline} offset={session.offset} />
+                )}
+              </span>
+            )}
           </span>
         </p>
       )}
@@ -332,12 +359,22 @@ export function PayScreen({
       )}
       <button
         type="submit"
-        disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined}
+        disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined || !requestOpen}
         className="btn-primary py-3.5 text-base"
       >
         {sending ? "Paying…" : amount !== undefined ? `Pay ${formatUsdc(amount)} USDC` : "Pay"}
       </button>
     </form>
+  );
+}
+
+/** Seconds left to pay a request; re-renders itself only, once a second. */
+function PayerCountdown({ deadline, offset }: { deadline: number; offset: number }) {
+  const now = useNow(1_000, true, offset);
+  return (
+    <span className="shrink-0 tabular-nums" aria-hidden>
+      {Math.max(0, Math.ceil((deadline - now) / 1000))} s
+    </span>
   );
 }
 

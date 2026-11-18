@@ -1,4 +1,4 @@
-import { getAddress, isAddress, type Address } from "viem";
+import { getAddress, isAddress, parseUnits, type Address } from "viem";
 
 /** Chains a payment request can ask to be paid on, as `PayoutChain.key`. */
 export type RequestChain = "arc" | "base";
@@ -19,6 +19,8 @@ export interface PaymentRequest {
   memo?: string;
   /** Random id of the request, so a payment made from it can reach the payee's waiting page. */
   id?: string;
+  /** Set on the payee's own "Open as the payer" link: opening it does not start the payer's 30 s. */
+  preview?: boolean;
 }
 
 /** Longest memo the pay screen accepts. */
@@ -67,6 +69,7 @@ export function buildRequestUrl(origin: string, request: PaymentRequest): string
   const memo = cleanMemo(request.memo ?? "");
   if (memo) url.searchParams.set("memo", memo);
   if (request.id) url.searchParams.set("id", request.id);
+  if (request.preview) url.searchParams.set("preview", "1");
   return url.toString();
 }
 
@@ -94,6 +97,7 @@ export function parseRequest(params: Record<string, string | string[] | undefine
     amount: amount && isRequestAmount(amount) ? amount : undefined,
     memo: memo || undefined,
     id: REQUEST_ID.test(first("id") ?? "") ? first("id") : undefined,
+    ...(first("preview") === "1" ? { preview: true } : {}),
   };
 }
 
@@ -105,4 +109,21 @@ export function parseRequest(params: Record<string, string | string[] | undefine
 export function newRequestId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+}
+
+/**
+ * Whether a payment matches a request: same payee and chain, and at least the
+ * amount asked. Used before telling the payee a simulated payment was made,
+ * since the payee address and chain stay editable on the pay screen.
+ *
+ * @param payment The payment as sent: payee, chain and amount in USDC units.
+ * @param request The request the pay screen was opened from.
+ * @returns Whether the payment pays the request.
+ */
+export function paysRequest(
+  payment: { payee: string; chain: string; amount: bigint },
+  request: PaymentRequest,
+): boolean {
+  if (payment.payee.toLowerCase() !== request.payee.toLowerCase() || payment.chain !== request.chain) return false;
+  return request.amount === undefined || payment.amount >= parseUnits(request.amount, 6);
 }
