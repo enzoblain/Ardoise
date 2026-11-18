@@ -80,23 +80,23 @@ export function Statement({ account, venues, version }: { account: ArdoiseClient
                   #{line.lineId.toString()}
                 </span>
                 <div className="flex flex-col gap-1">
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="font-medium">{line.memo || "Payment"}</span>
-                  <span className="font-semibold tabular-nums">{formatUsdc(line.amount)} USDC</span>
-                </div>
-                <div className="text-sm text-muted">
-                  To <span className="font-mono">{shortAddress(line.payee ?? line.payeeBytes32)}</span> on{" "}
-                  {chain?.label ?? `CCTP domain ${line.destinationDomain}`} · {formatDate(line.paidAt)}
-                </div>
-                <div className="text-xs leading-relaxed text-faint">
-                  Borrowed {formatUsdc(line.borrowed)} from {line.venueName} at {formatBps(line.rateBps)}
-                  {line.maxFee > 0n && <> (incl. {formatUsdc(line.maxFee)} CCTP fee)</>} · interest{" "}
-                  <span className="tabular-nums">{formatUsdc(line.accruedInterest)}</span>
-                  {line.repaid > 0n && <> · repaid {formatUsdc(line.repaid)}</>} ·{" "}
-                  <span className={line.owed === 0n ? "text-chalk" : "text-muted"}>
-                    {line.owed === 0n ? "repaid" : `owed ${formatUsdc(line.owed)}`}
-                  </span>
-                </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="font-medium">{line.memo || "Payment"}</span>
+                    <span className="font-semibold tabular-nums">{formatUsdc(line.amount)} USDC</span>
+                  </div>
+                  <div className="text-sm text-muted">
+                    To <span className="font-mono">{shortAddress(line.payee ?? line.payeeBytes32)}</span> on{" "}
+                    {chain?.label ?? `CCTP domain ${line.destinationDomain}`} · {formatDate(line.paidAt)}
+                  </div>
+                  <div className="text-xs leading-relaxed text-faint">
+                    Borrowed {formatUsdc(line.borrowed)} from {line.venueName} at {formatBps(line.rateBps)}
+                    {line.maxFee > 0n && <> (incl. {formatUsdc(line.maxFee)} CCTP fee)</>} · interest{" "}
+                    <span className="tabular-nums">{formatUsdc(line.accruedInterest)}</span>
+                    {line.repaid > 0n && <> · repaid {formatUsdc(line.repaid)}</>} ·{" "}
+                    <span className={line.owed === 0n ? "text-chalk" : "text-muted"}>
+                      {line.owed === 0n ? "repaid" : `owed ${formatUsdc(line.owed)}`}
+                    </span>
+                  </div>
                 </div>
               </li>
             );

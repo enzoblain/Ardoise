@@ -3,10 +3,8 @@
 /*
  * One dark theme for the whole site, in the logo's palette (assets/logo):
  * a black slate, chalk white, and bitcoin orange for the payment being made.
- * `dark:` variants follow the `dark` class set on <html>, not the system
- * setting, so no component flips to a light palette on a light-mode system.
+ * There is no light variant: the site does not follow the system setting.
  */
-@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --background: #0a0a0a;
@@ -21,7 +19,8 @@
   --color-line: #1f1f1f;
   --color-line-strong: #2e2e2e;
   --color-muted: #a1a1a1;
-  --color-faint: #6b6b6b;
+  /* #8a8a8a keeps small text above WCAG AA (4.5:1) on the page and on cards. */
+  --color-faint: #8a8a8a;
   --color-chalk: #f5f5f0;
   --color-accent: #f7931a;
   --color-danger: #f87171;
@@ -54,7 +53,14 @@ body {
   &:focus-within {
     border-color: #5a5a5a;
   }
-  &[aria-invalid="true"] {
+  /* Keyboard focus gets a visible ring, not just a lighter border. */
+  &:focus-visible,
+  &:has(:focus-visible) {
+    box-shadow: 0 0 0 3px rgba(245, 245, 240, 0.25);
+  }
+  /* The flag may sit on the field itself or on an input inside it. */
+  &[aria-invalid="true"],
+  &:has([aria-invalid="true"]) {
     border-color: var(--color-danger);
   }
 }

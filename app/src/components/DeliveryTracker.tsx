@@ -153,7 +153,7 @@ function Step(props: {
     : props.done
       ? "bg-chalk text-background"
       : props.active
-        ? "border border-accent animate-pulse"
+        ? "border border-accent motion-safe:animate-pulse"
         : "border border-line-strong";
   return (
     <li className="flex gap-3">
