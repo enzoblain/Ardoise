@@ -37,7 +37,7 @@ Ardoise turns a cirBTC position on Arc into a payment account:
 - **One line per payment.** The statement lists every payment as a debt line: amount, venue, rate, payee, memo and interest so far, built from the account's on-chain events. Each cross-chain payment has a tracking page that follows it until it lands on the payee's chain.
 - **Protected from liquidation.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (tested end to end on testnet; the mainnet test is pending).
 
-Without a wallet, anyone can try the whole flow on a demo account simulated in the browser, with live rates from Arc mainnet and real Circle fee quotes. Connecting a wallet on Arc mainnet activates a real account.
+Without a wallet, anyone can try the whole flow on a demo account simulated in the browser, with live rates from Arc mainnet and real Circle fee quotes. Connecting a wallet on Arc mainnet activates a real account. Instead of a browser wallet, a user can sign in with a passkey (Face ID, Touch ID, a security key): it owns a Circle smart account, which is activated and pays with one passkey signature each, with no seed phrase and no extension.
 
 **What Ardoise adds to Borrow Kit:**
 
@@ -53,7 +53,7 @@ Without a wallet, anyone can try the whole flow on a demo account simulated in t
 
 ```mermaid
 flowchart LR
-  W[User wallet] -->|"pay(amount, chain, payee, memo)"| A[ArdoiseAccount<br/>Arc mainnet]
+  W["User wallet<br/>browser or passkey"] -->|"pay(amount, chain, payee, memo)"| A[ArdoiseAccount<br/>Arc mainnet]
   A -->|checkMargin| G[MarginGuard]
   A -->|"reads venues() and guard()"| F[ArdoiseFactory]
   A -->|borrow| AD[AaveV4Adapter]
@@ -67,7 +67,7 @@ flowchart LR
   K -->|submits order when margin is low| GW
 ```
 
-1. **One-time setup.** The user already has cirBTC supplied as collateral on Aave V4, in their own position (done on Aave). When they activate Ardoise, the app has them authorize Aave's position managers, create their `ArdoiseAccount` through the factory and give the adapter a capped borrow allowance ([`app/src/lib/setup.ts`](app/src/lib/setup.ts)).
+1. **One-time setup.** The user already has cirBTC supplied as collateral on Aave V4, in their own position (done on Aave). When they activate Ardoise, the app has them authorize Aave's position managers, create their `ArdoiseAccount` through the factory and give the adapter a capped borrow allowance ([`app/src/lib/setup.ts`](app/src/lib/setup.ts)). A passkey smart account receives its cirBTC by a plain transfer instead, and its activation supplies it on Aave V4, enables it as collateral and runs the other steps in a single user operation (`activationCalls`).
 2. **Pay.** `pay()` checks the account's caps, reads the factory's venues and picks the one with the lowest rate (`bestVenue`), asks the guard whether the margin stays above the minimum, borrows `amount + maxFee` on the user's behalf, then either transfers USDC on Arc or burns it with CCTP so that Circle's forwarder mints it to the payee on the other chain. It records a debt line and emits `Paid` ([`contracts/src/ArdoiseAccount.sol`](contracts/src/ArdoiseAccount.sol)).
 3. **Protect.** `MarginGuard` refuses payments that would leave the health factor under 1.25 ([`contracts/src/guard/MarginGuard.sol`](contracts/src/guard/MarginGuard.sol)). The keeper, an off-chain Node process, watches every account and calls the public `sweep()` to apply the USDC on an account to its debt, oldest line first. When a position is under the minimum and the account holds nothing, it submits one of the owner's Gateway standing orders to bring USDC from Base ([`keeper/src/keeper.ts`](keeper/src/keeper.ts), [`keeper/src/gateway.ts`](keeper/src/gateway.ts)).
 
@@ -76,6 +76,7 @@ The collateral never moves to Ardoise: the account can only borrow within the al
 ## Built with Circle and Arc
 
 - **Arc mainnet:** the contracts are deployed on Arc mainnet (see [Deployed contracts](#deployed-contracts)) and every payment borrows on Arc's Aave V4 market. Gas on Arc is paid in USDC, so the user needs no other token. The app quotes, simulates and sends `pay()` and reads the statement from the account's logs ([`app/src/lib/chainArdoise.ts`](app/src/lib/chainArdoise.ts)), and the browser wallet signs on Arc ([`app/src/lib/wallet.ts`](app/src/lib/wallet.ts)). `NEXT_PUBLIC_ARDOISE_NETWORK` chooses Arc mainnet or Arc Testnet ([`app/src/lib/network.ts`](app/src/lib/network.ts)); the live USDC borrow rates of Aave V4 (through the deployed adapter) and Morpho are read on Arc mainnet ([`app/src/lib/venues.ts`](app/src/lib/venues.ts)).
+- **Modular Wallets (passkeys):** a passkey owns a Circle smart account (MSCA) on Arc; the app signs in with `toWebAuthnCredential`, builds the account with `toCircleSmartAccount` and sends user operations through Circle's bundler ([`app/src/lib/passkey.ts`](app/src/lib/passkey.ts)). Activation batches every setup call into one user operation, and each payment is one user operation calling `pay()`. On Arc mainnet the account pays its own gas in USDC (no paymaster there); Circle's paymaster sponsors it on Arc Testnet. The option appears when `NEXT_PUBLIC_CIRCLE_CLIENT_KEY` is set, and the SDK loads only when the user picks it. The SDK was tested on Arc mainnet in test 0.2 ([`docs/roadmap.md`](docs/roadmap.md)); the in-app flow on the deployed app is pending a live client key registered for its domain.
 - **USDC and cirBTC:** USDC is what each payment borrows and delivers; cirBTC, Circle's wrapped bitcoin on Arc, is the collateral in the user's Aave V4 position ([`contracts/src/venues/AaveV4Adapter.sol`](contracts/src/venues/AaveV4Adapter.sol)).
 - **CCTP (Cross-Chain Transfer Protocol):** a payment to a payee on Base is burned on Arc with `depositForBurnWithHook` and minted on Base by Circle's forwarder ([`contracts/src/ArdoiseAccount.sol`](contracts/src/ArdoiseAccount.sol), [`contracts/src/cctp/ITokenMessengerV2.sol`](contracts/src/cctp/ITokenMessengerV2.sol)). The app tracks each delivery through Circle's attestation service (Iris): [`app/src/lib/delivery.ts`](app/src/lib/delivery.ts), shown on the payment page [`app/src/app/payments/[txHash]/page.tsx`](app/src/app/payments/[txHash]/page.tsx).
 - **CCTP fees:** before each payment to Base, the app asks Iris for the transfer and forwarder fee and borrows it on top of the amount (`maxFee` in `pay()`): [`app/src/lib/fees.ts`](app/src/lib/fees.ts).
@@ -158,7 +159,7 @@ Run the front end and the keeper in two separate terminals, from the repository 
 (cd app && npm run dev)      # front end on http://localhost:3000
 ```
 
-By default the app runs on Arc Testnet with a simulated demo account. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance).
+By default the app runs on Arc Testnet with a simulated demo account. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance). To offer passkeys, also set `NEXT_PUBLIC_CIRCLE_CLIENT_KEY` to a Circle client key whose passkey domain is the app's host (`localhost` for local runs); the passkey's smart account needs cirBTC and, on mainnet, about 0.5 USDC for gas before its activation.
 
 ```bash
 (cd keeper && npm start)     # keeper, polls Arc mainnet for new blocks
@@ -197,7 +198,7 @@ What would come after the hackathon:
 - **Borrow on Morpho**, not only compare it: a Morpho adapter, so `bestVenue` picks between two real lenders, and EURC borrowing on Morpho's EURC/cirBTC market.
 - **Refinance between venues** when another lender becomes cheaper.
 - **A hosted keeper intake**, so standing orders can be signed from a deployed app, and several independent keepers.
-- **Passkey wallets** (Circle Modular Wallets) once they are available on Arc mainnet.
+- **Gas sponsorship for passkey accounts** on Arc mainnet, so a new user needs no USDC for gas, and the Protection panel for them (it signs on Base, which the passkey account does not use yet).
 - **Per-user guard settings and a real price-drop alert**, instead of the shared thresholds.
 - **An audit**, then higher caps.
 
