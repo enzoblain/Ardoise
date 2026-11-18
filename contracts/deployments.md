@@ -57,7 +57,7 @@ Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`
 ### Pending
 
 - [x] **Guard (B5):** deployed and set on 2026-11-18 (see the table above); sources verified on Sourcify.
-- [ ] **Demo account:** owned by the project test wallet, which holds the cirBTC collateral on the Main Spoke and has already authorized the Taker and Giver position managers. It needs `factory.createAccount()` and `Taker.approveBorrow(MainSpoke, 0, AaveV4Adapter, cap)` for this adapter (see docs/api.md, *One-time user setup on Aave V4*).
+- [x] **Demo account:** created on 2026-11-18 from the app: [`0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD), owned by the project test wallet, with a 60 USDC borrow allowance for the adapter (see *Checks once B5 is done*).
 - [ ] **Keeper:** in the repo-root `.env`, set `ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, `ARDOISE_FACTORY_DEPLOY_BLOCK=31777009` and `KEEPER_PRIVATE_KEY` (a dedicated wallet holding a little USDC for gas), then run `(cd keeper && npm start)`. Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. The app needs `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` (`.env.example` defaults to testnet). For Gateway standing orders (B4), also set `GATEWAY_ORDERS_FILE` (outside the repository), `GATEWAY_INTAKE_PORT=8787`, and `NEXT_PUBLIC_KEEPER_URL=http://localhost:8787` for the app.
 
 ### Checks once B5 is done
