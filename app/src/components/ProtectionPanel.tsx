@@ -140,6 +140,9 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
       setMessage({ text: "Applied to your debt.", tx: { chain: "arc", hash } });
     });
 
+  // A passkey account signs through ERC-1271 on Base, which needs the account
+  // deployed there: its first deposit does it, so signing waits for a reserve.
+  const awaitingReserve = signer.prompt === "passkey" && !(balance !== undefined && balance > 0n);
   const total = orders?.reduce((sum, o) => sum + BigInt(o.value), 0n) ?? 0n;
 
   return (
@@ -203,7 +206,7 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
               value={orderValueText}
               onChange={setOrderValueText}
               label={busy === "orders" ? confirming : "Sign"}
-              disabled={busy !== undefined}
+              disabled={busy !== undefined || awaitingReserve}
               onClick={signOrders}
             />
           </div>
@@ -223,7 +226,7 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
           value={repayText}
           onChange={setRepayText}
           label={busy === "repay" ? "Delivering…" : "Repay"}
-          disabled={busy !== undefined}
+          disabled={busy !== undefined || awaitingReserve}
           onClick={repayNow}
         />
         {delivered && (
