@@ -167,7 +167,12 @@ export function PayScreen({
       // open in the same browser.
       if (account.simulated && openRequest?.id && typeof BroadcastChannel !== "undefined") {
         const channel = new BroadcastChannel(DEMO_CHANNEL);
-        channel.postMessage({ requestId: openRequest.id, amount: amount.toString() } satisfies DemoPaymentMessage);
+        channel.postMessage({
+          requestId: openRequest.id,
+          payee,
+          chain: destination.key,
+          amount: amount.toString(),
+        } satisfies DemoPaymentMessage);
         channel.close();
       }
       closeRequest();

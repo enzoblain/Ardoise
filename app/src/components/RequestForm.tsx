@@ -1,7 +1,7 @@
 "use client";
 
 import QRCode from "qrcode";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAddress, parseUnits, zeroAddress } from "viem";
 import { formatUsdc } from "@/lib/format";
 import { network, txUrl, type PayoutChain } from "@/lib/network";
@@ -13,17 +13,13 @@ import {
   newRequestId,
   type PaymentRequest,
 } from "@/lib/paymentRequest";
-import {
-  DEMO_CHANNEL,
-  RequestWatcher,
-  currentBlock,
-  type DemoPaymentMessage,
-  type ReceivedPayment,
-} from "@/lib/requestWatch";
+import { DEMO_CHANNEL, RequestWatcher, currentBlock, demoPaymentAmount, type ReceivedPayment } from "@/lib/requestWatch";
 
 const CHAINS: PayoutChain[] = [network.base, network.arc];
 /** How often the waiting page reads the payee's chain. */
 const POLL_MS = 4_000;
+/** Longest wait between reads after errors (rate limits back off up to this). */
+const MAX_POLL_MS = 30_000;
 
 /** A request the payee confirmed, and the block it is watched from. */
 interface OpenRequest {
@@ -41,27 +37,36 @@ interface OpenRequest {
  */
 export function RequestForm() {
   const [open, setOpen] = useState<OpenRequest>();
+  // The request being edited: editing keeps its id and start block, so the
+  // link already shared and a payment made meanwhile still count.
+  const [editing, setEditing] = useState<OpenRequest>();
   const [draft, setDraft] = useState({ payee: "", chain: "base" as PaymentRequest["chain"], amount: "", memo: "" });
   return open ? (
     <WaitingView
       open={open}
-      onEdit={() => setOpen(undefined)}
+      onEdit={() => {
+        setEditing(open);
+        setOpen(undefined);
+      }}
       onNew={() => {
         setDraft({ payee: draft.payee, chain: draft.chain, amount: "", memo: "" });
+        setEditing(undefined);
         setOpen(undefined);
       }}
     />
   ) : (
-    <DraftForm draft={draft} onChange={setDraft} onCreate={setOpen} />
+    <DraftForm draft={draft} editing={editing} onChange={setDraft} onCreate={setOpen} />
   );
 }
 
 function DraftForm({
   draft,
+  editing,
   onChange,
   onCreate,
 }: {
   draft: { payee: string; chain: PaymentRequest["chain"]; amount: string; memo: string };
+  editing?: OpenRequest;
   onChange: (draft: { payee: string; chain: PaymentRequest["chain"]; amount: string; memo: string }) => void;
   onCreate: (open: OpenRequest) => void;
 }) {
@@ -79,9 +84,12 @@ function DraftForm({
     const target = CHAINS.find((c) => c.key === chain) ?? network.base;
     try {
       // Only transfers from now on count: an older payment of the same amount
-      // to the same address must not confirm this request.
-      const fromBlock = await currentBlock(target);
-      const request = { payee, chain, amount: amount || undefined, memo: cleanMemo(memo) || undefined, id: newRequestId() };
+      // to the same address must not confirm this request. An edit of the same
+      // address and chain keeps watching from where the request started.
+      const same = editing && editing.chain.key === chain && editing.request.payee.toLowerCase() === payee.toLowerCase();
+      const fromBlock = same ? editing.fromBlock : await currentBlock(target);
+      const id = same ? editing.request.id : newRequestId();
+      const request = { payee, chain, amount: amount || undefined, memo: cleanMemo(memo) || undefined, id };
       onCreate({ request, url: buildRequestUrl(window.location.origin, request), chain: target, fromBlock });
     } catch (e) {
       setError(`Could not reach ${target.label}: ${(e as Error).message.split("\n")[0]}`);
@@ -152,9 +160,13 @@ function DraftForm({
         <span className="eyebrow">Memo · shown on the payer&apos;s statement</span>
         <input className="field" placeholder="Invoice #42" maxLength={MAX_MEMO_LENGTH} value={memo} onChange={(e) => set({ memo: e.target.value })} />
       </label>
-      {error && <p className="text-sm text-danger">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
       <button type="submit" disabled={!payeeValid || !amountValid || creating} className="btn-primary py-3.5 text-base">
-        {creating ? "Creating…" : "Create request"}
+        {creating ? "Creating…" : editing ? "Update request" : "Create request"}
       </button>
     </form>
   );
@@ -166,7 +178,12 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
   const [copied, setCopied] = useState(false);
   const [received, setReceived] = useState<ReceivedPayment | { simulated: true; amount: bigint }>();
   const [checkError, setCheckError] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
   const minAmount = request.amount ? parseUnits(request.amount, 6) : 0n;
+
+  // The view is replaced when the request is created and when it is paid:
+  // move focus to its heading so keyboard and screen reader users follow.
+  useEffect(() => heading.current?.focus(), [received]);
   const amountLabel = request.amount ? `${request.amount} USDC` : "Any amount";
 
   useEffect(() => {
@@ -186,17 +203,21 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
     const watcher = new RequestWatcher(chain, request.payee, minAmount, open.fromBlock);
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
+    let delay = POLL_MS;
     const poll = async () => {
       try {
         const payment = await watcher.check();
         if (stopped) return;
         setCheckError(false);
+        delay = POLL_MS;
         if (payment) return setReceived(payment);
       } catch {
-        // Public RPCs throttle; the watcher resumes from the same block next time.
-        if (!stopped) setCheckError(true);
+        // Public RPCs throttle: back off, and resume from the same block.
+        if (stopped) return;
+        setCheckError(true);
+        delay = Math.min(delay * 2, MAX_POLL_MS);
       }
-      if (!stopped) timer = setTimeout(() => void poll(), POLL_MS);
+      if (!stopped) timer = setTimeout(() => void poll(), delay);
     };
     void poll();
     return () => {
@@ -209,13 +230,12 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
   useEffect(() => {
     if (received || typeof BroadcastChannel === "undefined") return;
     const channel = new BroadcastChannel(DEMO_CHANNEL);
-    channel.onmessage = (e: MessageEvent<DemoPaymentMessage>) => {
-      if (e.data?.requestId !== request.id) return;
-      const amount = BigInt(e.data.amount);
-      if (amount > 0n && amount >= minAmount) setReceived({ simulated: true, amount });
+    channel.onmessage = (e: MessageEvent<unknown>) => {
+      const amount = demoPaymentAmount(e.data, { id: request.id, payee: request.payee, chain: chain.key }, minAmount);
+      if (amount !== undefined) setReceived({ simulated: true, amount });
     };
     return () => channel.close();
-  }, [request.id, minAmount, received]);
+  }, [request.id, request.payee, chain.key, minAmount, received]);
 
   async function copy() {
     try {
@@ -237,31 +257,42 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
     </div>
   );
 
+  // Rendered in both states so screen readers announce the change.
+  const announcement = (
+    <p className="sr-only" aria-live="polite">
+      {received ? `Payment received: ${formatUsdc(received.amount)} USDC.` : ""}
+    </p>
+  );
+
   if (received) {
     const simulated = "simulated" in received;
     return (
-      <section className="card mx-auto flex w-full max-w-xl flex-col items-center gap-5 py-10 text-center" aria-live="polite">
-        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-chalk text-3xl text-background shadow-[0_0_40px_rgba(245,245,240,0.25)]" aria-hidden>
-          ✓
-        </span>
-        <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-semibold tracking-tight">{simulated ? "Payment received (simulated)" : "Payment received"}</h2>
-          <span className="text-4xl font-semibold tracking-tight tabular-nums">{formatUsdc(received.amount)} USDC</span>
-          <span className="text-sm text-muted">
-            on {chain.label}
-            {request.memo && <> · {request.memo}</>}
+      <>
+        {announcement}
+        <section className="card mx-auto flex w-full max-w-xl flex-col items-center gap-5 py-10 text-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-chalk text-3xl text-background shadow-[0_0_40px_rgba(245,245,240,0.25)]" aria-hidden>
+            ✓
           </span>
-        </div>
-        {simulated ? (
-          <p className="text-sm text-faint">Paid from the demo account in this browser: nothing moved on chain.</p>
-        ) : (
-          <p className="text-sm text-muted">
-            {/* A CCTP payment is minted to the payee, so it comes from the zero address. */}
-            {received.from === zeroAddress ? (
-              "Delivered by Circle (CCTP)"
-            ) : (
+          <div className="flex flex-col gap-1">
+            <h2 ref={heading} tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">
+              {simulated ? "Payment received (simulated)" : "Payment received"}
+            </h2>
+            <span className="text-4xl font-semibold tracking-tight tabular-nums">{formatUsdc(received.amount)} USDC</span>
+            <span className="text-sm text-muted">
+              on {chain.label}
+              {request.memo && <> · {request.memo}</>}
+            </span>
+          </div>
+          {simulated ? (
+            <p className="text-sm text-faint">Paid from the demo account in this browser: nothing moved on chain.</p>
+          ) : (
+            <p className="text-sm text-muted">
+              {/* A CCTP payment is minted to the payee, so it comes from the zero address. */}
+              {received.from === zeroAddress ? (
+                "Delivered by Circle (CCTP)"
+              ) : (
               <>
-                From <span className="font-mono">{received.from}</span>
+                  From <span className="font-mono">{received.from}</span>
               </>
             )}{" "}
             ·{" "}
@@ -274,51 +305,58 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
           New request
         </button>
       </section>
+      </>
     );
   }
 
   return (
-    <section className="card mx-auto flex w-full max-w-xl flex-col items-center gap-5 text-center" aria-label="Waiting for the payment">
-      {qr ? (
-        // A data URL built here, from our own link: no remote image to optimize.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={qr}
-          alt={`QR code: pay ${amountLabel.toLowerCase()} to ${request.payee} on ${chain.label}`}
-          width={240}
-          height={240}
-          className="rounded-2xl"
-        />
-      ) : (
-        <div className="h-60 w-60 rounded-2xl border border-dashed border-line-strong" aria-hidden />
-      )}
-      {details}
-      <p className="flex items-center gap-2.5 text-sm" aria-live="polite">
-        <span className="h-2 w-2 rounded-full bg-accent motion-safe:animate-pulse" aria-hidden />
-        Waiting for the payment on {chain.label}…
-      </p>
-      <p className="text-xs text-faint">
-        {checkError
-          ? `${chain.label} did not answer; checking again.`
-          : `Watching for USDC sent to this address${request.amount ? ` (${request.amount} or more)` : ""} since block ${open.fromBlock.toString()}. Keep this page open.`}
-      </p>
-      <input readOnly value={url} onFocus={(e) => e.target.select()} className="field w-full font-mono text-xs text-muted" aria-label="Request link" />
-      <div className="flex flex-wrap justify-center gap-3">
-        <button type="button" onClick={() => void copy()} className="btn-primary px-5 py-2.5 text-sm">
-          <span aria-live="polite">{copied ? "Link copied" : "Copy link"}</span>
-        </button>
-        {qr && (
-          <a href={qr} download="ardoise-payment-request.svg" className="btn-secondary px-5 py-2.5 text-sm">
-            Download QR code
-          </a>
+    <>
+      {announcement}
+      <section className="card mx-auto flex w-full max-w-xl flex-col items-center gap-5 text-center" aria-labelledby="waiting-title">
+        <h2 id="waiting-title" ref={heading} tabIndex={-1} className="sr-only">
+          Waiting for the payment
+        </h2>
+        {qr ? (
+          // A data URL built here, from our own link: no remote image to optimize.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={qr}
+            alt={`QR code: pay ${amountLabel.toLowerCase()} to ${request.payee} on ${chain.label}`}
+            width={240}
+            height={240}
+            className="rounded-2xl"
+          />
+        ) : (
+          <div className="h-60 w-60 rounded-2xl border border-dashed border-line-strong" aria-hidden />
         )}
-        <a href={url} target="_blank" rel="noreferrer" className="btn-secondary px-5 py-2.5 text-sm">
-          Open as the payer ↗
-        </a>
-        <button type="button" onClick={onEdit} className="btn-secondary px-5 py-2.5 text-sm">
-          Edit request
-        </button>
-      </div>
-    </section>
+        {details}
+        <p className="flex items-center gap-2.5 text-sm">
+          <span className="h-2 w-2 rounded-full bg-accent motion-safe:animate-pulse" aria-hidden />
+          Waiting for the payment on {chain.label}…
+        </p>
+        <p className="text-xs text-faint">
+          {checkError
+            ? `${chain.label} did not answer; checking again.`
+            : `Watching for USDC sent to this address${request.amount ? ` (${request.amount} or more)` : ""} since block ${open.fromBlock.toString()}. Keep this page open.`}
+        </p>
+        <input readOnly value={url} onFocus={(e) => e.target.select()} className="field w-full font-mono text-xs text-muted" aria-label="Request link" />
+        <div className="flex flex-wrap justify-center gap-3">
+          <button type="button" onClick={() => void copy()} className="btn-primary px-5 py-2.5 text-sm">
+            <span aria-live="polite">{copied ? "Link copied" : "Copy link"}</span>
+          </button>
+          {qr && (
+            <a href={qr} download="ardoise-payment-request.svg" className="btn-secondary px-5 py-2.5 text-sm">
+              Download QR code
+            </a>
+          )}
+          <a href={url} target="_blank" rel="noreferrer" className="btn-secondary px-5 py-2.5 text-sm">
+            Open as the payer ↗
+          </a>
+          <button type="button" onClick={onEdit} className="btn-secondary px-5 py-2.5 text-sm">
+            Edit request
+          </button>
+        </div>
+      </section>
+    </>
   );
 }
