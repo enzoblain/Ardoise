@@ -100,9 +100,42 @@ export function canPay(state: SessionState, now: number): boolean {
  * @returns False if it landed more than `DELIVERY_GRACE_MS` after the request closed.
  */
 export function landedInTime(state: SessionState, landedAt: number): boolean {
+  // The request closed at the earliest of the cancel or expiry message and the
+  // deadline: an expiry published late (a throttled tab) must not widen the grace.
   const deadline = deadlineOf(state);
-  const closedAt = state.closedAt ?? (deadline !== undefined && deadline < landedAt ? deadline : undefined);
+  const ends = [state.closedAt, deadline].filter((t): t is number => t !== undefined);
+  const closedAt = ends.length > 0 ? Math.min(...ends) : undefined;
   return closedAt === undefined || landedAt <= closedAt + DELIVERY_GRACE_MS;
+}
+
+/**
+ * Whether the payer's screen lets them pay. It only fails open, without a time
+ * limit, when the relay was never reachable: once the session is known to be
+ * opened or closed, losing the connection must not reopen it.
+ *
+ * @param relay State of the connection to the relay.
+ * @param state Session state received so far.
+ * @param now Current time, in ms, on the relay's clock.
+ * @returns Whether the Pay button may be enabled.
+ */
+export function payerMayPay(relay: "connecting" | "live" | "down", state: SessionState, now: number): boolean {
+  if (state.closedAt !== undefined) return false;
+  if (state.joinedAt !== undefined) return canPay(state, now);
+  return relay !== "connecting";
+}
+
+/**
+ * Estimates how far the relay's clock is ahead of this device's, from an
+ * event that just arrived. Replayed events are old, so only one received
+ * within a minute of its relay time is used; ntfy rounds times to the second.
+ *
+ * @param at The event's relay time, in ms.
+ * @param receivedAt When this device received it, in ms.
+ * @returns The offset to add to `Date.now()`, or `undefined` for a replayed event.
+ */
+export function clockOffset(at: number, receivedAt: number): number | undefined {
+  const offset = at - receivedAt;
+  return Math.abs(offset) < 60_000 ? offset : undefined;
 }
 
 /**

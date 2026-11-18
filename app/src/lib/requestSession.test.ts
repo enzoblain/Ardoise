@@ -4,9 +4,11 @@ import {
   PAY_WINDOW_MS,
   applyEvent,
   canPay,
+  clockOffset,
   deadlineOf,
   landedInTime,
   parseFrame,
+  payerMayPay,
   topicFor,
   type SessionEvent,
   type SessionState,
@@ -60,6 +62,11 @@ describe("landedInTime", () => {
     expect(landedInTime({ closedAt: T, closedBy: "cancelled" }, T + DELIVERY_GRACE_MS + 1)).toBe(false);
   });
 
+  it("counts the grace from the deadline when the expiry message came late", () => {
+    const state = { joinedAt: T, closedAt: T + PAY_WINDOW_MS + 600_000, closedBy: "expired" as const };
+    expect(landedInTime(state, T + PAY_WINDOW_MS + DELIVERY_GRACE_MS + 1)).toBe(false);
+  });
+
   it("accepts any payment to a request nobody opened and nobody closed", () => {
     expect(landedInTime({}, T + 3_600_000)).toBe(true);
   });
@@ -88,5 +95,33 @@ describe("parseFrame", () => {
 describe("topicFor", () => {
   it("names the topic after the request id", () => {
     expect(topicFor("abc12345")).toBe("ardoise-req-abc12345");
+  });
+});
+
+describe("payerMayPay", () => {
+  it("never reopens a closed request, even when the relay drops", () => {
+    expect(payerMayPay("down", { closedAt: T, closedBy: "cancelled" }, T)).toBe(false);
+  });
+
+  it("keeps the 30 s once the request is opened, even when the relay drops", () => {
+    expect(payerMayPay("down", { joinedAt: T }, T + PAY_WINDOW_MS)).toBe(false);
+    expect(payerMayPay("down", { joinedAt: T }, T + 1_000)).toBe(true);
+  });
+
+  it("waits while connecting, and fails open only if the relay was never reached", () => {
+    expect(payerMayPay("connecting", {}, T)).toBe(false);
+    expect(payerMayPay("down", {}, T)).toBe(true);
+    expect(payerMayPay("live", {}, T)).toBe(true);
+  });
+});
+
+describe("clockOffset", () => {
+  it("estimates the offset from an event that just arrived", () => {
+    expect(clockOffset(T + 2_000, T)).toBe(2_000);
+    expect(clockOffset(T - 30_000, T)).toBe(-30_000);
+  });
+
+  it("ignores replayed events", () => {
+    expect(clockOffset(T - 3_600_000, T)).toBeUndefined();
   });
 });
