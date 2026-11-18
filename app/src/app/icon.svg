@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-label="Ardoise">
+  <!-- Slate with a 1px frame, pixel-aligned (mark x 0.25) -->
+  <path d="M4,2.5 H12 A2.5,2.5 0 0 1 14.5,5 V11 A2.5,2.5 0 0 1 12,13.5 H4 A2.5,2.5 0 0 1 1.5,11 V5 A2.5,2.5 0 0 1 4,2.5 Z" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <!-- Ledger lines, thickened to 2px for legibility -->
+  <path d="M5,4 H11 A1,1 0 0 1 11,6 H5 A1,1 0 0 1 5,4 Z M5,7 H9 A1,1 0 0 1 9,9 H5 A1,1 0 0 1 5,7 Z M5,10 H6 A1,1 0 0 1 6,12 H5 A1,1 0 0 1 5,10 Z" fill="#F5F5F0"/>
+  <!-- Next entry, in bitcoin orange -->
+  <circle cx="10" cy="11" r="1" fill="#F7931A"/>
+</svg>
