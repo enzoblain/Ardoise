@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/logo-full.svg">
+  <img src="assets/logo/logo-black.svg" alt="Ardoise" width="320">
+</picture>
+
 # Ardoise
 
 > Pay anyone, on any chain, with your bitcoin without selling it: each payment borrows exactly the amount on Arc at the best available rate, and your position is protected from liquidation.
@@ -88,6 +93,7 @@ contracts/   Solidity contracts (Foundry); for now the frozen interfaces in src/
 app/         Next.js + viem front end: pay screen and statement on the live account (or a simulated demo account), cross-chain payment tracking page
 keeper/      Node keeper; for now follows Arc mainnet blocks
 docs/        Roadmap and contract interfaces (api.md)
+assets/logo/ Logo files (SVG: mark, full logo, wordmark, app icon, favicon, white and black versions) and brand-showcase.html, the brand reference page (palette, typography, usage)
 ```
 
 ## Roadmap

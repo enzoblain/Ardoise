@@ -2,7 +2,7 @@
 
 Who builds what, and when, until the UBC Hackathon 2026 submission. Every agent picks its task here and works only on it.
 
-Last updated: 2026-11-17. All times are **CST (Austin, UTC-6)**; Paris is CST + 7 h.
+Last updated: 2026-11-18. All times are **CST (Austin, UTC-6)**; Paris is CST + 7 h.
 Status: ⬜ to do, 🔄 in progress, ✅ done, ✂️ cut.
 
 ## Who is who
@@ -103,6 +103,7 @@ The mainnet figures match the testnet ones, so the decisions above stand.
 | C2 | Line-by-line statement | Wed 11/18 afternoon | 0.3, 0.4 | `feat/statement` | `app/` (statement) | Lines render from contract events | ✅ decoded from `Paid` / `LineRepaid` logs with the `IArdoise` ABI; the simulated account emits the same encoded logs until C4 |
 | C3 | Delivery tracking on Base (explorer link, arrival status); the sending itself happens in `pay()` (A2) | Wed 11/18 evening | 0.2, 0.3 | `feat/crosschain-send` | `app/` only | The app shows a payment arriving on Base | ✅ payment page `/payments/[txHash]`, checked with the 0.2 testnet transfer |
 | C4 | Wire the app to the real mainnet contracts (addresses from `contracts/deployments.md`) | Thu 11/19 morning | A4, B5, C1–C3 | `feat/wire-contracts` | `app/` (config, calls) | A real payment from the app, line visible in the statement | ✅ a real payment from the app on 2026-11-18: 0.40 USDC to Base, 0.45523 USDC borrowed on Aave V4 (CCTP fee included) through the guard ([pay](https://explorer.arc.io/tx/0x9dfdd3d8ba60968a8feaed312edd03ad8c238850e89ec3af05cb3aa8b5836aed), [mint on Base](https://basescan.org/tx/0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408a4b)); its debt line #1 and `Paid` event are on chain for the statement (see [`deployments.md`](../contracts/deployments.md)) |
+| C5 | Logo and brand assets, wired into the app (favicon, header) and the README | Wed 11/18 | — | `feat/logo` | `assets/logo/`, `app/` (icon, header), README | The logo shows in the app tab, the app header and the README | ✅ made with the logo-designer skill: a slate with ledger lines in chalk, the current payment in bitcoin orange; 7 SVGs and a brand reference page in `assets/logo/` |
 
 ## Assembly and submission
 
