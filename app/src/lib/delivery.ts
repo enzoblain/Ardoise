@@ -1,4 +1,5 @@
 import { createPublicClient, formatUnits, http, isHash, type Hex } from "viem";
+import { arcClient } from "@/lib/arc";
 import { chainByDomain, network, type PayoutChain } from "@/lib/network";
 
 /** Where a cross-chain payment stands. */
@@ -154,7 +155,7 @@ export async function measureDeliverySeconds(
 }
 
 async function blockTime(chain: PayoutChain, hash: Hex): Promise<bigint> {
-  const client = createPublicClient({ chain: chain.chain, transport: http() });
+  const client = chain.key === "arc" ? arcClient : createPublicClient({ chain: chain.chain, transport: http() });
   const receipt = await client.getTransactionReceipt({ hash });
   const block = await client.getBlock({ blockNumber: receipt.blockNumber });
   return block.timestamp;

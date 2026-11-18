@@ -1,6 +1,6 @@
-import { createPublicClient, http, parseAbi, type Hex } from "viem";
+import { createPublicClient, parseAbi, type Hex } from "viem";
 import { arc } from "viem/chains";
-import { arcClient } from "@/lib/arc";
+import { arcClient, arcTransport } from "@/lib/arc";
 import { network } from "@/lib/network";
 import type { Venue } from "@/lib/ardoise";
 import { venueAbi } from "@/lib/contracts/abis";
@@ -28,7 +28,7 @@ const irmAbi = parseAbi([
 const mainnetClient =
   network.name === "mainnet"
     ? arcClient
-    : createPublicClient({ chain: arc, transport: http(undefined, { timeout: 3_000, retryCount: 1 }) });
+    : createPublicClient({ chain: arc, transport: arcTransport(arc) });
 
 /**
  * Reads the live USDC borrow rate and liquidity of each venue on Arc mainnet.
