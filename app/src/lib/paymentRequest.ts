@@ -1,4 +1,4 @@
-import { getAddress, isAddress, type Address } from "viem";
+import { getAddress, isAddress, parseUnits, type Address } from "viem";
 
 /** Chains a payment request can ask to be paid on, as `PayoutChain.key`. */
 export type RequestChain = "arc" | "base";
@@ -105,4 +105,21 @@ export function parseRequest(params: Record<string, string | string[] | undefine
 export function newRequestId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+}
+
+/**
+ * Whether a payment matches a request: same payee and chain, and at least the
+ * amount asked. Used before telling the payee a simulated payment was made,
+ * since the payee address and chain stay editable on the pay screen.
+ *
+ * @param payment The payment as sent: payee, chain and amount in USDC units.
+ * @param request The request the pay screen was opened from.
+ * @returns Whether the payment pays the request.
+ */
+export function paysRequest(
+  payment: { payee: string; chain: string; amount: bigint },
+  request: PaymentRequest,
+): boolean {
+  if (payment.payee.toLowerCase() !== request.payee.toLowerCase() || payment.chain !== request.chain) return false;
+  return request.amount === undefined || payment.amount >= parseUnits(request.amount, 6);
 }
