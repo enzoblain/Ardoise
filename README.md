@@ -43,7 +43,7 @@ Without a wallet, anyone can try the whole flow on a demo account simulated in t
 
 | | Borrow Kit | Ardoise |
 |--|-----------|---------|
-| Lenders | Morpho only | Best rate across the venues of the factory; Aave V4 today, Morpho compared but not yet borrowed from |
+| Lenders | Morpho only | Best rate across the venues of the factory where the owner can borrow; the deployed factory lends through Aave V4, and Morpho has an adapter tested against the real market, not deployed yet |
 | When you borrow | One loan, by hand | Exactly the amount of each payment, at payment time |
 | Where the money goes | Your wallet on Arc | The payee, on Arc or on another chain through CCTP |
 | Liquidation | Warning, then Morpho liquidates | Guard refuses risky payments; keeper repays from the account, or from a Gateway reserve on Base (mainnet test pending) |
@@ -68,7 +68,7 @@ flowchart LR
 ```
 
 1. **One-time setup.** The user already has cirBTC supplied as collateral on Aave V4, in their own position (done on Aave). When they activate Ardoise, the app has them authorize Aave's position managers, create their `ArdoiseAccount` through the factory and give the adapter a capped borrow allowance ([`app/src/lib/setup.ts`](app/src/lib/setup.ts)). A passkey smart account receives its cirBTC by a plain transfer instead, and its activation supplies it on Aave V4, enables it as collateral and runs the other steps in a single user operation (`activationCalls`).
-2. **Pay.** `pay()` checks the account's caps, reads the factory's venues and picks the one with the lowest rate (`bestVenue`), asks the guard whether the margin stays above the minimum, borrows `amount + maxFee` on the user's behalf, then either transfers USDC on Arc or burns it with CCTP so that Circle's forwarder mints it to the payee on the other chain. It records a debt line and emits `Paid` ([`contracts/src/ArdoiseAccount.sol`](contracts/src/ArdoiseAccount.sol)).
+2. **Pay.** `pay()` checks the account's caps, reads the factory's venues and picks the cheapest one where the guard allows the payment (`bestVenue`; the deployed factory still uses the earlier version, which takes the cheapest venue and then asks the guard), borrows `amount + maxFee` on the user's behalf, then either transfers USDC on Arc or burns it with CCTP so that Circle's forwarder mints it to the payee on the other chain. It records a debt line and emits `Paid` ([`contracts/src/ArdoiseAccount.sol`](contracts/src/ArdoiseAccount.sol)).
 3. **Protect.** `MarginGuard` refuses payments that would leave the health factor under 1.25 ([`contracts/src/guard/MarginGuard.sol`](contracts/src/guard/MarginGuard.sol)). The keeper, an off-chain Node process, watches every account and calls the public `sweep()` to apply the USDC on an account to its debt, oldest line first. When a position is under the minimum and the account holds nothing, it submits one of the owner's Gateway standing orders to bring USDC from Base ([`keeper/src/keeper.ts`](keeper/src/keeper.ts), [`keeper/src/gateway.ts`](keeper/src/gateway.ts)).
 
 The collateral never moves to Ardoise: the account can only borrow within the allowance the user granted and repay; it cannot withdraw cirBTC. The full payment sequence, the interfaces and their invariants are in [`docs/api.md`](docs/api.md).
@@ -195,7 +195,7 @@ assets/logo/ Logo files (SVG: mark, full logo, wordmark, app icon, favicon, whit
 
 What would come after the hackathon:
 
-- **Borrow on Morpho**, not only compare it: a Morpho adapter, so `bestVenue` picks between two real lenders, and EURC borrowing on Morpho's EURC/cirBTC market.
+- **Borrow on Morpho in production:** deploy the factory with the Morpho adapter (built and fork-tested, see [`docs/api.md`](docs/api.md)), add the Morpho setup to the app, and borrow EURC on Morpho's EURC/cirBTC market.
 - **Refinance between venues** when another lender becomes cheaper.
 - **A hosted keeper intake**, so standing orders can be signed from a deployed app, and several independent keepers.
 - **Gas sponsorship for passkey accounts** on Arc and Base mainnet, so a new user needs no USDC or ETH for gas.

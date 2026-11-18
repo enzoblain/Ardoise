@@ -4,7 +4,7 @@ The interfaces below are the single contact point between the tracks (see [`road
 
 | Interface | File | Implemented by | Used by |
 |-----------|------|----------------|---------|
-| `IVenue` | [`contracts/src/interfaces/IVenue.sol`](../contracts/src/interfaces/IVenue.sol) | `AaveV4Adapter` (A1), Morpho adapter (R5) | `ArdoiseAccount`, guard, app (rate comparison, margin gauge) |
+| `IVenue` | [`contracts/src/interfaces/IVenue.sol`](../contracts/src/interfaces/IVenue.sol) | `AaveV4Adapter` (A1), `MorphoAdapter` (R5) | `ArdoiseAccount`, guard, app (rate comparison, margin gauge) |
 | `IArdoise` and `DebtLine` | [`contracts/src/interfaces/IArdoise.sol`](../contracts/src/interfaces/IArdoise.sol) | `ArdoiseAccount` (A2, A3) | app (pay screen, statement), keeper |
 | `IArdoiseFactory` | [`contracts/src/interfaces/IArdoiseFactory.sol`](../contracts/src/interfaces/IArdoiseFactory.sol) | factory (A2) | venue adapters (caller check), app and keeper (finding a user's account) |
 | `IGuard` | [`contracts/src/interfaces/IGuard.sol`](../contracts/src/interfaces/IGuard.sol) | `MarginGuard` (B1, B3) | `ArdoiseAccount.pay()`, app, keeper |
@@ -66,7 +66,7 @@ Behaviour the frozen interfaces leave open, as implemented in [`ArdoiseAccount.s
 - **Payees:** every domain needs a left-padded EVM address except the known non-EVM CCTP domains (Noble 4, Solana 5, Sui 8, Aptos 9), which accept all 32 bytes.
 - **Errors beyond the interface:** `ZeroAmount`, `FeeOnArc(maxFee)` (a payment on Arc must pass `maxFee` 0), `BorrowShortfall(expected, received)`, `GuardNotSet`, `Reentrancy`, `TokenCallFailed` on the account; `NotAdmin(caller)`, `InvalidVenue(venue)` (the venue does not lend the factory's USDC or does not trust this factory) and `ZeroAddress` on the factory.
 - **Caps** apply to `amount + maxFee`; the UTC day is `block.timestamp / 1 days`. New accounts get the factory's `defaultPerPaymentCap` and `defaultDailyCap`.
-- **Venue choice:** `bestVenue` skips venues whose `available()` or `rate()` reverts; ties go to the first venue in the factory's list.
+- **Venue choice:** `bestVenue` skips venues whose `available()` or `rate()` reverts or whose liquidity is short, then asks the guard in order of rate and takes the first venue where it allows the full amount; ties go to the first venue in the factory's list. A cheaper venue where the owner has no position therefore never blocks a payment another venue can make. When the guard allows the full amount nowhere, the venue allowing the most is returned and `pay()` reverts with `PaymentRefused` and that amount. The deployed factory of A4 still runs the earlier version, which took the cheapest venue before asking the guard; the Morpho deployment replaces it (R5).
 - **Interest estimate:** simple interest at `rateBps` on the principal since `openedAt`, rounded down. A line closes when its repayments cover principal plus estimate, or when the owner's debt on its venue reaches 0. A closed line's `accruedInterest` is what was repaid beyond the principal.
 - **Repayment:** `repay` pulls at most what the line owes by its estimate and refunds what the venue does not take.
 - **`sweep()`** repays the open lines oldest first, skipping a line whose venue refuses the repayment instead of reverting, so the keeper is never stuck behind one line. What is left then repays the owner's remaining debt on each venue of the factory (venues compound a variable rate while line estimates use simple interest, and the owner may have debt opened outside Ardoise); anything left after that stays in the account. That second pass credits no line, so a closed line can show less interest than the venue actually charged, and a line skipped earlier in the same sweep only shows as closed after the next `sweep()` or `repay(lineId, 0)`. A line whose venue keeps refusing is retried, at a gas cost, on every sweep. It does not read the guard, so it keeps working while the factory has none.
@@ -111,6 +111,17 @@ A user who keeps USDC in Circle Gateway on Base can let the keeper repay their d
 - Each server instance keeps an account's history in memory (up to 200 accounts) and reads only the blocks produced since the last request (Arc blocks are final once produced); concurrent requests share one read. A new instance scans an account in full once.
 - An account is served only to the owner `factory.accountOf` returned it for, checked on every request, so the route cannot be used to scan arbitrary contracts. Answers: 200, 400 (malformed address), 404 (not the owner's account, or no contracts on this network), 502 (Arc unreadable; the RPC error is never returned).
 - The `/app` page also shares its reads between visitors: venue rates for 15 s, the current block for 5 s, and the last good value when Arc cannot be read (rates up to 10 minutes old, shown without a marker; the contracts still choose the venue from live rates) ([`app/src/lib/cache.ts`](../app/src/lib/cache.ts)).
+
+## One-time user setup on Morpho (R5)
+
+An owner who also wants to borrow on Morpho's cirBTC/USDC market (id `0xc2db905f…5815d`, 86% LLTV, Morpho `0x34CD04070dD72b14E241112F6d83812Df5Af7fCD`):
+
+1. Supply cirBTC as collateral: `cirBTC.approve(Morpho, amount)`, then `Morpho.supplyCollateral(marketParams, amount, user, "")`.
+2. Authorize the adapter: `Morpho.setAuthorization(MorphoAdapter, true)`.
+
+Morpho's authorization is not capped like Aave's borrow allowance: an authorized address may borrow and withdraw collateral for the user. `MorphoAdapter` has no function that withdraws collateral, and only `factory.accountOf(user)` may make it borrow, so the authorization only serves the account's payments, within its caps and the guard ([`contracts/src/venues/MorphoAdapter.sol`](../contracts/src/venues/MorphoAdapter.sol)). The adapter reads the health factor as Morpho does (collateral × oracle price × LLTV over the debt, interest accrued since the last update included), and repays a full debt by shares so that no dust is left. The app does not run these steps yet.
+
+Fork tests run the adapter against the real market (`ARC_FORK_URL=… forge test --match-contract MorphoAdapterForkTest`): with Aave V4 cheaper, an owner with collateral on Morpho only pays from Morpho; the guard refuses what Morpho's margin cannot cover; `sweep()` and a full repayment clear the debt. Forge does not implement Arc's native-coin and blocklist precompiles, which USDC transfers call, so the tests put stand-ins at their addresses ([`contracts/test/mocks/ArcNativeCoinMock.sol`](../contracts/test/mocks/ArcNativeCoinMock.sol)).
 
 ## One-time user setup on Aave V4
 
