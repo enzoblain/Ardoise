@@ -115,6 +115,7 @@ The mainnet figures match the testnet ones, so the decisions above stand.
 | R4 | Devpost text (criterion → evidence mapping) | Enzo · E | Thu 11/19 evening | R2 | Draft ready on Devpost | ⬜ |
 | R5 | Extras only if everything else works: EURC borrowing on Morpho, real Morpho borrowing, QuickNode Streams | Hugo · H1/H2 | Thu 11/19 afternoon | R1 | Only after R1 | ⬜ |
 | R6 | Pre-submission audit | Enzo · E | Fri 11/20, start of crunch | R2–R4 | Blocking issues fixed | ⬜ |
+| R7 | Deploy the app on Vercel (root `app/`, `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet`), so judges can try the demo account from a link; put the link in the README | Enzo · E | Wed 11/18 | C4, R2 | The live link opens the demo account with live mainnet rates, from a browser without wallet | ✅ https://ardoise-rust.vercel.app (mainnet, no secret), checked from a browser without wallet |
 
 ## Crunch mode (from Fri 11/20 00:00 CST)
 
