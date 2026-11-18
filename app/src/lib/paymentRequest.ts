@@ -23,6 +23,21 @@ export interface PaymentRequest {
 export const MAX_MEMO_LENGTH = 120;
 
 const AMOUNT = /^\d+(\.\d{1,6})?$/;
+// Bidirectional controls (for example U+202E) can make a memo display reversed
+// text; they have no use in an invoice reference.
+const BIDI_CONTROLS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * Cleans a memo for a request: bidirectional controls removed, surrounding
+ * spaces trimmed, cut to `MAX_MEMO_LENGTH` characters without splitting one
+ * (an emoji stays whole).
+ *
+ * @param memo Memo as typed or read from a link.
+ * @returns The cleaned memo, possibly empty.
+ */
+export function cleanMemo(memo: string): string {
+  return Array.from(memo.replace(BIDI_CONTROLS, "").trim()).slice(0, MAX_MEMO_LENGTH).join("").trim();
+}
 
 /**
  * Checks an amount typed for a request.
@@ -46,8 +61,8 @@ export function buildRequestUrl(origin: string, request: PaymentRequest): string
   url.searchParams.set("to", request.payee);
   url.searchParams.set("chain", request.chain);
   if (request.amount) url.searchParams.set("amount", request.amount);
-  const memo = request.memo?.trim();
-  if (memo) url.searchParams.set("memo", memo.slice(0, MAX_MEMO_LENGTH));
+  const memo = cleanMemo(request.memo ?? "");
+  if (memo) url.searchParams.set("memo", memo);
   return url.toString();
 }
 
@@ -55,7 +70,7 @@ export function buildRequestUrl(origin: string, request: PaymentRequest): string
  * Reads a request from the query string of `/app`. Anything invalid is
  * dropped rather than shown, since the link comes from someone else: a
  * request without a valid payee is no request, a bad amount or chain is
- * ignored, and the memo is cut to the length the pay screen accepts.
+ * ignored, and the memo is cleaned with `cleanMemo`.
  *
  * @param params The page's search params, as Next.js passes them.
  * @returns The request, or `undefined` if the link carries none.
@@ -67,8 +82,8 @@ export function parseRequest(params: Record<string, string | string[] | undefine
   };
   const to = first("to");
   if (!to || !isAddress(to)) return undefined;
-  const amount = first("amount");
-  const memo = first("memo")?.trim().slice(0, MAX_MEMO_LENGTH);
+  const amount = first("amount")?.trim();
+  const memo = cleanMemo(first("memo") ?? "");
   return {
     payee: getAddress(to),
     chain: first("chain") === "arc" ? "arc" : "base",

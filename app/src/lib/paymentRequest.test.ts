@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MEMO_LENGTH, buildRequestUrl, isRequestAmount, parseRequest } from "./paymentRequest";
+import { MAX_MEMO_LENGTH, buildRequestUrl, cleanMemo, isRequestAmount, parseRequest } from "./paymentRequest";
 
 const PAYEE = "0xdf41621b35b0c3512d1177DE1423747900fC7a77" as const;
 const ORIGIN = "https://ardoise-rust.vercel.app";
@@ -17,7 +17,7 @@ describe("buildRequestUrl", () => {
   });
 
   it("round-trips through parseRequest", () => {
-    const request = { payee: PAYEE, chain: "arc" as const, amount: "0.4", memo: "Café & co" };
+    const request = { payee: PAYEE, chain: "arc" as const, amount: "0.4", memo: "Café & co #3 = 50% + tip? ✓" };
     const url = new URL(buildRequestUrl(ORIGIN, request));
     expect(parseRequest(Object.fromEntries(url.searchParams))).toEqual(request);
   });
@@ -57,5 +57,31 @@ describe("isRequestAmount", () => {
     expect(isRequestAmount("0")).toBe(false);
     expect(isRequestAmount("1.1234567")).toBe(false);
     expect(isRequestAmount("1e3")).toBe(false);
+  });
+});
+
+describe("parseRequest, untrusted input", () => {
+  it("rejects a mixed-case address with a wrong checksum", () => {
+    expect(parseRequest({ to: PAYEE.replace("DE14", "de14") })).toBeUndefined();
+  });
+
+  it("accepts an amount with surrounding spaces", () => {
+    expect(parseRequest({ to: PAYEE, amount: " 12.5 " })?.amount).toBe("12.5");
+  });
+
+  it("drops a memo that is empty once trimmed", () => {
+    expect(parseRequest({ to: PAYEE, memo: "   " })?.memo).toBeUndefined();
+  });
+});
+
+describe("cleanMemo", () => {
+  it("removes bidirectional controls", () => {
+    expect(cleanMemo("Invoice \u202egnp.exe")).toBe("Invoice gnp.exe");
+  });
+
+  it("never splits a character at the cut", () => {
+    const memo = cleanMemo("a".repeat(MAX_MEMO_LENGTH - 1) + "💸💸");
+    expect(Array.from(memo)).toHaveLength(MAX_MEMO_LENGTH);
+    expect(memo.endsWith("💸")).toBe(true);
   });
 });

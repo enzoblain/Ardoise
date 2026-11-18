@@ -119,7 +119,13 @@ export function RequestForm() {
           <>
             {/* A data URL built here, from our own link: no remote image to optimize. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={qr} alt="QR code of the payment request" width={240} height={240} className="rounded-2xl" />
+            <img
+              src={qr}
+              alt={`QR code: pay ${amount ? `${amount} USDC` : "any amount"} to ${payee} on ${CHAINS.find((c) => c.key === chain)?.label}`}
+              width={240}
+              height={240}
+              className="rounded-2xl"
+            />
             <div className="flex flex-col gap-1">
               <span className="text-2xl font-semibold tracking-tight">
                 {amount ? `${amount} USDC` : "Any amount"}
@@ -133,7 +139,7 @@ export function RequestForm() {
             <input readOnly value={url} onFocus={(e) => e.target.select()} className="field w-full font-mono text-xs text-muted" aria-label="Request link" />
             <div className="flex flex-wrap justify-center gap-3">
               <button type="button" onClick={() => void copy()} className="btn-primary px-5 py-2.5 text-sm">
-                {copied ? "Link copied" : "Copy link"}
+                <span aria-live="polite">{copied ? "Link copied" : "Copy link"}</span>
               </button>
               <a href={qr} download="ardoise-payment-request.svg" className="btn-secondary px-5 py-2.5 text-sm">
                 Download QR code
