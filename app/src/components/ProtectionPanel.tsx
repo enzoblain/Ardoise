@@ -114,13 +114,17 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
       setDelivered(false);
       const value = parseUnits(repayText, 6);
       const order = await signOrder(signer, orderSpec(owner, account, value));
-      // Gateway takes the fee on top of the amount and refuses an order whose
-      // amount plus fee cap exceeds the reserve: say so before submitting.
+      // Gateway takes its fee on top of the amount; checking the amount plus
+      // the fee cap against a fresh reading of the reserve (a deposit is
+      // credited minutes after the panel loaded) gives a clear message where
+      // Gateway would answer "insufficient balance".
       const maxFee = BigInt(order.burnIntent.maxFee);
-      if (balance !== undefined && value + maxFee > balance) {
-        const most = balance > maxFee ? balance - maxFee : 0n;
+      const reserve = await gatewayBalance(owner);
+      setBalance(reserve);
+      if (value + maxFee > reserve) {
+        const most = reserve > maxFee ? reserve - maxFee : 0n;
         throw new Error(
-          `The reserve holds ${formatUsdc(balance)} USDC and Gateway's fee (up to ${formatUsdc(maxFee)} USDC) comes on top: repay at most ${formatUsdc(most)} USDC.`,
+          `The reserve holds ${formatUsdc(reserve)} USDC and Gateway's fee cap (${formatUsdc(maxFee)} USDC) comes on top: repay at most ${formatUsdc(most)} USDC.`,
         );
       }
       const transferId = await submitToGateway(order);
