@@ -83,7 +83,7 @@ export default async function Landing() {
               <span className="text-[#6b6b6b]">Keep your bitcoin.</span>
             </h1>
             <p className="max-w-md text-lg leading-relaxed text-[#a1a1a1]">
-              Each payment borrows exactly its amount on Arc, at the best available rate, and delivers it on Arc or, through Circle&rsquo;s CCTP, on Base.
+              Each payment borrows exactly its amount on Arc, from the cheapest lender Ardoise supports, and delivers it on Arc or, through Circle&rsquo;s CCTP, on Base.
               Your position is guarded against liquidation.
             </p>
             <div className="flex flex-wrap items-center gap-3">

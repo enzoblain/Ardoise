@@ -1,12 +1,14 @@
 # <img src="assets/logo/logo-mark.svg" alt="" width="40" align="top"> Ardoise
 
-> Pay anyone, on any chain, with your bitcoin without selling it: each payment borrows exactly the amount on Arc at the best available rate, and your position is protected from liquidation.
+> Pay anyone on Arc or Base with your bitcoin without selling it: each payment borrows exactly the amount on Arc, from the cheapest lender Ardoise supports (Aave V4 today), and a guard keeps your position away from liquidation.
 
 Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, tracks *DeFi & Onchain Apps* and *Best use of Arc*. Running on **Arc mainnet** with real cirBTC collateral on Aave V4.
 
 ## Demo
 
 - Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page explains Ardoise with live borrow rates; **Launch app** (or [`/app`](https://ardoise-rust.vercel.app/app)) opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
+- Payment requests: **https://ardoise-rust.vercel.app/request** makes a link and a QR code that open the pay screen filled in, then waits for the USDC: the payer has 30 seconds once they open the link, and a payment from the demo account moves no USDC, so the payee sees it as a demo report.
+- See the guard on the demo account: enter **60 USDC** on the pay screen. The margin would fall under the guard's minimum, so the payment is refused, with the largest amount still allowed.
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
@@ -36,7 +38,7 @@ Ardoise turns a cirBTC position on Arc into a payment account:
 - **See the rates and your margin before you pay.** The pay screen compares the live USDC borrow rates of Aave V4 and Morpho on Arc and shows how much margin the position keeps before and after the payment.
 - **Request a payment with a link or a QR code, and see it arrive.** On the Request page, a payee enters their address, chain, an amount and a memo, and creates the request: they get a link and a QR code to share, and the page waits. Opening the link shows the pay screen already filled in. The waiting page watches the payee's chain for the USDC and turns to "Payment received" with the transaction within seconds of it landing; nothing is stored, the request lives in the link ([`app/src/lib/paymentRequest.ts`](app/src/lib/paymentRequest.ts), [`app/src/lib/requestWatch.ts`](app/src/lib/requestWatch.ts)). While the request is open, the payee sees when the payer opens the link and can cancel it; the payer then has 30 seconds to pay, after which the request is closed on both sides, and a payment that still lands later is flagged for refund ([`app/src/lib/requestSession.ts`](app/src/lib/requestSession.ts)). A demo payment, which moves nothing on chain, is reported through the same live session and shown to the payee as a demo report, never as money received.
 - **One line per payment.** The statement lists every payment as a debt line: amount, venue, rate, payee, memo and interest so far, built from the account's on-chain events. Each cross-chain payment has a tracking page that follows it until it lands on the payee's chain.
-- **Protected from liquidation.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (tested end to end on testnet; the mainnet test is pending).
+- **Guarded against liquidation.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (tested end to end on testnet; the mainnet test is pending).
 
 Without a wallet, anyone can try the whole flow on a demo account simulated in the browser, with live rates from Arc mainnet and real Circle fee quotes. Connecting a wallet on Arc mainnet activates a real account.
 
@@ -204,7 +206,7 @@ What would come after the hackathon:
 - **Borrow on Morpho**, not only compare it: a Morpho adapter, so `bestVenue` picks between two real lenders, and EURC borrowing on Morpho's EURC/cirBTC market.
 - **Refinance between venues** when another lender becomes cheaper.
 - **A hosted keeper intake**, so standing orders can be signed from a deployed app, and several independent keepers.
-- **Passkey wallets** (Circle Modular Wallets) once they are available on Arc mainnet.
+- **Passkey wallets** (Circle Modular Wallets) in the app: they work on Arc mainnet (blocking test 0.2 in the roadmap), but the app only connects a browser wallet today.
 - **Per-user guard settings and a real price-drop alert**, instead of the shared thresholds.
 - **An audit**, then higher caps.
 
