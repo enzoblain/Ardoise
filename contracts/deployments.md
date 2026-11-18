@@ -52,7 +52,7 @@ The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadca
 Read on chain right after the deployment: `factory.venues()` = `[AaveV4Adapter]`, `factory.guard()` = zero address, `adapter.rate()` = 310 bps, `adapter.available()` = 26.32M USDC (the Main Spoke draw cap is the binding limit).
 
 > [!NOTE]
-> **Payments are live on mainnet since 2026-11-18**: the guard is set and the first payment is recorded below. Only the keeper run on mainnet is pending.
+> **Payments are live on mainnet since 2026-11-18**: the guard is set, the first payment is recorded below and the keeper runs against mainnet (see *Keeper*). Only the simulated price-drop demo (B3) is left to record.
 
 ### Pending
 
