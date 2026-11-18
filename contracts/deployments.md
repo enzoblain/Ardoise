@@ -66,9 +66,9 @@ Read-only, against `https://rpc.mainnet.arc.io`, comparing with the A4 state abo
 
 - [x] `factory.guard()` returns the deployed `MarginGuard`, and `guard.minHealthFactor()` / `targetHealthFactor()` return `1.25e18` / `1.5e18`.
 - [x] `factory.venues()` still returns `[0x38B564d0b3d57216A34d83FbF08DE48744567b38]` and `factory.admin()` the project wallet: B5 must not redeploy the factory or the adapter.
-- [ ] `factory.accountOf(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7)` returns the demo account, and `Taker.borrowAllowance(MainSpoke, 0, demoWallet, AaveV4Adapter)` is not zero.
+- [x] `factory.accountOf(0x54e1714a0ffae58d3AA227C80FD48668e11f18d7)` returns the demo account, and `Taker.borrowAllowance(MainSpoke, 0, demoWallet, AaveV4Adapter)` is not zero. Checked on 2026-11-18: account `0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`, allowance 60 USDC.
 - [ ] `guard.checkMargin(demoWallet, AaveV4Adapter, 1e6)` returns `1e6` while the demo position is healthy.
-- [ ] A first `pay()` from the demo account succeeds on mainnet (record its explorer link here), then the keeper finds the account from block 31777009.
+- [x] A first `pay()` from the demo account succeeds on mainnet: account [`0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD) paid 0.40 USDC to Base from the app on 2026-11-18, borrowing 0.45523 USDC on Aave V4 through the guard (debt line #1): [pay on Arc](https://explorer.arc.io/tx/0x9dfdd3d8ba60968a8feaed312edd03ad8c238850e89ec3af05cb3aa8b5836aed), [mint on Base](https://basescan.org/tx/0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408a4b) (0.40 USDC to the payee, 0.05523 USDC forwarder fee). The keeper part is pending (PR #19).
 
 ## How to deploy the guard
 
