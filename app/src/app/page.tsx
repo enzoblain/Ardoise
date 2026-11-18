@@ -62,6 +62,7 @@ export default async function Landing() {
         </Link>
         <nav className="flex items-center gap-6 text-sm">
           <a href="#how" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">How it works</a>
+          <Link href="/request" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">Request a payment</Link>
           <a href={GITHUB} className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">GitHub</a>
           <Link href="/app" className="rounded-full bg-[#fafafa] px-4 py-2 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">
             Launch app
