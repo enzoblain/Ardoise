@@ -177,9 +177,10 @@ export async function gatewayBalance(depositor: Address): Promise<bigint> {
  *
  * @param signer The owner, depositor and signer of the spec.
  * @param spec Spec from `orderSpec`.
- * @param feeHeadroom Multiplier on the estimated fee cap. A standing order
- *   may be submitted weeks later, when Circle's forwarding fee has moved, so
- *   it is signed with room to spare; Gateway charges only the actual fee.
+ * @param feeHeadroom Multiplier on the estimated fee cap. The estimate can
+ *   fall just short of Circle's forwarding fee at submission, and a standing
+ *   order may be submitted weeks later when the fee has moved, so orders are
+ *   signed with room to spare; Gateway charges only the actual fee.
  * @returns The signed order, valid about 70 days on Base.
  */
 export async function signOrder(
