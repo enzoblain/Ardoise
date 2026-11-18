@@ -8,7 +8,6 @@ import { createChainArdoise } from "@/lib/chainArdoise";
 import { deployment } from "@/lib/contracts/deployments";
 import { createMockArdoise } from "@/lib/mockArdoise";
 import { network } from "@/lib/network";
-import type { PaymentRequest } from "@/lib/paymentRequest";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { AccountSetup } from "@/components/AccountSetup";
 import { PayScreen } from "@/components/PayScreen";
@@ -25,9 +24,8 @@ import { Statement } from "@/components/Statement";
  * on-chain account and adds the Protection panel (Gateway reserve on Base).
  *
  * @param props.venues Venues with their live rates, read on the server.
- * @param props.request Payment request from the link that opened the page, if any.
  */
-export function AccountScreen({ venues, request }: { venues: Venue[]; request?: PaymentRequest }) {
+export function AccountScreen({ venues }: { venues: Venue[] }) {
   const demo = useMemo(() => createMockArdoise(venues), [venues]);
   const [wallet, setWallet] = useState<ConnectedWallet>();
   const [accountAddress, setAccountAddress] = useState<Address>();
@@ -99,13 +97,7 @@ export function AccountScreen({ venues, request }: { venues: Venue[]; request?: 
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <section className="card" aria-label="Pay">
-            <PayScreen
-              key={live ? "live" : "demo"}
-              account={account}
-              venues={venues}
-              request={request}
-              onPaid={() => setPayments((n) => n + 1)}
-            />
+            <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
           </section>
           <div className="flex flex-col gap-6">
             <div className="card">

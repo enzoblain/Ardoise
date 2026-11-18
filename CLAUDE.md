@@ -1,6 +1,6 @@
 # Ardoise
 
-Pay anyone on Arc or Base with your bitcoin without selling it: each payment borrows exactly the amount on Arc, from the cheapest lender Ardoise supports (Aave V4 today), and a guard keeps your position away from liquidation.
+Pay anyone, on any chain, with your bitcoin without selling it: each payment borrows exactly the amount on Arc at the best available rate, and your position is protected from liquidation.
 
 Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)** (submission deadline: 2026-11-20 12:00 CST (UTC-6)), targeting: DeFi & Onchain Apps, Best use of Arc.
 
@@ -15,7 +15,7 @@ The task breakdown for the hackathon (who does what, when, on which branch) is i
 
 ## Stack and commands
 
-- Stack: Solidity (Foundry) on Arc mainnet (chain id 5042), Aave V4 as the lending venue (Morpho read for rate comparison), Circle CCTP / Gateway, Next.js + viem front end, Node keeper
+- Stack: Solidity (Foundry) on Arc mainnet (chain id 5042), Aave V4 and Morpho as lending venues, Circle CCTP / Gateway, Next.js + viem front end, Node keeper
 - Prerequisites: Node.js 22.9+, npm, Foundry (`foundryup`); clone with `--recurse-submodules` (or run `git submodule update --init`)
 - Install: `cd app && npm install`, `cd keeper && npm install` (contracts need no install beyond the submodule)
 - Run: `cd app && npm run dev` (front end on http://localhost:3000), `cd keeper && npm start` (keeper); both read the repo-root `.env`, Foundry does not (`set -a && source .env && set +a` first)

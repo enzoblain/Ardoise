@@ -62,7 +62,6 @@ export default async function Landing() {
         </Link>
         <nav className="flex items-center gap-6 text-sm">
           <a href="#how" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">How it works</a>
-          <Link href="/request" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">Request a payment</Link>
           <a href={GITHUB} className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">GitHub</a>
           <Link href="/app" className="rounded-full bg-[#fafafa] px-4 py-2 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">
             Launch app
@@ -83,7 +82,7 @@ export default async function Landing() {
               <span className="text-[#6b6b6b]">Keep your bitcoin.</span>
             </h1>
             <p className="max-w-md text-lg leading-relaxed text-[#a1a1a1]">
-              Each payment borrows exactly its amount on Arc, from the cheapest lender Ardoise supports, and delivers it on Arc or, through Circle&rsquo;s CCTP, on Base.
+              Each payment borrows exactly its amount on Arc, at the best available rate, and delivers it on Arc or, through Circle&rsquo;s CCTP, on Base.
               Your position is guarded against liquidation.
             </p>
             <div className="flex flex-wrap items-center gap-3">
