@@ -37,7 +37,7 @@ const LOG_RANGE = 10_000n;
 /** What the on-chain client needs. */
 export interface ChainArdoiseOptions {
   publicClient: PublicClient<Transport, Chain>;
-  /** Signs payments; `null` for a read-only view, or when `sendCalls` signs them. */
+  /** Signs payments; `null` for a read-only view, or when `smartAccount` signs them. */
   walletClient: WalletClient<Transport, Chain, Account> | null;
   /** Sends payments from a passkey smart account instead of `walletClient`. */
   smartAccount?: Pick<PasskeyWallet, "submit" | "confirm">;

@@ -159,7 +159,7 @@ Run the front end and the keeper in two separate terminals, from the repository 
 (cd app && npm run dev)      # front end on http://localhost:3000
 ```
 
-By default the app runs on Arc Testnet with a simulated demo account. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance). To offer passkeys, also set `NEXT_PUBLIC_CIRCLE_CLIENT_KEY` to a Circle client key whose passkey domain is the app's host (`localhost` for local runs); the passkey's smart account needs cirBTC and some USDC for gas before its activation (the app asks for at least 0.2 USDC; a single transfer cost about 0.04 USDC in test 0.2).
+By default the app runs on Arc Testnet with a simulated demo account. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance). To offer passkeys, also set `NEXT_PUBLIC_CIRCLE_CLIENT_KEY` to a Circle client key whose passkey domain is the app's host (`localhost` for local runs); the passkey's smart account needs cirBTC and some USDC for gas before its activation (the app asks for at least 0.5 USDC: in test 0.2, a single transfer needed a 0.106 USDC prefund and finally cost about 0.04 USDC).
 
 ```bash
 (cd keeper && npm start)     # keeper, polls Arc mainnet for new blocks

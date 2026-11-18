@@ -15,9 +15,10 @@ import { sendFromPasskey, switchChain, type ConnectedWallet, type PasskeyWallet 
 const BORROW_CAP = 60_000_000n;
 
 // Gas a passkey account should hold before its activation on mainnet (native
-// USDC, 18 decimals): a single transfer cost about 0.04 USDC in test 0.2, and
-// the activation batches seven calls.
-const MIN_GAS = 200_000_000_000_000_000n;
+// USDC, 18 decimals). The bundler checks the EntryPoint prefund, not the final
+// cost: 0.106 USDC was prefunded for a single transfer in test 0.2, and the
+// activation deploys the account and batches seven calls.
+const MIN_GAS = 500_000_000_000_000_000n;
 
 const STEP_LABELS: Record<SetupStep, string> = {
   approveTaker: "Let Aave's Taker borrow on your behalf",
