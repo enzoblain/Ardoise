@@ -22,11 +22,22 @@ import { Keeper, errorMessage } from "./keeper.js";
  */
 
 /**
- * Delay between two passes. Each pass makes a few reads per account, so
- * following every Arc block would only load the RPC endpoint without making
- * a repayment noticeably faster.
+ * Delay between two passes. Each pass makes about ten reads, and the public
+ * Arc RPC answers 429 (too many requests) when it is polled too often, so
+ * the keeper stays well under one request per second. A repayment a few
+ * seconds later changes nothing for the user.
  */
-const PASS_INTERVAL_MS = 10_000;
+const PASS_INTERVAL_MS = 15_000;
+
+/**
+ * Retries of a single RPC request. viem retries a 429 or a network error
+ * with an exponential delay (0.5 s, 1 s, 2 s, 4 s, 8 s here) and follows the
+ * `Retry-After` header when the endpoint sends one.
+ */
+const RPC_RETRY = { retryCount: 5, retryDelay: 500 } as const;
+
+/** Longest wait after passes that keep failing (the delay doubles each time). */
+const MAX_PASS_DELAY_MS = 120_000;
 
 function log(message: string): void {
   console.log(`${new Date().toISOString()} [keeper] ${message}`);
@@ -39,7 +50,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const transport = http(config.rpcUrl);
+  const transport = http(config.rpcUrl, RPC_RETRY);
   const publicClient = createPublicClient({ chain: arc, transport });
   const walletClient =
     config.keeperAccount === null
@@ -108,13 +119,16 @@ async function main(): Promise<void> {
   }
 
   const keeper = new Keeper({ publicClient, walletClient, factory: config.factory, fromBlock, log, gateway });
+  let delay = PASS_INTERVAL_MS;
   for (;;) {
     try {
       await keeper.tick();
+      delay = PASS_INTERVAL_MS;
     } catch (error) {
-      log(`pass failed, retrying: ${errorMessage(error)}`);
+      delay = Math.min(delay * 2, MAX_PASS_DELAY_MS);
+      log(`pass failed, retrying in ${delay / 1000} s: ${errorMessage(error)}`);
     }
-    await sleep(PASS_INTERVAL_MS);
+    await sleep(delay);
   }
 }
 
