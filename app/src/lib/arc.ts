@@ -20,7 +20,11 @@ import { network } from "@/lib/network";
 export function arcTransport(chain: Chain, rpcUrl?: string) {
   const publicUrls = [...chain.rpcUrls.default.http].sort((a, b) => Number(b.includes("blockdaemon")) - Number(a.includes("blockdaemon")));
   const urls = rpcUrl ? [rpcUrl, ...publicUrls] : publicUrls;
-  return fallback(urls.map((url) => http(url, { timeout: 3_000, retryCount: 0 })));
+  // No retry of the whole chain: one pass over every endpoint, then fail fast.
+  return fallback(
+    urls.map((url) => http(url, { timeout: 3_000, retryCount: 0 })),
+    { retryCount: 0 },
+  );
 }
 
 /** Read-only client for Arc on the selected network. */

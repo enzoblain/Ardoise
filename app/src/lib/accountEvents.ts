@@ -20,6 +20,8 @@ export interface AccountEventsJson {
 }
 
 interface Entry extends AccountEvents {
+  /** Owner checked against the factory when the account was first stored. */
+  owner: Address;
   /** Last block scanned; Arc's blocks are final once produced, so a scanned range is never read again. */
   scannedTo: bigint;
 }
@@ -28,7 +30,8 @@ interface Entry extends AccountEvents {
  * Keeps each Ardoise account's event history on the server and reads only
  * the blocks produced since the last request, so every visitor of the app
  * shares one scan instead of each browser re-reading the chain from the
- * factory's deployment.
+ * factory's deployment. The history lives in the memory of one server
+ * instance: each instance scans an account in full once.
  *
  * @param client Arc client of the server.
  * @param factory The factory: an account is served only to its owner's request.
@@ -39,29 +42,25 @@ interface Entry extends AccountEvents {
  */
 export function createAccountEvents(client: PublicClient<Transport, Chain>, factory: Address, fromBlock: bigint) {
   const entries = new Map<string, Entry>();
-  const inFlight = new Map<string, Promise<AccountEvents | null>>();
+  const inFlight = new Map<string, Promise<Entry>>();
 
-  async function scan(owner: Address, account: Address): Promise<AccountEvents | null> {
+  async function scan(owner: Address, account: Address): Promise<Entry> {
     const key = account.toLowerCase();
-    const known = entries.get(key);
-    if (!known) {
-      const accountOf = await client.readContract({ address: factory, abi: factoryAbi, functionName: "accountOf", args: [owner] });
-      if (!isAddressEqual(accountOf, account)) return null;
-    }
-    const entry: Entry = known ?? { logs: [], blockTimes: new Map(), scannedTo: fromBlock - 1n };
-    const latest = await client.getBlockNumber();
-    const ranges: [bigint, bigint][] = [];
-    for (let from = entry.scannedTo + 1n; from <= latest; from += LOG_RANGE) {
-      ranges.push([from, from + LOG_RANGE - 1n < latest ? from + LOG_RANGE - 1n : latest]);
-    }
+    const entry: Entry = entries.get(key) ?? { owner, logs: [], blockTimes: new Map(), scannedTo: fromBlock - 1n };
+    // Uncached: viem caches the block number for 4 s, and a statement read
+    // right after a payment must reach the payment's block.
+    const latest = await client.getBlockNumber({ cacheTime: 0 });
     const fresh: Log[] = [];
-    for (const [fromBlock, toBlock] of ranges) fresh.push(...(await client.getLogs({ address: account, fromBlock, toBlock })));
+    for (let from = entry.scannedTo + 1n; from <= latest; from += LOG_RANGE) {
+      const to = from + LOG_RANGE - 1n < latest ? from + LOG_RANGE - 1n : latest;
+      fresh.push(...(await client.getLogs({ address: account, fromBlock: from, toBlock: to })));
+    }
     const blockTimes = new Map(entry.blockTimes);
     for (const blockNumber of new Set(fresh.map((log) => log.blockNumber).filter((n): n is bigint => n !== null))) {
       if (!blockTimes.has(blockNumber)) blockTimes.set(blockNumber, Number((await client.getBlock({ blockNumber })).timestamp));
     }
     // Stored only once every read succeeded: a failed refresh leaves the last complete history.
-    const next: Entry = { logs: [...entry.logs, ...fresh], blockTimes, scannedTo: latest > entry.scannedTo ? latest : entry.scannedTo };
+    const next: Entry = { owner: entry.owner, logs: [...entry.logs, ...fresh], blockTimes, scannedTo: latest > entry.scannedTo ? latest : entry.scannedTo };
     entries.delete(key);
     entries.set(key, next);
     if (entries.size > MAX_ACCOUNTS) entries.delete(entries.keys().next().value!);
@@ -69,14 +68,23 @@ export function createAccountEvents(client: PublicClient<Transport, Chain>, fact
   }
 
   return {
-    read(owner: Address, account: Address): Promise<AccountEvents | null> {
-      const key = `${owner.toLowerCase()}:${account.toLowerCase()}`;
+    async read(owner: Address, account: Address): Promise<AccountEvents | null> {
+      const key = account.toLowerCase();
+      const known = entries.get(key);
+      if (known) {
+        if (!isAddressEqual(known.owner, owner)) return null;
+      } else {
+        const accountOf = await client.readContract({ address: factory, abi: factoryAbi, functionName: "accountOf", args: [owner] });
+        if (!isAddressEqual(accountOf, account)) return null;
+      }
+      // One scan in flight per account, whoever asks.
       let pending = inFlight.get(key);
       if (!pending) {
         pending = scan(owner, account).finally(() => inFlight.delete(key));
         inFlight.set(key, pending);
       }
-      return pending;
+      const { logs, blockTimes } = await pending;
+      return { logs, blockTimes };
     },
   };
 }

@@ -64,9 +64,13 @@ describe("account events store", () => {
     expect(arc.ranges).toHaveLength(3);
   });
 
-  it("refuses an account that is not the owner's, without scanning it", async () => {
+  it("refuses an account that is not the owner's, without scanning it, before and after storing it", async () => {
     const { arc, store } = fakeArc([]);
     expect(await store.read(OWNER, "0x00000000000000000000000000000000DeadBeef")).toBeNull();
+    expect(arc.ranges).toHaveLength(0);
+    await store.read(OWNER, ACCOUNT);
+    arc.ranges = [];
+    expect(await store.read("0x00000000000000000000000000000000000000B2", ACCOUNT)).toBeNull();
     expect(arc.ranges).toHaveLength(0);
   });
 
