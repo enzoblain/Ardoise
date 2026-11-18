@@ -26,6 +26,7 @@ import {
   type PaymentRequest,
   type Venue,
 } from "@/lib/ardoise";
+import { eventsFromJson, type AccountEventsJson } from "@/lib/accountEvents";
 import { accountAbi, guardAbi, venueAbi } from "@/lib/contracts/abis";
 import { network } from "@/lib/network";
 import type { PasskeyWallet } from "@/lib/wallet";
@@ -49,6 +50,11 @@ export interface ChainArdoiseOptions {
   venues: Venue[];
   /** First block to read the account's logs from (the factory's deployment). */
   fromBlock: bigint;
+  /**
+   * The app's `/api/account-events` route, which keeps the account's history
+   * on the server; the client scans the chain itself only if it fails.
+   */
+  eventsUrl?: string;
   /**
    * Brings the wallet back to Arc before a payment is signed, for example
    * after the Protection panel moved it to Base; omitted for a read-only view.
@@ -209,6 +215,14 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     quote,
 
     async events() {
+      if (options.eventsUrl) {
+        try {
+          const res = await fetch(`${options.eventsUrl}?owner=${options.owner}&account=${account}`);
+          if (res.ok) return { account, ...eventsFromJson((await res.json()) as AccountEventsJson) };
+        } catch {
+          // Falls back to reading the chain from the browser.
+        }
+      }
       const latest = await publicClient.getBlockNumber();
       const logs: Log[] = [];
       for (let from = options.fromBlock; from <= latest; from += LOG_RANGE) {

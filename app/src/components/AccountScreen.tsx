@@ -46,6 +46,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
             account: accountAddress,
             venues,
             fromBlock: deployment.deployBlock,
+            eventsUrl: "/api/account-events",
             ensureArc: wallet.kind === "browser" ? () => switchChain(wallet.provider, network.arc.chain) : undefined,
           })
         : undefined,
