@@ -6,7 +6,7 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, 
 
 ## Demo
 
-- Live app: _coming soon_
+- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. It opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
@@ -121,6 +121,8 @@ On **Arc mainnet** (chain id 5042); the factory, adapter and guard sources are v
 ## Getting started
 
 ### Try it in 2 minutes
+
+The fastest way is the [live app](https://ardoise-rust.vercel.app), with nothing to install. To run it locally instead:
 
 Needs Node.js 22.9 or later. No wallet and no `.env` file are required: the app opens on a demo account simulated in the browser, with live lending rates from Arc mainnet. Without `.env` the app runs in testnet mode, so payments go to Base Sepolia or Arc Testnet and the cross-chain fee is quoted by Circle's sandbox.
 
