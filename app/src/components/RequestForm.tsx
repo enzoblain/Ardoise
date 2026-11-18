@@ -262,12 +262,24 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
     };
   }, [chain, request.payee, minAmount, open.fromBlock, onChain]);
 
-  // Tell the payer's screen: a real payment that came in time, or the end of the 30 s.
+  // Tell the payer's screen: a real payment that came in time, or the end of
+  // the 30 s (whatever the view: a demo report on screen must not hold it back).
   useEffect(() => {
-    // Retried when the relay comes back, since a failed publish is not queued.
+    // Re-run when the relay comes back, since a failed publish is not queued.
     if (relay !== "live") return;
-    if (view === "received" && onChain && !state.paid) publish(request.id, { type: "paid", simulated: false }).catch(() => {});
-    if (view === "closed" && expired && state.closedAt === undefined) publish(request.id, { type: "expired" }).catch(() => {});
+    const event =
+      view === "received" && onChain && !state.paid
+        ? ({ type: "paid", simulated: false } as const)
+        : expired && !onChain && state.closedAt === undefined
+          ? ({ type: "expired" } as const)
+          : undefined;
+    if (!event) return;
+    let retry: ReturnType<typeof setTimeout>;
+    // One delayed retry covers a refusal while the connection stays open (ntfy.sh limits requests per IP).
+    publish(request.id, event).catch(() => {
+      retry = setTimeout(() => void publish(request.id, event).catch(() => {}), 5_000);
+    });
+    return () => clearTimeout(retry);
   }, [view, onChain, expired, state.paid, state.closedAt, request.id, relay]);
 
   async function cancel() {
