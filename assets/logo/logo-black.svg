@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72" role="img" aria-label="Ardoise">
+  <!-- Mark -->
+  <g transform="translate(4,4)">
+    <!-- Frame: the slate's border, visible on dark backgrounds -->
+    <path d="M14,8 H50 A10,10 0 0 1 60,18 V46 A10,10 0 0 1 50,56 H14 A10,10 0 0 1 4,46 V18 A10,10 0 0 1 14,8 Z M14,12 A6,6 0 0 0 8,18 V46 A6,6 0 0 0 14,52 H50 A6,6 0 0 0 56,46 V18 A6,6 0 0 0 50,12 Z" fill-rule="evenodd" fill="#000000" fill-opacity="0.35"/>
+    <!-- Slate: the tab itself -->
+    <path d="M14,12 H50 A6,6 0 0 1 56,18 V46 A6,6 0 0 1 50,52 H14 A6,6 0 0 1 8,46 V18 A6,6 0 0 1 14,12 Z" fill="#000000" fill-opacity="0.06"/>
+    <!-- Ledger lines: one line per payment -->
+    <path d="M17,20 H47 A2,2 0 0 1 47,24 H17 A2,2 0 0 1 17,20 Z M17,30 H41 A2,2 0 0 1 41,34 H17 A2,2 0 0 1 17,30 Z M17,40 H31 A2,2 0 0 1 31,44 H17 A2,2 0 0 1 17,40 Z" fill="#000000"/>
+    <!-- Next entry: the payment being written -->
+    <circle cx="41" cy="42" r="2" fill="#000000"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="84" y="48.5" font-family="Geist, Inter, system-ui, sans-serif" font-weight="600" font-size="36" letter-spacing="-0.72" fill="#000000">Ardoise</text>
+</svg>

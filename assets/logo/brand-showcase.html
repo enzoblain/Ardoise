@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ardoise brand identity</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --surface: #111111;
+    --border: #262626;
+    --muted: #A1A1A1;
+    --text: #FAFAFA;
+    --chalk: #F5F5F0;
+    --orange: #F7931A;
+    --light: #FAFAFA;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: Geist, Inter, system-ui, sans-serif; line-height: 1.6; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  .label { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--orange); }
+  h2 { font-size: 32px; letter-spacing: -0.02em; margin: 8px 0 32px; font-weight: 600; }
+  section { padding: 88px 0; border-bottom: 1px solid var(--border); }
+  .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+
+  .hero { text-align: center; padding: 128px 0 112px; }
+  .hero svg { width: 152px; height: 152px; filter: drop-shadow(0 0 32px rgba(247, 147, 26, 0.18)); }
+  .hero h1 { font-size: 64px; letter-spacing: -0.03em; margin: 20px 0 8px; font-weight: 600; }
+  .hero p { margin: 0 auto; max-width: 560px; color: var(--muted); font-size: 18px; }
+
+  .concept { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+  .annotated { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 40px 24px; }
+  .annotated svg { display: block; width: 100%; max-width: 460px; height: auto; margin: 0 auto; }
+  .concept p { margin: 0 0 16px; color: #C9C9C9; }
+  .concept strong { color: var(--text); }
+
+  .variants { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .card { position: relative; border-radius: 18px; min-height: 220px; display: flex; align-items: center; justify-content: center; padding: 52px 32px; transition: transform .2s ease; }
+  .card:hover { transform: translateY(-3px); }
+  .card.light { background: var(--light); box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 10px 30px rgba(0,0,0,.25); }
+  .card.dark { background: var(--surface); border: 1px solid var(--border); }
+  .card.wide { grid-column: 1 / -1; }
+  .card .tag { position: absolute; top: 18px; left: 20px; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .card.light .tag { color: #525252; }
+  .card .file { position: absolute; bottom: 16px; right: 20px; font-family: 'Geist Mono', monospace; font-size: 12px; color: #737373; }
+  .card .cap { position: absolute; bottom: 16px; left: 20px; font-size: 12px; color: #737373; }
+
+  .palette { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+  .chip { border-radius: 16px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
+  .chip .sw { height: 112px; display: flex; align-items: flex-end; padding: 12px 14px; font-family: 'Geist Mono', monospace; font-size: 13px; }
+  .chip .meta { padding: 14px; }
+  .chip .meta b { display: block; font-size: 15px; font-weight: 600; }
+  .chip .meta span { font-size: 13px; color: var(--muted); }
+
+  .type { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 40px; display: grid; gap: 22px; }
+  .type .big { font-size: 56px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
+  .type .h { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  .type .body { font-size: 17px; color: #C9C9C9; max-width: 660px; font-weight: 400; }
+  .type .row { display: flex; flex-wrap: wrap; gap: 24px; font-size: 13px; color: var(--muted); }
+  .type .row span b { color: var(--text); font-weight: inherit; }
+
+  .dev { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  pre { margin: 0; background: var(--surface); border: 1px solid var(--border); color: #D4D4D4; border-radius: 16px; padding: 24px; font-family: 'Geist Mono', monospace; font-size: 13px; line-height: 1.7; overflow-x: auto; }
+  pre .k { color: #A1A1A1; } pre .s { color: var(--orange); } pre .c { color: #5C5C5C; }
+
+  footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  footer b { color: var(--text); font-weight: 600; }
+
+  @media (max-width: 760px) {
+    .concept, .dev, .variants { grid-template-columns: 1fr; }
+    .palette { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hero h1 { font-size: 44px; }
+    .type .big { font-size: 40px; }
+    section { padding: 64px 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .card { transition: none; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <svg viewBox="0 0 64 64" role="img" aria-label="Ardoise mark">
+      <path d="M14,8 H50 A10,10 0 0 1 60,18 V46 A10,10 0 0 1 50,56 H14 A10,10 0 0 1 4,46 V18 A10,10 0 0 1 14,8 Z M14,12 A6,6 0 0 0 8,18 V46 A6,6 0 0 0 14,52 H50 A6,6 0 0 0 56,46 V18 A6,6 0 0 0 50,12 Z" fill-rule="evenodd" fill="#2E2E2E"/>
+      <path d="M14,12 H50 A6,6 0 0 1 56,18 V46 A6,6 0 0 1 50,52 H14 A6,6 0 0 1 8,46 V18 A6,6 0 0 1 14,12 Z" fill="#111111"/>
+      <path d="M17,20 H47 A2,2 0 0 1 47,24 H17 A2,2 0 0 1 17,20 Z M17,30 H41 A2,2 0 0 1 41,34 H17 A2,2 0 0 1 17,30 Z M17,40 H31 A2,2 0 0 1 31,44 H17 A2,2 0 0 1 17,40 Z" fill="#F5F5F0"/>
+      <circle cx="41" cy="42" r="2" fill="#F7931A"/>
+    </svg>
+    <div class="label" style="margin-top: 24px">Brand identity</div>
+    <h1>Ardoise</h1>
+    <p>Your tab, on chain. Every payment is one line on the slate, borrowed against your bitcoin without selling it.</p>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="wrap">
+      <div class="label">Design concept</div>
+      <h2>A slate, one line per payment</h2>
+      <div class="concept">
+        <div class="annotated">
+          <svg viewBox="0 0 460 260" role="img" aria-label="Annotated Ardoise mark">
+            <g transform="translate(138,38) scale(2.9)">
+              <path d="M14,8 H50 A10,10 0 0 1 60,18 V46 A10,10 0 0 1 50,56 H14 A10,10 0 0 1 4,46 V18 A10,10 0 0 1 14,8 Z M14,12 A6,6 0 0 0 8,18 V46 A6,6 0 0 0 14,52 H50 A6,6 0 0 0 56,46 V18 A6,6 0 0 0 50,12 Z" fill-rule="evenodd" fill="#2E2E2E"/>
+              <path d="M14,12 H50 A6,6 0 0 1 56,18 V46 A6,6 0 0 1 50,52 H14 A6,6 0 0 1 8,46 V18 A6,6 0 0 1 14,12 Z" fill="#0A0A0A"/>
+              <path d="M17,20 H47 A2,2 0 0 1 47,24 H17 A2,2 0 0 1 17,20 Z M17,30 H41 A2,2 0 0 1 41,34 H17 A2,2 0 0 1 17,30 Z M17,40 H31 A2,2 0 0 1 31,44 H17 A2,2 0 0 1 17,40 Z" fill="#F5F5F0"/>
+              <circle cx="41" cy="42" r="2" fill="#F7931A"/>
+            </g>
+            <g font-family="Geist, Inter, sans-serif" font-size="12" fill="#A1A1A1">
+              <path d="M150 70 H70" stroke="#3A3A3A" stroke-width="1"/><text x="8" y="58">The frame</text><text x="8" y="74" font-size="11" fill="#737373">visible on dark</text>
+              <path d="M150 190 H70" stroke="#3A3A3A" stroke-width="1"/><text x="8" y="178">The slate</text><text x="8" y="194" font-size="11" fill="#737373">your tab</text>
+              <path d="M276 102 H360" stroke="#3A3A3A" stroke-width="1"/><text x="366" y="98">Ledger lines</text><text x="366" y="112" font-size="11" fill="#737373">in chalk, one per payment</text>
+              <path d="M262 160 V200 H360" stroke="#3A3A3A" stroke-width="1" fill="none"/><text x="366" y="196">Next entry</text><text x="366" y="210" font-size="11" fill="#737373">in bitcoin orange</text>
+            </g>
+          </svg>
+        </div>
+        <div>
+          <p><strong>Why a slate.</strong> <em>Ardoise</em> is French for the slate a café keeps for running tabs. Ardoise works the same way: every payment is one debt line, borrowed on Arc at the best rate against your bitcoin, which is never sold.</p>
+          <p><strong>Why ledger lines.</strong> The three bars are entries on the tab, written in chalk, each shorter than the last. The dot is the payment being written now. The mark reads as a statement at a glance and holds at 16 px.</p>
+          <p><strong>Why these colors.</strong> Black slate and white chalk are what a real ardoise looks like: calm, premium, nothing loud. Bitcoin orange appears only once, on the payment being written, so it says what you pay with and draws the eye to the action. A dark gray frame keeps the slate visible on dark backgrounds.</p>
+          <p><strong>Why Geist.</strong> The app already uses Geist. In semibold with tight tracking, the wordmark stays crisp on a payment screen and lets the mark carry the idea.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="label">Logo variants</div>
+      <h2>Seven files, one geometry</h2>
+      <div class="variants">
+        <div class="card dark wide"><span class="tag">Full logo, for dark backgrounds</span><img src="logo-full.svg" alt="Ardoise full logo" width="400" height="90"><span class="file">logo-full.svg</span></div>
+        <div class="card dark wide"><span class="tag">White</span><img src="logo-white.svg" alt="Ardoise logo in white" width="400" height="90"><span class="file">logo-white.svg</span></div>
+        <div class="card dark"><span class="tag">Mark</span><img src="logo-mark.svg" alt="Ardoise mark" width="128" height="128"><span class="file">logo-mark.svg</span></div>
+        <div class="card light"><span class="tag">App icon</span><img src="logo-icon.svg" alt="Ardoise app icon" width="140" height="140"><span class="file">logo-icon.svg</span></div>
+        <div class="card dark"><span class="tag">Wordmark</span><img src="logo-wordmark.svg" alt="Ardoise wordmark" width="270" height="60"><span class="file">logo-wordmark.svg</span></div>
+        <div class="card dark"><span class="tag">Favicon</span><img src="favicon.svg" alt="Ardoise favicon" width="64" height="64"><span class="cap">16×16 px</span><span class="file">favicon.svg</span></div>
+        <div class="card light wide"><span class="tag">Black, for light backgrounds and print</span><img src="logo-black.svg" alt="Ardoise logo in black" width="400" height="90"><span class="file">logo-black.svg</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="label">Color palette</div>
+      <h2>Slate, chalk and one orange dot</h2>
+      <div class="palette">
+        <div class="chip"><div class="sw" style="background: #0A0A0A; color: #FAFAFA">#0A0A0A</div><div class="meta"><b>Background</b><span>Page and app icon base</span></div></div>
+        <div class="chip"><div class="sw" style="background: #111111; color: #FAFAFA">#111111</div><div class="meta"><b>Surface</b><span>The slate, cards, elevated elements</span></div></div>
+        <div class="chip"><div class="sw" style="background: #2E2E2E; color: #FAFAFA">#2E2E2E</div><div class="meta"><b>Frame</b><span>The slate's frame, dividers</span></div></div>
+        <div class="chip"><div class="sw" style="background: #A1A1A1; color: #0A0A0A">#A1A1A1</div><div class="meta"><b>Muted</b><span>Secondary text and captions</span></div></div>
+        <div class="chip"><div class="sw" style="background: #FAFAFA; color: #0A0A0A">#FAFAFA</div><div class="meta"><b>Text</b><span>Wordmark and body text on dark</span></div></div>
+        <div class="chip"><div class="sw" style="background: #F5F5F0; color: #0A0A0A">#F5F5F0</div><div class="meta"><b>Chalk</b><span>The ledger lines</span></div></div>
+        <div class="chip"><div class="sw" style="background: #F7931A; color: #0A0A0A">#F7931A</div><div class="meta"><b>Bitcoin orange</b><span>Accent: the current payment, CTAs, highlights</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="label">Typography</div>
+      <h2>Geist, semibold for the name</h2>
+      <div class="type">
+        <div class="big">Ardoise</div>
+        <div class="h">Pay with your bitcoin. Keep your bitcoin.</div>
+        <div class="body">Each payment borrows exactly the amount on Arc at the best available rate, and the position is protected from liquidation. Body text is Geist Regular at 16 to 17 px.</div>
+        <div class="row"><span style="font-weight: 700"><b>Bold 700</b>: headings</span><span style="font-weight: 600"><b>Semibold 600</b>: wordmark</span><span><b>Regular 400</b>: body</span><span class="mono"><b>Geist Mono</b>: amounts, 0.455230 USDC</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="label">Developer reference</div>
+      <h2>Drop it into the app</h2>
+      <div class="dev">
+<pre><span class="c">// tailwind.config.js, theme.extend</span>
+<span class="k">colors</span>: {
+  <span class="k">brand</span>: {
+    <span class="k">primary</span>: <span class="s">'#0A0A0A'</span>,
+    <span class="k">surface</span>: <span class="s">'#111111'</span>,
+    <span class="k">border</span>: <span class="s">'#2E2E2E'</span>,
+    <span class="k">chalk</span>: <span class="s">'#F5F5F0'</span>,
+    <span class="k">muted</span>: <span class="s">'#A1A1A1'</span>,
+    <span class="k">text</span>: <span class="s">'#FAFAFA'</span>,
+    <span class="k">accent</span>: <span class="s">'#F7931A'</span>,
+  },
+},</pre>
+<pre><span class="c">assets/logo/</span>
+├── <span class="s">logo-mark.svg</span>      <span class="c">64×64 mark, canonical</span>
+├── <span class="s">logo-full.svg</span>      <span class="c">320×72 mark + wordmark, dark bg</span>
+├── <span class="s">logo-wordmark.svg</span>  <span class="c">180×40 name only, dark bg</span>
+├── <span class="s">logo-icon.svg</span>      <span class="c">512×512 app icon</span>
+├── <span class="s">favicon.svg</span>        <span class="c">16×16, pixel-aligned</span>
+├── <span class="s">logo-white.svg</span>     <span class="c">one color, dark backgrounds</span>
+└── <span class="s">logo-black.svg</span>     <span class="c">one color, light backgrounds</span></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap"><span><b>Ardoise</b> · Brand identity</span><span>The Ardoise team · UBC Hackathon 2026</span></footer>
+
+</body>
+</html>
