@@ -19,7 +19,7 @@ The task breakdown for the hackathon (who does what, when, on which branch) is i
 - Prerequisites: Node.js 22.9+, npm, Foundry (`foundryup`); clone with `--recurse-submodules` (or run `git submodule update --init`)
 - Install: `cd app && npm install`, `cd keeper && npm install` (contracts need no install beyond the submodule)
 - Run: `cd app && npm run dev` (front end on http://localhost:3000), `cd keeper && npm start` (keeper); both read the repo-root `.env`, Foundry does not (`set -a && source .env && set +a` first)
-- Test: `cd contracts && forge build && forge test`, `cd app && npm run lint && npm test && npm run build`, `cd keeper && npm run typecheck`
+- Test: `cd contracts && forge build && forge test`, `cd app && npm run lint && npm test && npm run build` (`npm test` also type-checks the tests, which import keeper code: install `keeper/` first), `cd keeper && npm run typecheck`
 
 ## Rules for every agent working in this repository
 
