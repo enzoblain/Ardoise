@@ -186,7 +186,34 @@ export async function runStep(
   deployment: Deployment,
   borrowCap: bigint,
 ): Promise<Hash> {
-  const hash = await wallet.sendTransaction({ ...stepCall(step, deployment, borrowCap), account: wallet.account, chain: wallet.chain });
+  const common = { account: wallet.account, chain: wallet.chain } as const;
+  // writeContract rather than sendTransaction with stepCall's data, so the
+  // wallet's errors keep the decoded revert reason.
+  let hash: Hash;
+  switch (step) {
+    case "approveTaker":
+    case "approveGiver":
+      hash = await wallet.writeContract({
+        ...common,
+        address: deployment.aaveSpoke,
+        abi: aaveSpokeAbi,
+        functionName: "setUserPositionManager",
+        args: [step === "approveTaker" ? deployment.aaveTaker : deployment.aaveGiver, true],
+      });
+      break;
+    case "createAccount":
+      hash = await wallet.writeContract({ ...common, address: deployment.factory, abi: factoryAbi, functionName: "createAccount" });
+      break;
+    case "approveBorrow":
+      hash = await wallet.writeContract({
+        ...common,
+        address: deployment.aaveTaker,
+        abi: aaveTakerAbi,
+        functionName: "approveBorrow",
+        args: [deployment.aaveSpoke, deployment.usdcReserveId, deployment.aaveAdapter, borrowCap],
+      });
+      break;
+  }
   const receipt = await client.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error(`Transaction ${hash} reverted`);
   return hash;

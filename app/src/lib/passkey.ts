@@ -18,8 +18,9 @@ const DEFAULT_CLIENT_URL = "https://modular-sdk.circle.com/v1/rpc/w3s/buidl";
  * and returns the Circle smart account (MSCA) it owns on the app's Arc network.
  *
  * The account is counterfactual until its first user operation, which deploys
- * it. Circle's paymaster sponsors gas on Arc Testnet only; on Arc mainnet the
- * account pays its own gas in USDC, so it needs a small USDC balance.
+ * it. On Arc mainnet it pays its own gas in USDC, so it needs a small USDC
+ * balance; Circle's paymaster is used on Arc Testnet, where the contracts are
+ * not deployed yet (test 0.2 checked it there with a plain transfer).
  *
  * @param mode `register` for a new passkey, `login` to pick an existing one.
  * @param username Name of the new passkey; ignored on `login`.
@@ -77,12 +78,14 @@ export async function connectPasskey(mode: "register" | "login", username: strin
   return {
     kind: "passkey",
     address: account.address,
-    username: mode === "register" ? username : (credential as { username?: string }).username || "passkey",
-    async send(calls: Call[]): Promise<Hex> {
-      const hash = await bundler.sendUserOperation({ calls: calls.map(({ to, data }) => ({ to, data })) });
-      const receipt = await bundler.waitForUserOperationReceipt({ hash });
-      if (!receipt.success) throw new Error(`User operation ${hash} reverted (transaction ${receipt.receipt.transactionHash})`);
-      return receipt.receipt.transactionHash;
+    // Circle's sign-in returns no name for an existing passkey.
+    username: mode === "register" ? username : undefined,
+    submit(calls: Call[]): Promise<Hex> {
+      return bundler.sendUserOperation({ calls: calls.map(({ to, data }) => ({ to, data })) });
+    },
+    async confirm(userOpHash: Hex) {
+      const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
+      return { success: receipt.success, transactionHash: receipt.receipt.transactionHash };
     },
   };
 }

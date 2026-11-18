@@ -68,7 +68,9 @@ function paidLog(lineId: bigint): Log {
   };
 }
 
-function client(arc: FakeArc, options: { sendCalls?: (calls: { to: Address; data: Hex }[]) => Promise<Hex> } = {}) {
+type SmartAccount = NonNullable<Parameters<typeof createChainArdoise>[0]["smartAccount"]>;
+
+function client(arc: FakeArc, options: { smartAccount?: SmartAccount } = {}) {
   const publicClient = {
     async readContract({ functionName, args }: { functionName: string; args: readonly unknown[] }) {
       switch (functionName) {
@@ -228,21 +230,50 @@ describe("on-chain Ardoise client", () => {
     expect(line.venue.name).toBe("Aave V4");
   });
 
-  it("pays through a passkey smart account in one user operation, not the wallet client", async () => {
+  const USER_OP: Hex = `0x${"0b".repeat(32)}`;
+  function smartAccount(confirm: SmartAccount["confirm"] = async () => ({ success: true, transactionHash: TX })) {
     const batches: { to: Address; data: Hex }[][] = [];
-    const { account, sent } = client(fakeArc(), {
-      sendCalls: async (calls) => {
+    const account: SmartAccount = {
+      async submit(calls) {
         batches.push(calls);
-        return TX;
+        return USER_OP;
       },
-    });
+      confirm,
+    };
+    return { account, batches };
+  }
+
+  it("pays through a passkey smart account in one user operation, not the wallet client", async () => {
+    const smart = smartAccount();
+    const { account, sent } = client(fakeArc(), { smartAccount: smart.account });
     const line = await account.pay(request(1_000_000n));
     expect(sent).toHaveLength(0);
-    expect(batches).toHaveLength(1);
-    expect(batches[0]).toHaveLength(1);
-    expect(batches[0][0].to).toBe(ACCOUNT);
-    expect(decodeFunctionData({ abi: accountAbi, data: batches[0][0].data }).functionName).toBe("pay");
+    expect(smart.batches).toHaveLength(1);
+    expect(smart.batches[0]).toHaveLength(1);
+    expect(smart.batches[0][0].to).toBe(ACCOUNT);
+    expect(decodeFunctionData({ abi: accountAbi, data: smart.batches[0][0].data }).functionName).toBe("pay");
     expect(line).toMatchObject({ id: 7n, transactionHash: TX });
+  });
+
+  it("reports a submitted user operation whose receipt cannot be read as unconfirmed, never as retryable", async () => {
+    const smart = smartAccount(async () => {
+      throw new Error("Timed out while waiting for User Operation\ndetails");
+    });
+    const error = await client(fakeArc(), { smartAccount: smart.account })
+      .account.pay(request(1_000_000n))
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PaymentUnconfirmed);
+    expect((error as PaymentUnconfirmed).transactionHash).toBe(USER_OP);
+    expect((error as PaymentUnconfirmed).userOperation).toBe(true);
+  });
+
+  it("reports a mined user operation that reverted as a failed payment", async () => {
+    const smart = smartAccount(async () => ({ success: false, transactionHash: TX }));
+    const error = await client(fakeArc(), { smartAccount: smart.account })
+      .account.pay(request(1_000_000n))
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PaymentFailed);
+    expect((error as PaymentFailed).reason.code).toBe("Reverted");
   });
 
   it("brings the wallet back to Arc before signing a payment", async () => {

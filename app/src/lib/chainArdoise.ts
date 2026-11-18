@@ -28,7 +28,7 @@ import {
 } from "@/lib/ardoise";
 import { accountAbi, guardAbi, venueAbi } from "@/lib/contracts/abis";
 import { network } from "@/lib/network";
-import type { Call } from "@/lib/wallet";
+import type { PasskeyWallet } from "@/lib/wallet";
 
 const BPS = 10_000n;
 // Public RPC endpoints reject wide `eth_getLogs` ranges; read history in slices.
@@ -39,11 +39,8 @@ export interface ChainArdoiseOptions {
   publicClient: PublicClient<Transport, Chain>;
   /** Signs payments; `null` for a read-only view, or when `sendCalls` signs them. */
   walletClient: WalletClient<Transport, Chain, Account> | null;
-  /**
-   * Sends payments from a passkey smart account instead of `walletClient`
-   * (`PasskeyWallet.send`): resolves with the hash of the Arc transaction.
-   */
-  sendCalls?: (calls: Call[]) => Promise<Hex>;
+  /** Sends payments from a passkey smart account instead of `walletClient`. */
+  smartAccount?: Pick<PasskeyWallet, "submit" | "confirm">;
   /** Owner of the account and of the collateral position. */
   owner: Address;
   /** The owner's `ArdoiseAccount`. */
@@ -227,13 +224,15 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     },
 
     async pay(request) {
-      const { walletClient, sendCalls } = options;
-      if (walletClient === null && !sendCalls) throw new Error("Connect the owner's wallet to pay.");
+      const { walletClient, smartAccount } = options;
+      if (walletClient === null && !smartAccount) throw new Error("Connect the owner's wallet to pay.");
       await options.ensureArc?.();
-      let hash: Hex;
+      let sent: Hex;
       try {
-        hash = sendCalls
-          ? await sendCalls([{ to: account, data: encodeFunctionData({ abi: accountAbi, functionName: "pay", args: payArgs(request) }) }])
+        sent = smartAccount
+          ? await smartAccount.submit([
+              { to: account, data: encodeFunctionData({ abi: accountAbi, functionName: "pay", args: payArgs(request) }) },
+            ])
           : await walletClient!.writeContract({
               address: account,
               abi: accountAbi,
@@ -249,6 +248,17 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       }
       // From here the payment is on its way: any failure to read its outcome
       // must not look like a payment that can be retried.
+      let hash = sent;
+      if (smartAccount) {
+        let operation: Awaited<ReturnType<typeof smartAccount.confirm>>;
+        try {
+          operation = await smartAccount.confirm(sent);
+        } catch (error) {
+          throw new PaymentUnconfirmed(sent, (error as Error).message.split("\n")[0], true);
+        }
+        hash = operation.transactionHash;
+        if (!operation.success) throw new PaymentFailed({ code: "Reverted", message: `User operation ${sent} reverted` });
+      }
       let receipt: Awaited<ReturnType<typeof publicClient.waitForTransactionReceipt>>;
       try {
         receipt = await publicClient.waitForTransactionReceipt({ hash });

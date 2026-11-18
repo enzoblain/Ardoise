@@ -7,12 +7,17 @@ import type { Deployment } from "@/lib/contracts/deployments";
 import { formatUsdc } from "@/lib/format";
 import { network, txUrl } from "@/lib/network";
 import { activationCalls, missingSteps, readSetup, runStep, type SetupState, type SetupStep } from "@/lib/setup";
-import { switchChain, type ConnectedWallet, type PasskeyWallet } from "@/lib/wallet";
+import { sendFromPasskey, switchChain, type ConnectedWallet, type PasskeyWallet } from "@/lib/wallet";
 
 // Allowance given to the shared adapter: three days at the default daily cap
 // (20 USDC), finite as docs/api.md recommends. It shrinks as the adapter
 // borrows and can be renewed here.
 const BORROW_CAP = 60_000_000n;
+
+// Gas a passkey account should hold before its activation on mainnet (native
+// USDC, 18 decimals): a single transfer cost about 0.04 USDC in test 0.2, and
+// the activation batches seven calls.
+const MIN_GAS = 200_000_000_000_000_000n;
 
 const STEP_LABELS: Record<SetupStep, string> = {
   approveTaker: "Let Aave's Taker borrow on your behalf",
@@ -160,19 +165,26 @@ function PasskeySetup({
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    void arcClient.getBalance({ address: wallet.address }).then(setGas, () => undefined);
+    let current = true;
+    void arcClient.getBalance({ address: wallet.address }).then(
+      (balance) => current && setGas(balance),
+      () => current && setGas(undefined),
+    );
+    return () => {
+      current = false;
+    };
   }, [wallet.address, state]);
 
   const calls = activationCalls(state, deployment, wallet.address, BORROW_CAP);
   const funded = state.walletCirBtc > 0n || state.collateral > 0n;
   // On Arc mainnet the account pays its own gas in USDC; Circle's paymaster covers it on testnet only.
-  const needsGas = network.name === "mainnet" && gas !== undefined && gas === 0n;
+  const needsGas = network.name === "mainnet" && (gas === undefined || gas < MIN_GAS);
 
   async function activate() {
     setRunning(true);
     setError(undefined);
     try {
-      setLastTx(await wallet.send(calls));
+      setLastTx(await sendFromPasskey(wallet, calls));
       await refresh();
     } catch (e) {
       setError((e as Error).message.split("\n")[0]);
@@ -202,9 +214,9 @@ function PasskeySetup({
           {!funded && <span>Send cirBTC to the address above. </span>}
         </Item>
         {network.name === "mainnet" && (
-          <Item done={gas !== undefined && gas > 0n} label="USDC for gas">
+          <Item done={!needsGas} label="USDC for gas">
             {gas !== undefined && <span>{formatUnits(gas, 18)} USDC. </span>}
-            {needsGas && <span>Send about 0.5 USDC to the address above.</span>}
+            {needsGas && <span>Send at least {formatUnits(MIN_GAS, 18)} USDC to the address above.</span>}
           </Item>
         )}
       </ol>

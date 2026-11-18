@@ -40,7 +40,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
         ? createChainArdoise({
             publicClient: arcClient,
             walletClient: wallet.kind === "browser" ? wallet.client : null,
-            sendCalls: wallet.kind === "passkey" ? wallet.send : undefined,
+            smartAccount: wallet.kind === "passkey" ? wallet : undefined,
             owner: wallet.address,
             account: accountAddress,
             venues,
@@ -140,7 +140,7 @@ function ModeBar(props: {
           <span>
             <span className="text-foreground">{props.live ? "Live account" : "Wallet connected"}</span> on{" "}
             {network.arc.label}
-            {props.wallet.kind === "passkey" && <> with passkey “{props.wallet.username}”</>}:{" "}
+            {props.wallet.kind === "passkey" && <> with {props.wallet.username ? `passkey “${props.wallet.username}”` : "a passkey"}</>}:{" "}
             <span className="font-mono">{short(props.wallet.address)}</span>
             {props.account && (
               <>

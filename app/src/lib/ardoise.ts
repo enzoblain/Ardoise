@@ -146,9 +146,17 @@ export interface ArdoiseClient {
  * the transaction and not offer to pay again.
  */
 export class PaymentUnconfirmed extends Error {
+  /**
+   * @param transactionHash The payment's transaction, or its user operation
+   *   when `userOperation` is true (a passkey payment not mined yet).
+   * @param cause Why its outcome could not be read.
+   * @param userOperation Whether the hash is a user operation's, which the
+   *   Arc explorer cannot open as a transaction.
+   */
   constructor(
     readonly transactionHash: Hex,
     cause: string,
+    readonly userOperation = false,
   ) {
     super(cause);
   }
