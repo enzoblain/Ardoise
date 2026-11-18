@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Ardoise",
   description:
-    "Pay anyone, on any chain, with your bitcoin without selling it.",
+    "Pay anyone on Arc or Base with your bitcoin without selling it.",
 };
 
 export default function RootLayout({
