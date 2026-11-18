@@ -138,7 +138,7 @@ Source: [`aave-dao/aave-address-book`](https://github.com/aave-dao/aave-address-
 A payee asks to be paid with a link to the app, built on `/request` and shared as is or as a QR code. Opening it fills in the pay screen; nothing is stored or sent on chain until the payer pays. Built and read by [`app/src/lib/paymentRequest.ts`](../app/src/lib/paymentRequest.ts).
 
 ```
-https://<app>/app?to=<payee>&chain=<base|arc>&amount=<USDC>&memo=<text>
+https://<app>/app?to=<payee>&chain=<base|arc>&amount=<USDC>&memo=<text>&id=<request id>
 ```
 
 | Parameter | Required | Value | If invalid |
@@ -147,6 +147,22 @@ https://<app>/app?to=<payee>&chain=<base|arc>&amount=<USDC>&memo=<text>
 | `chain` | no | `base` or `arc` | `base` |
 | `amount` | no | USDC as a decimal, more than 0, at most 6 decimals (`12.5`) | left empty for the payer to fill in |
 | `memo` | no | Text for the payer's statement | bidirectional controls removed, cut to 120 characters |
+| `id` | no | Random id set when the request is created, 8 to 32 lowercase letters and digits | ignored |
 
 - **The link comes from the payee, not from Ardoise.** The pay screen shows the full payee address and asks the payer to check it, since a shortened address is easy to imitate.
 - **One payment per opening.** Once the payment is sent, the app drops the request from the page and its address, so reloading does not fill in the same payment again.
+
+### Confirmation on the payee's side
+
+After creating a request, the payee's page waits for the payment ([`app/src/lib/requestWatch.ts`](../app/src/lib/requestWatch.ts)):
+
+- **Real payments:** it reads USDC `Transfer` logs to the payee on the requested chain, from the block the request was created at. The read runs every 4 s, backing off up to 30 s when the RPC throttles, in steps of 2,000 blocks.
+  - **Re-read tail:** each check re-reads the last 20 blocks, since a load-balanced RPC can serve logs from a node a few blocks behind.
+  - **What confirms:** the first transfer of at least the requested amount confirms the request. Without an amount, any transfer of at least 0.01 USDC does; smaller "address poisoning" dust is ignored.
+  - **What the page shows:** the amount, the sender and the transaction. A payment to Base is minted by Circle's forwarder, so its sender is the zero address (checked on the first mainnet payment) and it is shown as "Delivered by Circle (CCTP)".
+  - **Arc limit:** on Arc, a payment from Ardoise is an ERC-20 `transfer` and emits the event. USDC sent as Arc's native gas token in a transaction's value may not emit it, so it may not be seen.
+  - **Any transfer counts:** the check reads the chain itself, so it confirms any transfer to the payee, whoever sends it. Two payments of the same amount to the same address cannot be told apart, which is why only blocks after the request count.
+  - **Base RPC:** logs on Base are read through publicnode's public RPC, because Base's own public RPC refuses `eth_getLogs`.
+- **Demo payments:** the demo account moves nothing on chain. When it pays a request that carries an `id`, it posts `{ requestId, payee, chain, amount }` on the `BroadcastChannel` `ardoise-payment-requests`. A waiting page open in the same browser shows the payment as received, labelled simulated, but only if the id, payee and chain all match its request and the amount is enough.
+- **Editing a request** keeps its id and start block as long as the payee and chain stay the same, so the link already shared still works and a payment made meanwhile still counts.
+- **Privacy:** the reads go from the visitor's browser to public RPCs (publicnode for Base, Arc's own RPC), which see the payee address and the visitor's IP.

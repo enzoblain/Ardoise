@@ -17,12 +17,15 @@ export interface PaymentRequest {
   amount?: string;
   /** Text shown on the payer's statement, for example an invoice number. */
   memo?: string;
+  /** Random id of the request, so a payment made from it can reach the payee's waiting page. */
+  id?: string;
 }
 
 /** Longest memo the pay screen accepts. */
 export const MAX_MEMO_LENGTH = 120;
 
 const AMOUNT = /^\d+(\.\d{1,6})?$/;
+const REQUEST_ID = /^[a-z0-9]{8,32}$/;
 // Bidirectional controls (for example U+202E) can make a memo display reversed
 // text; they have no use in an invoice reference.
 const BIDI_CONTROLS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
@@ -63,6 +66,7 @@ export function buildRequestUrl(origin: string, request: PaymentRequest): string
   if (request.amount) url.searchParams.set("amount", request.amount);
   const memo = cleanMemo(request.memo ?? "");
   if (memo) url.searchParams.set("memo", memo);
+  if (request.id) url.searchParams.set("id", request.id);
   return url.toString();
 }
 
@@ -89,5 +93,16 @@ export function parseRequest(params: Record<string, string | string[] | undefine
     chain: first("chain") === "arc" ? "arc" : "base",
     amount: amount && isRequestAmount(amount) ? amount : undefined,
     memo: memo || undefined,
+    id: REQUEST_ID.test(first("id") ?? "") ? first("id") : undefined,
   };
+}
+
+/**
+ * Makes a random request id.
+ *
+ * @returns 16 lowercase letters and digits.
+ */
+export function newRequestId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
 }

@@ -17,6 +17,7 @@ import { formatBps, formatUsdc } from "@/lib/format";
 import Link from "next/link";
 import { chainByDomain, network, txUrl, type PayoutChain } from "@/lib/network";
 import { MAX_MEMO_LENGTH, type PaymentRequest } from "@/lib/paymentRequest";
+import { DEMO_CHANNEL, type DemoPaymentMessage } from "@/lib/requestWatch";
 import { MarginGauge } from "@/components/MarginGauge";
 import { RateComparison } from "@/components/RateComparison";
 
@@ -161,6 +162,19 @@ export function PayScreen({
       });
       setReceipt(line);
       setPaymentCount((n) => n + 1);
+      // A real payment reaches the payee's waiting page through the chain; a
+      // simulated one moves nothing, so it tells that page directly when it is
+      // open in the same browser.
+      if (account.simulated && openRequest?.id && typeof BroadcastChannel !== "undefined") {
+        const channel = new BroadcastChannel(DEMO_CHANNEL);
+        channel.postMessage({
+          requestId: openRequest.id,
+          payee,
+          chain: destination.key,
+          amount: amount.toString(),
+        } satisfies DemoPaymentMessage);
+        channel.close();
+      }
       closeRequest();
       onPaid();
     } catch (e) {
