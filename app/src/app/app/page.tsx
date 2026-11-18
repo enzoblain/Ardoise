@@ -20,30 +20,36 @@ export default async function AppPage() {
   ]);
   // ARC_RPC_URL is set by hand and may point at the other network.
   const wrongNetwork = chainId !== null && chainId !== network.arc.chain.id;
+  const status = wrongNetwork
+    ? `ARC_RPC_URL serves chain ${chainId}, expected ${network.arc.label} (${network.arc.chain.id})`
+    : blockNumber === null
+      ? `${network.arc.label} unreachable`
+      : `${network.arc.label} · block ${blockNumber.toString()}`;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-6 p-6 sm:p-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold">
-          <Link href="/" className="flex w-fit items-center gap-3">
-            <LogoMark size={36} />
+    <div className="min-h-screen">
+      <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-5">
+        <h1 className="text-lg font-semibold tracking-tight">
+          <Link href="/" className="flex items-center gap-2.5">
+            <LogoMark size={28} />
             Ardoise
           </Link>
         </h1>
-        <p className="opacity-80">Pay anyone, on any chain, with your bitcoin without selling it.</p>
+        <span className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${wrongNetwork || blockNumber === null ? "bg-danger" : "bg-accent"}`}
+            aria-hidden
+          />
+          {status}
+        </span>
       </header>
-      {venues ? (
-        <AccountScreen venues={venues} />
-      ) : (
-        <p className="text-red-600">Could not read the lending rates from Arc mainnet. Try again in a moment.</p>
-      )}
-      <footer className="font-mono text-xs opacity-60">
-        {wrongNetwork
-          ? `ARC_RPC_URL serves chain ${chainId}, expected ${network.arc.label} (${network.arc.chain.id})`
-          : blockNumber === null
-            ? `${network.arc.label} unreachable`
-            : `${network.arc.label} · block ${blockNumber.toString()}`}
-      </footer>
-    </main>
+      <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pb-16">
+        {venues ? (
+          <AccountScreen venues={venues} />
+        ) : (
+          <p className="card text-danger">Could not read the lending rates from Arc mainnet. Try again in a moment.</p>
+        )}
+      </main>
+    </div>
   );
 }

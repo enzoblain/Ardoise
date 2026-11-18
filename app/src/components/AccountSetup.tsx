@@ -74,19 +74,19 @@ export function AccountSetup({
     }
   }
 
-  if (!state) return error ? <p className="text-sm text-red-600">{error}</p> : <p className="text-sm opacity-70">Reading your account…</p>;
+  if (!state) return error ? <p className="text-sm text-danger">{error}</p> : <p className="text-sm text-muted">Reading your account…</p>;
   const missing = missingSteps(state);
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby="setup-title">
-      <h2 id="setup-title" className="text-xl font-semibold">
+      <h2 id="setup-title" className="text-xl font-semibold tracking-tight">
         Activate your account
       </h2>
-      <p className="text-sm opacity-80">
+      <p className="text-sm leading-relaxed text-muted">
         One-time setup on {network.arc.label}. Your cirBTC stays in your own Aave position: Ardoise can only borrow
         within the allowance below and repay.
       </p>
-      <ol className="flex flex-col gap-3">
+      <ol className="flex flex-col divide-y divide-line border-y border-line">
         <Item done={hasCollateral(state)} label="cirBTC supplied as collateral on Aave V4">
           {hasCollateral(state) ? (
             <span>{formatUnits(state.collateral, 8)} cirBTC</span>
@@ -112,7 +112,7 @@ export function AccountSetup({
                   type="button"
                   disabled={!next || running !== undefined}
                   onClick={() => void run(step)}
-                  className="mt-1 w-fit rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background disabled:opacity-40"
+                  className="btn-primary mt-2 w-fit px-4 py-2 text-sm"
                 >
                   {running === step ? "Confirm in your wallet…" : "Do it"}
                 </button>
@@ -122,14 +122,14 @@ export function AccountSetup({
         })}
       </ol>
       {lastTx && (
-        <p className="text-xs opacity-70">
+        <p className="text-xs text-faint">
           Last step:{" "}
           <a className="underline" href={txUrl(network.arc, lastTx as `0x${string}`)} target="_blank" rel="noreferrer">
             {lastTx.slice(0, 10)}…
           </a>
         </p>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
     </section>
   );
 }
@@ -140,13 +140,16 @@ function hasCollateral(state: SetupState): boolean {
 
 function Item({ done, label, children }: { done: boolean; label: string; children?: React.ReactNode }) {
   return (
-    <li className="flex gap-3">
-      <span aria-hidden className="w-4 text-center font-mono">
-        {done ? "✓" : "○"}
+    <li className="flex gap-3 py-3">
+      <span
+        aria-hidden
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs ${done ? "bg-chalk text-background" : "border border-line-strong text-faint"}`}
+      >
+        {done ? "✓" : ""}
       </span>
       <span className="flex flex-col gap-0.5 text-sm">
-        <span className={done ? "" : "font-medium"}>{label}</span>
-        {children && <span className="opacity-70">{children}</span>}
+        <span className={done ? "text-muted" : "font-medium"}>{label}</span>
+        {children && <span className="text-faint">{children}</span>}
       </span>
     </li>
   );

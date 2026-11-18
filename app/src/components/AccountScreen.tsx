@@ -16,7 +16,7 @@ import { Statement } from "@/components/Statement";
 
 /**
  * The account's views, sharing one account client: the pay screen and,
- * below it, the statement each payment adds a line to.
+ * beside it (below on small screens), the statement each payment adds a line to.
  *
  * Without a wallet it runs the simulated demo account, so anyone can try the
  * flow. Once the owner connects a wallet on a network where the contracts
@@ -88,18 +88,28 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
           setAccountAddress(undefined);
         }}
       />
-      {connectError && <p className="text-sm text-red-600">{connectError}</p>}
+      {connectError && <p className="text-sm text-danger">{connectError}</p>}
       {live && <LiveNotices account={live} version={payments} />}
       {wallet && deployment && !accountAddress ? (
-        <AccountSetup wallet={wallet} deployment={deployment} onReady={onReady} />
+        <div className="card mx-auto w-full max-w-xl">
+          <AccountSetup wallet={wallet} deployment={deployment} onReady={onReady} />
+        </div>
       ) : (
-        <>
-          <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
-          <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
-          {live && wallet && accountAddress && (
-            <ProtectionPanel provider={wallet.provider} owner={wallet.address} account={accountAddress} />
-          )}
-        </>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <section className="card" aria-label="Pay">
+            <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
+          </section>
+          <div className="flex flex-col gap-6">
+            <div className="card">
+              <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
+            </div>
+            {live && wallet && accountAddress && (
+              <div className="card">
+                <ProtectionPanel provider={wallet.provider} owner={wallet.address} account={accountAddress} />
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </>
   );
@@ -114,39 +124,41 @@ function ModeBar(props: {
 }) {
   if (props.wallet) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-emerald-500/10 px-3 py-2 text-sm">
-        <span>
-          {props.live ? "Live account on " : "Wallet on "}
-          {network.arc.label}: <span className="font-mono">{short(props.wallet.address)}</span>
-          {props.account && (
-            <>
-              {" · account "}
-              <span className="font-mono">{short(props.account)}</span>
-            </>
-          )}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm">
+        <span className="flex items-center gap-2.5 text-muted">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+          <span>
+            <span className="text-foreground">{props.live ? "Live account" : "Wallet connected"}</span> on{" "}
+            {network.arc.label}: <span className="font-mono">{short(props.wallet.address)}</span>
+            {props.account && (
+              <>
+                {" · account "}
+                <span className="font-mono">{short(props.account)}</span>
+              </>
+            )}
+          </span>
         </span>
-        <button type="button" className="underline" onClick={props.onDisconnect}>
+        <button type="button" className="text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline" onClick={props.onDisconnect}>
           Back to the demo account
         </button>
       </div>
     );
   }
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-500/15 px-3 py-2 text-sm">
-      <span>
-        Demo account: the position, guard and payments are simulated in your browser. Rates are live from Arc mainnet;
-        fees are quoted by Circle.
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm">
+      <span className="flex min-w-0 flex-1 basis-80 items-start gap-2.5 text-muted">
+        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-chalk" aria-hidden />
+        <span>
+          <span className="text-foreground">Demo account.</span> The position, guard and payments are simulated in your
+          browser; rates are live from Arc mainnet and fees are quoted by Circle.
+        </span>
       </span>
       {deployment ? (
-        <button
-          type="button"
-          onClick={props.onConnect}
-          className="rounded-lg bg-foreground px-3 py-1.5 font-medium text-background"
-        >
+        <button type="button" onClick={props.onConnect} className="btn-primary shrink-0 px-4 py-2 text-sm">
           Connect wallet
         </button>
       ) : (
-        <span className="opacity-70">The contracts are deployed on Arc mainnet only.</span>
+        <span className="text-faint">The contracts are deployed on Arc mainnet only.</span>
       )}
     </div>
   );
@@ -170,13 +182,13 @@ function LiveNotices({ account, version }: { account: ArdoiseClient; version: nu
   return (
     <>
       {guardMissing && (
-        <p className="rounded-md bg-red-500/10 px-3 py-2 text-sm">
+        <p className="rounded-2xl border border-danger/30 bg-danger/10 px-5 py-3 text-sm">
           The position guard is not deployed yet, so the contracts refuse every payment. The screen below shows what a
           payment would do.
         </p>
       )}
       {dropBps > 0 && (
-        <p className="rounded-md bg-red-500/10 px-3 py-2 text-sm font-medium">
+        <p className="rounded-2xl border border-danger/30 bg-danger/10 px-5 py-3 text-sm font-medium">
           SIMULATION: bitcoin is treated as {(dropBps / 100).toFixed(2)}% lower than its real price. Margins and
           refusals below follow the simulated price.
         </p>

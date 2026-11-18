@@ -10,9 +10,9 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, 
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
-<img src="docs/images/app-demo.jpg" alt="Ardoise pay screen: Aave V4 and Morpho rates, margin gauge, fee quote and the line-by-line statement" width="400">
+<img src="docs/images/app-demo.jpg" alt="Ardoise app: the pay screen with the Aave V4 and Morpho rates and the margin gauge, beside the line-by-line statement" width="720">
 
-*The pay screen on the demo account: live rates from Arc mainnet, margin before and after the payment, the Circle fee quote, and the statement.*
+*The app on the demo account: live rates from Arc mainnet and the margin before and after the payment, beside the statement.*
 
 A real payment made from the app on Arc mainnet (2026-11-18):
 
