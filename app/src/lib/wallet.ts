@@ -1,12 +1,41 @@
-import { createWalletClient, custom, numberToHex, type Account, type Address, type Chain, type EIP1193Provider, type Transport, type WalletClient } from "viem";
+import { createWalletClient, custom, numberToHex, type Account, type Address, type Chain, type EIP1193Provider, type Hex, type Transport, type WalletClient } from "viem";
 import { network } from "@/lib/network";
 
-/** The connected wallet. */
-export interface ConnectedWallet {
+/** One contract call, as a smart account batches it. */
+export interface Call {
+  to: Address;
+  data: Hex;
+}
+
+/** A browser wallet (MetaMask or any injected EIP-1193 wallet): one transaction per call. */
+export interface BrowserWallet {
+  kind: "browser";
   address: Address;
   client: WalletClient<Transport, Chain, Account>;
   provider: EIP1193Provider;
 }
+
+/**
+ * A Circle smart account owned by a passkey (lib/passkey.ts): several calls
+ * go in one user operation, signed with a single passkey prompt.
+ */
+export interface PasskeyWallet {
+  kind: "passkey";
+  /** The smart account's address, which holds the collateral and owns the Ardoise account. */
+  address: Address;
+  /** The passkey's name, shown in the header. */
+  username: string;
+  /**
+   * Sends the calls in one user operation and waits for it.
+   *
+   * @returns The hash of the Arc transaction that carried it.
+   * @throws If the user cancels the passkey prompt, or the operation fails.
+   */
+  send(calls: Call[]): Promise<Hex>;
+}
+
+/** The connected wallet. */
+export type ConnectedWallet = BrowserWallet | PasskeyWallet;
 
 /**
  * Connects the browser wallet (MetaMask or any injected EIP-1193 wallet) on
@@ -18,7 +47,7 @@ export interface ConnectedWallet {
  * @returns The connected wallet.
  * @throws If there is no browser wallet, or the user refuses.
  */
-export async function connectWallet(): Promise<ConnectedWallet> {
+export async function connectWallet(): Promise<BrowserWallet> {
   const provider = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
   if (!provider) throw new Error("No browser wallet found. Install MetaMask, or use the demo account.");
   const chain = network.arc.chain;
@@ -26,7 +55,7 @@ export async function connectWallet(): Promise<ConnectedWallet> {
   const [address] = await provider.request({ method: "eth_requestAccounts" });
   if (!address) throw new Error("The wallet shared no account.");
   const client = createWalletClient({ account: address, chain, transport: custom(provider) });
-  return { address, client, provider };
+  return { kind: "browser", address, client, provider };
 }
 
 /**

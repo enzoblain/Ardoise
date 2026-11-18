@@ -6,8 +6,8 @@ import { arcClient } from "@/lib/arc";
 import type { Deployment } from "@/lib/contracts/deployments";
 import { formatUsdc } from "@/lib/format";
 import { network, txUrl } from "@/lib/network";
-import { missingSteps, readSetup, runStep, type SetupState, type SetupStep } from "@/lib/setup";
-import { switchChain, type ConnectedWallet } from "@/lib/wallet";
+import { activationCalls, missingSteps, readSetup, runStep, type SetupState, type SetupStep } from "@/lib/setup";
+import { switchChain, type ConnectedWallet, type PasskeyWallet } from "@/lib/wallet";
 
 // Allowance given to the shared adapter: three days at the default daily cap
 // (20 USDC), finite as docs/api.md recommends. It shrinks as the adapter
@@ -25,6 +25,8 @@ const STEP_LABELS: Record<SetupStep, string> = {
  * One-time setup of a wallet on Arc (docs/api.md, *One-time user setup on
  * Aave V4*): shows each step's state and runs the missing ones from the
  * wallet, one transaction each. Supplying cirBTC stays on Aave's side.
+ * A passkey smart account instead supplies the cirBTC it holds and runs every
+ * step in one user operation, with a single passkey signature.
  *
  * @param props.wallet Connected owner wallet.
  * @param props.deployment Deployed addresses.
@@ -60,6 +62,7 @@ export function AccountSetup({
   }, [refresh]);
 
   async function run(step: SetupStep) {
+    if (wallet.kind !== "browser") return;
     setRunning(step);
     setError(undefined);
     try {
@@ -75,6 +78,7 @@ export function AccountSetup({
   }
 
   if (!state) return error ? <p className="text-sm text-danger">{error}</p> : <p className="text-sm text-muted">Reading your account…</p>;
+  if (wallet.kind === "passkey") return <PasskeySetup wallet={wallet} deployment={deployment} state={state} refresh={refresh} />;
   const missing = missingSteps(state);
 
   return (
@@ -124,6 +128,102 @@ export function AccountSetup({
       {lastTx && (
         <p className="text-xs text-faint">
           Last step:{" "}
+          <a className="underline" href={txUrl(network.arc, lastTx as `0x${string}`)} target="_blank" rel="noreferrer">
+            {lastTx.slice(0, 10)}…
+          </a>
+        </p>
+      )}
+      {error && <p className="text-sm text-danger">{error}</p>}
+    </section>
+  );
+}
+
+/**
+ * Setup of a passkey smart account: the account is funded by a transfer to
+ * its address, then one passkey signature supplies the cirBTC, enables it as
+ * collateral and runs every step in a single user operation.
+ */
+function PasskeySetup({
+  wallet,
+  deployment,
+  state,
+  refresh,
+}: {
+  wallet: PasskeyWallet;
+  deployment: Deployment;
+  state: SetupState;
+  refresh: () => Promise<void>;
+}) {
+  const [gas, setGas] = useState<bigint>();
+  const [running, setRunning] = useState(false);
+  const [lastTx, setLastTx] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    void arcClient.getBalance({ address: wallet.address }).then(setGas, () => undefined);
+  }, [wallet.address, state]);
+
+  const calls = activationCalls(state, deployment, wallet.address, BORROW_CAP);
+  const funded = state.walletCirBtc > 0n || state.collateral > 0n;
+  // On Arc mainnet the account pays its own gas in USDC; Circle's paymaster covers it on testnet only.
+  const needsGas = network.name === "mainnet" && gas !== undefined && gas === 0n;
+
+  async function activate() {
+    setRunning(true);
+    setError(undefined);
+    try {
+      setLastTx(await wallet.send(calls));
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message.split("\n")[0]);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-4" aria-labelledby="setup-title">
+      <h2 id="setup-title" className="text-xl font-semibold tracking-tight">
+        Activate your passkey account
+      </h2>
+      <p className="text-sm leading-relaxed text-muted">
+        Your passkey owns a Circle smart account on {network.arc.label}. Send it cirBTC
+        {network.name === "mainnet" ? " and a little USDC for gas" : ""}, then activate it with one signature: it
+        supplies the cirBTC to your own Aave V4 position, enables it as collateral, creates your Ardoise account and
+        allows it to borrow up to {formatUsdc(BORROW_CAP)} USDC.
+      </p>
+      <ol className="flex flex-col divide-y divide-line border-y border-line">
+        <Item done label="Smart account">
+          <span className="font-mono break-all">{wallet.address}</span>
+        </Item>
+        <Item done={funded} label="cirBTC on the account">
+          {state.collateral > 0n && <span>{formatUnits(state.collateral, 8)} cirBTC supplied on Aave V4. </span>}
+          {state.walletCirBtc > 0n && <span>{formatUnits(state.walletCirBtc, 8)} cirBTC ready to supply. </span>}
+          {!funded && <span>Send cirBTC to the address above. </span>}
+        </Item>
+        {network.name === "mainnet" && (
+          <Item done={gas !== undefined && gas > 0n} label="USDC for gas">
+            {gas !== undefined && <span>{formatUnits(gas, 18)} USDC. </span>}
+            {needsGas && <span>Send about 0.5 USDC to the address above.</span>}
+          </Item>
+        )}
+      </ol>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          disabled={!funded || needsGas || calls.length === 0 || running}
+          onClick={() => void activate()}
+          className="btn-primary w-fit px-4 py-2 text-sm"
+        >
+          {running ? "Confirm with your passkey…" : "Activate in one signature"}
+        </button>
+        <button type="button" className="text-sm text-muted underline" onClick={() => void refresh()}>
+          Check the balances again
+        </button>
+      </div>
+      {lastTx && (
+        <p className="text-xs text-faint">
+          Activation:{" "}
           <a className="underline" href={txUrl(network.arc, lastTx as `0x${string}`)} target="_blank" rel="noreferrer">
             {lastTx.slice(0, 10)}…
           </a>

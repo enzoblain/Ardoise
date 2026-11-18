@@ -1,6 +1,7 @@
 import {
   ContractFunctionExecutionError,
   ContractFunctionRevertedError,
+  decodeFunctionData,
   encodeAbiParameters,
   encodeErrorResult,
   encodeEventTopics,
@@ -67,7 +68,7 @@ function paidLog(lineId: bigint): Log {
   };
 }
 
-function client(arc: FakeArc) {
+function client(arc: FakeArc, options: { sendCalls?: (calls: { to: Address; data: Hex }[]) => Promise<Hex> } = {}) {
   const publicClient = {
     async readContract({ functionName, args }: { functionName: string; args: readonly unknown[] }) {
       switch (functionName) {
@@ -144,6 +145,7 @@ function client(arc: FakeArc) {
     venues: [AAVE],
     fromBlock: 31_777_009n,
     ensureArc: async () => void calls.push("ensureArc"),
+    ...options,
   });
   return { account, sent, calls };
 }
@@ -224,6 +226,23 @@ describe("on-chain Ardoise client", () => {
       transactionHash: TX,
     });
     expect(line.venue.name).toBe("Aave V4");
+  });
+
+  it("pays through a passkey smart account in one user operation, not the wallet client", async () => {
+    const batches: { to: Address; data: Hex }[][] = [];
+    const { account, sent } = client(fakeArc(), {
+      sendCalls: async (calls) => {
+        batches.push(calls);
+        return TX;
+      },
+    });
+    const line = await account.pay(request(1_000_000n));
+    expect(sent).toHaveLength(0);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(1);
+    expect(batches[0][0].to).toBe(ACCOUNT);
+    expect(decodeFunctionData({ abi: accountAbi, data: batches[0][0].data }).functionName).toBe("pay");
+    expect(line).toMatchObject({ id: 7n, transactionHash: TX });
   });
 
   it("brings the wallet back to Arc before signing a payment", async () => {

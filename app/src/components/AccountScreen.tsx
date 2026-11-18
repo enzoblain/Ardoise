@@ -19,9 +19,11 @@ import { Statement } from "@/components/Statement";
  * beside it (below on small screens), the statement each payment adds a line to.
  *
  * Without a wallet it runs the simulated demo account, so anyone can try the
- * flow. Once the owner connects a wallet on a network where the contracts
- * are deployed, it walks through the one-time setup, then switches to the
- * on-chain account and adds the Protection panel (Gateway reserve on Base).
+ * flow. Once the owner connects a wallet (a browser wallet, or a passkey that
+ * owns a Circle smart account) on a network where the contracts are deployed,
+ * it walks through the one-time setup, then switches to the on-chain account.
+ * A browser wallet also gets the Protection panel (Gateway reserve on Base),
+ * which signs on Base and so needs a wallet that can switch chains.
  *
  * @param props.venues Venues with their live rates, read on the server.
  */
@@ -37,12 +39,13 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
       wallet && accountAddress && deployment
         ? createChainArdoise({
             publicClient: arcClient,
-            walletClient: wallet.client,
+            walletClient: wallet.kind === "browser" ? wallet.client : null,
+            sendCalls: wallet.kind === "passkey" ? wallet.send : undefined,
             owner: wallet.address,
             account: accountAddress,
             venues,
             fromBlock: deployment.deployBlock,
-            ensureArc: () => switchChain(wallet.provider, network.arc.chain),
+            ensureArc: wallet.kind === "browser" ? () => switchChain(wallet.provider, network.arc.chain) : undefined,
           })
         : undefined,
     [wallet, accountAddress, venues],
@@ -54,7 +57,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
   // reads go through the app's own Arc client, and viem refuses to send a
   // transaction while the wallet is on another chain than the one asked.
   useEffect(() => {
-    if (!wallet) return;
+    if (wallet?.kind !== "browser") return;
     const reset = () => {
       setWallet(undefined);
       setAccountAddress(undefined);
@@ -65,10 +68,10 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
     };
   }, [wallet]);
 
-  async function connect() {
+  async function connect(how: () => Promise<ConnectedWallet>) {
     setConnectError(undefined);
     try {
-      setWallet(await connectWallet());
+      setWallet(await how());
     } catch (e) {
       setConnectError((e as Error).message.split("\n")[0]);
     }
@@ -82,7 +85,9 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
         live={live !== undefined}
         wallet={wallet}
         account={accountAddress}
-        onConnect={() => void connect()}
+        onConnect={() => void connect(connectWallet)}
+        // Circle's SDK is large: loaded only once the user picks a passkey.
+        onPasskey={(mode, username) => void connect(async () => (await import("@/lib/passkey")).connectPasskey(mode, username))}
         onDisconnect={() => {
           setWallet(undefined);
           setAccountAddress(undefined);
@@ -103,7 +108,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
             <div className="card">
               <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
             </div>
-            {live && wallet && accountAddress && (
+            {live && wallet?.kind === "browser" && accountAddress && (
               <div className="card">
                 <ProtectionPanel provider={wallet.provider} owner={wallet.address} account={accountAddress} />
               </div>
@@ -115,13 +120,18 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
   );
 }
 
+// Passkeys need a Circle client key (registered for this domain); without one, only browser wallets are offered.
+const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
+
 function ModeBar(props: {
   live: boolean;
   wallet?: ConnectedWallet;
   account?: Address;
   onConnect: () => void;
+  onPasskey: (mode: "register" | "login", username: string) => void;
   onDisconnect: () => void;
 }) {
+  const [username, setUsername] = useState("");
   if (props.wallet) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm">
@@ -129,7 +139,9 @@ function ModeBar(props: {
           <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
           <span>
             <span className="text-foreground">{props.live ? "Live account" : "Wallet connected"}</span> on{" "}
-            {network.arc.label}: <span className="font-mono">{short(props.wallet.address)}</span>
+            {network.arc.label}
+            {props.wallet.kind === "passkey" && <> with passkey “{props.wallet.username}”</>}:{" "}
+            <span className="font-mono">{short(props.wallet.address)}</span>
             {props.account && (
               <>
                 {" · account "}
@@ -154,9 +166,36 @@ function ModeBar(props: {
         </span>
       </span>
       {deployment ? (
-        <button type="button" onClick={props.onConnect} className="btn-primary shrink-0 px-4 py-2 text-sm">
-          Connect wallet
-        </button>
+        <span className="flex flex-wrap items-center gap-2">
+          {passkeysEnabled && (
+            <>
+              <button type="button" onClick={() => props.onPasskey("login", "")} className="btn-secondary shrink-0 px-4 py-2 text-sm">
+                Sign in with passkey
+              </button>
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (username.trim()) props.onPasskey("register", username.trim());
+                }}
+              >
+                <input
+                  aria-label="Passkey name"
+                  placeholder="New passkey name"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-40 rounded-xl border border-line bg-background px-3 py-2 text-sm"
+                />
+                <button type="submit" disabled={!username.trim()} className="btn-secondary shrink-0 px-4 py-2 text-sm">
+                  Create
+                </button>
+              </form>
+            </>
+          )}
+          <button type="button" onClick={props.onConnect} className="btn-primary shrink-0 px-4 py-2 text-sm">
+            Connect wallet
+          </button>
+        </span>
       ) : (
         <span className="text-faint">The contracts are deployed on Arc mainnet only.</span>
       )}
