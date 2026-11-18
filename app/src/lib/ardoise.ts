@@ -16,7 +16,7 @@ export interface Venue {
   id: string;
   /**
    * Address `Paid` events carry as `venue`: the `IVenue` adapter. A venue
-   * with no adapter yet (Morpho, R5) uses its protocol contract and is shown
+   * with no adapter in the deployment (Morpho, until it has one) uses its protocol contract and is shown
    * for comparison only.
    */
   address: Address;

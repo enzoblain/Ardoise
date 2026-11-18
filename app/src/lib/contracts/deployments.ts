@@ -13,6 +13,11 @@ export interface Deployment {
   aaveGiver: Address;
   /** `AaveV4Adapter`, the spender of the owner's borrow allowance. */
   aaveAdapter: Address;
+  /**
+   * `MorphoAdapter`, authorized by owners who also borrow on Morpho; `null`
+   * while the factory has no Morpho venue, and Morpho is then only compared.
+   */
+  morphoAdapter: Address | null;
   /** Reserve ids on the Main Spoke. */
   usdcReserveId: bigint;
   cirBtcReserveId: bigint;
@@ -29,6 +34,7 @@ export const MAINNET_DEPLOYMENT: Deployment = {
   aaveTaker: "0xe9fae1C386c6f45B1fb3C3Ef01aDE424DAd4bCcF",
   aaveGiver: "0x01Da80Eef3004ebbF90b7637B1De7fF30fBc7cf1",
   aaveAdapter: "0x38B564d0b3d57216A34d83FbF08DE48744567b38",
+  morphoAdapter: null,
   usdcReserveId: 0n,
   cirBtcReserveId: 2n,
   cirBtc: "0x171A4217b86A807A64eB94757Db6849fb4bDbAA0",
