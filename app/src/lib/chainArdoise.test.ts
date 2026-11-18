@@ -11,9 +11,10 @@ import {
   type Hex,
   type Log,
 } from "viem";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaymentFailed, PaymentUnconfirmed, WAD, type PaymentRequest, type Venue } from "@/lib/ardoise";
 import { createChainArdoise, toPaymentError } from "@/lib/chainArdoise";
+import { eventsToJson } from "@/lib/accountEvents";
 import { accountAbi } from "@/lib/contracts/abis";
 
 const OWNER: Address = "0x54e1714a0ffae58d3AA227C80FD48668e11f18d7";
@@ -70,7 +71,7 @@ function paidLog(lineId: bigint): Log {
 
 type SmartAccount = NonNullable<Parameters<typeof createChainArdoise>[0]["smartAccount"]>;
 
-function client(arc: FakeArc, options: { smartAccount?: SmartAccount } = {}) {
+function client(arc: FakeArc, options: { smartAccount?: SmartAccount; eventsUrl?: string } = {}) {
   const publicClient = {
     async readContract({ functionName, args }: { functionName: string; args: readonly unknown[] }) {
       switch (functionName) {
@@ -160,6 +161,8 @@ const request = (amount: bigint, overrides: Partial<PaymentRequest> = {}): Payme
   memo: "Logo design",
   ...overrides,
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("on-chain Ardoise client", () => {
   it("quotes a payment the guard allows, with the venue's margin before and after", async () => {
@@ -298,6 +301,28 @@ describe("on-chain Ardoise client", () => {
     expect(arc.logRanges[0]).toEqual([31_777_009n, 31_787_008n]);
     expect(arc.logRanges.at(-1)?.[1]).toBe(31_800_000n);
     expect(blockTimes.get(31_800_000n)).toBe(63_600_000);
+  });
+
+  it("takes the account's history from the app's server when it answers, without scanning", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json(eventsToJson({ logs: [paidLog(1n)], blockTimes: new Map([[31_800_000n, 63_600_000]]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const arc = fakeArc();
+    const { account } = client(arc, { eventsUrl: "/api/account-events" });
+    const { logs, blockTimes } = await account.events();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/account-events?owner=${OWNER}&account=${ACCOUNT}`);
+    expect(logs).toHaveLength(1);
+    expect(blockTimes.get(31_800_000n)).toBe(63_600_000);
+    expect(arc.logRanges).toHaveLength(0);
+  });
+
+  it("scans the chain itself when the server fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Arc could not be read" }, { status: 502 })));
+    const arc = fakeArc({ logs: [paidLog(1n)] });
+    const { logs } = await client(arc, { eventsUrl: "/api/account-events" }).account.events();
+    expect(logs).toHaveLength(1);
+    expect(arc.logRanges.length).toBeGreaterThan(0);
   });
 });
 

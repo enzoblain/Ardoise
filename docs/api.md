@@ -104,6 +104,14 @@ A user who keeps USDC in Circle Gateway on Base can let the keeper repay their d
 - **Why it is safe:** an order can only pay the account it names, and that account can only repay its owner's debt, so the keeper holds no key that can move user funds and a leaked order can do nothing but repay that debt. Gateway checks the signature (ERC-1271 for smart contract wallets).
 - **Cost:** on mainnet, Gateway quoted 0.0248 USDC for a 5 USDC order from Base to Arc (0.01 Gateway fee + 0.0148 forwarding).
 
+## App API: account history (`GET /api/account-events`)
+
+`GET /api/account-events?owner=<address>&account=<address>` returns the logs of an owner's Ardoise account since the factory's deployment, with the time of their blocks, as JSON (`AccountEventsJson`: block numbers as decimal strings). The statement reads it instead of scanning the chain from the browser, and scans by itself only if the route fails ([`app/src/app/api/account-events/route.ts`](../app/src/app/api/account-events/route.ts), [`app/src/lib/accountEvents.ts`](../app/src/lib/accountEvents.ts)).
+
+- Each server instance keeps an account's history in memory (up to 200 accounts) and reads only the blocks produced since the last request (Arc blocks are final once produced); concurrent requests share one read. A new instance scans an account in full once.
+- An account is served only to the owner `factory.accountOf` returned it for, checked on every request, so the route cannot be used to scan arbitrary contracts. Answers: 200, 400 (malformed address), 404 (not the owner's account, or no contracts on this network), 502 (Arc unreadable; the RPC error is never returned).
+- The `/app` page also shares its reads between visitors: venue rates for 15 s, the current block for 5 s, and the last good value when Arc cannot be read (rates up to 10 minutes old, shown without a marker; the contracts still choose the venue from live rates) ([`app/src/lib/cache.ts`](../app/src/lib/cache.ts)).
+
 ## One-time user setup on Aave V4
 
 Verified on Arc mainnet in test 0.1 (see the results in [`roadmap.md`](roadmap.md)).
