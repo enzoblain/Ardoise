@@ -33,14 +33,14 @@ export function useRequestSession(
     setOffset(0);
     if (!requestId) return;
     let announced = false;
-    let offsetKnown = false;
+    let bestOffset: number | undefined;
     const stop = subscribe(
       requestId,
       (event, at) => {
         setState((s) => applyEvent(s, event, at));
-        const estimate = offsetKnown ? undefined : clockOffset(at, Date.now());
-        if (estimate !== undefined) {
-          offsetKnown = true;
+        const estimate = clockOffset(bestOffset, at, Date.now());
+        if (estimate !== undefined && estimate !== bestOffset) {
+          bestOffset = estimate;
           setOffset(estimate);
         }
       },

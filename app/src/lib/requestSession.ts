@@ -125,17 +125,23 @@ export function payerMayPay(relay: "connecting" | "live" | "down", state: Sessio
 }
 
 /**
- * Estimates how far the relay's clock is ahead of this device's, from an
- * event that just arrived. Replayed events are old, so only one received
- * within a minute of its relay time is used; ntfy rounds times to the second.
+ * Updates the estimate of how far the relay's clock is ahead of this device's,
+ * from an event that just arrived. An event can only be received after the
+ * relay stamped it, so each one gives a lower bound of the offset, and a
+ * replayed one (a reload within the minute) gives a much lower one: keeping the
+ * largest estimate ignores replays and approaches the true offset with the
+ * first live event. Events more than a minute old are ignored outright; ntfy
+ * rounds times to the second.
  *
+ * @param best The estimate so far, or `undefined` before any.
  * @param at The event's relay time, in ms.
  * @param receivedAt When this device received it, in ms.
- * @returns The offset to add to `Date.now()`, or `undefined` for a replayed event.
+ * @returns The offset to add to `Date.now()`, or `undefined` while none is known.
  */
-export function clockOffset(at: number, receivedAt: number): number | undefined {
-  const offset = at - receivedAt;
-  return Math.abs(offset) < 60_000 ? offset : undefined;
+export function clockOffset(best: number | undefined, at: number, receivedAt: number): number | undefined {
+  const estimate = at - receivedAt;
+  if (Math.abs(estimate) >= 60_000) return best;
+  return best === undefined ? estimate : Math.max(best, estimate);
 }
 
 /**

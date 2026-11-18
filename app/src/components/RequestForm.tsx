@@ -187,6 +187,9 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
   const amountLabel = request.amount ? `${request.amount} USDC` : "Any amount";
 
   const [cancelling, setCancelling] = useState<"sending" | "failed">();
+  // Anyone with the link can report a demo payment: the payee can set the
+  // report aside and keep the request (link, QR code, Cancel) on screen.
+  const [demoDismissed, setDemoDismissed] = useState(false);
 
   const { state, relay, offset } = useRequestSession(request.id, false);
   const deadline = deadlineOf(state);
@@ -199,14 +202,14 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
   const demoReported = !onChain && state.paid?.simulated === true && state.closedAt === undefined;
   const paidAt = onChain ? (onChain.landedAt ?? Date.now() + offset) : undefined;
   const late = paidAt !== undefined && !landedInTime(state, paidAt);
-  const expired = state.closedBy === "expired" || (deadlinePassed && !onChain && !demoReported);
+  const expired = state.closedBy === "expired" || (deadlinePassed && !onChain);
   const cancelled = state.closedBy === "cancelled";
   const view: "received" | "late" | "demo" | "closed" | "joined" | "waiting" =
     paidAt !== undefined
       ? late
         ? "late"
         : "received"
-      : demoReported
+      : demoReported && !demoDismissed
         ? "demo"
         : cancelled || expired
           ? "closed"
@@ -261,9 +264,11 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
 
   // Tell the payer's screen: a real payment that came in time, or the end of the 30 s.
   useEffect(() => {
+    // Retried when the relay comes back, since a failed publish is not queued.
+    if (relay !== "live") return;
     if (view === "received" && onChain && !state.paid) publish(request.id, { type: "paid", simulated: false }).catch(() => {});
     if (view === "closed" && expired && state.closedAt === undefined) publish(request.id, { type: "expired" }).catch(() => {});
-  }, [view, onChain, expired, state.paid, state.closedAt, request.id]);
+  }, [view, onChain, expired, state.paid, state.closedAt, request.id, relay]);
 
   async function cancel() {
     setCancelling("sending");
@@ -341,9 +346,14 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
           <p className="max-w-sm text-sm text-muted">
             The payer used Ardoise&apos;s demo account, which simulates payments: <strong className="text-foreground">no USDC was received</strong>. A real payment shows here once it is seen on {chain.label}.
           </p>
-          <button type="button" onClick={onNew} className="btn-primary px-6">
-            New request
-          </button>
+          <div className="flex flex-wrap justify-center gap-3">
+            <button type="button" onClick={() => setDemoDismissed(true)} className="btn-primary px-6">
+              Back to the request
+            </button>
+            <button type="button" onClick={onNew} className="btn-secondary px-6">
+              New request
+            </button>
+          </div>
         </section>
       </>
     );
@@ -468,6 +478,9 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
                 ? "The payer has 30 seconds from opening the link to pay."
                 : `Once the payer opens the link, they have 30 seconds to pay. Keep this page open.`}
         </p>
+        {demoReported && (
+          <p className="text-xs text-muted">A demo payment was reported for this request: no USDC was received.</p>
+        )}
         {view === "waiting" && (
           <input readOnly value={url} onFocus={(e) => e.target.select()} className="field w-full font-mono text-xs text-muted" aria-label="Request link" />
         )}
