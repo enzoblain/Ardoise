@@ -34,6 +34,7 @@ Ardoise turns a cirBTC position on Arc into a payment account:
 
 - **Pay from your bitcoin.** Enter an amount, a payee and their chain (Arc or Base). Ardoise borrows exactly that amount, plus the cross-chain fee, at the cheapest lending venue, and delivers it. Your bitcoin is never sold and never leaves your own Aave position.
 - **See the rates and your margin before you pay.** The pay screen compares the live USDC borrow rates of Aave V4 and Morpho on Arc and shows how much margin the position keeps before and after the payment.
+- **Request a payment with a link or a QR code.** On the Request page, a payee enters their address, chain, an amount and a memo, and gets a link and a QR code to share. Opening it shows the pay screen already filled in; nothing is stored, everything is in the link ([`app/src/lib/paymentRequest.ts`](app/src/lib/paymentRequest.ts)).
 - **One line per payment.** The statement lists every payment as a debt line: amount, venue, rate, payee, memo and interest so far, built from the account's on-chain events. Each cross-chain payment has a tracking page that follows it until it lands on the payee's chain.
 - **Protected from liquidation.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (tested end to end on testnet; the mainnet test is pending).
 
@@ -184,7 +185,7 @@ set -a && source .env && set +a
 
 ```
 contracts/   Solidity contracts (Foundry): account, factory, Aave V4 adapter, margin guard, deployment scripts and records (deployments.md)
-app/         Next.js + viem front end: landing page (`/`, 3D slate hero, live rates), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, payment tracking page
+app/         Next.js + viem front end: landing page (`/`, 3D slate hero, live rates), payment requests (`/request`, link and QR code), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, payment tracking page
 keeper/      Node keeper: repays debt with sweep() and Gateway standing orders, and receives standing orders from the app
 docs/        Contract interfaces and payment flow (api.md), hackathon roadmap (roadmap.md), README screenshot (images/)
 assets/logo/ Logo files (SVG: mark, full logo, wordmark, app icon, favicon, white and black versions) and brand-showcase.html, the brand reference page
