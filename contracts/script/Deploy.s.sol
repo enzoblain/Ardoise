@@ -76,7 +76,11 @@ contract Deploy is Script {
         venues[0] = adapter;
         venues[1] = morpho;
         factory.setVenues(venues);
-        if (guard != address(0)) factory.setGuard(IGuard(guard));
+        if (guard != address(0)) {
+            // A guard without code would make every payment revert while decoding its answer.
+            require(guard.code.length > 0 && IGuard(guard).minHealthFactor() > 1e18, "ARDOISE_GUARD is not a guard");
+            factory.setGuard(IGuard(guard));
+        }
         vm.stopBroadcast();
 
         console.log("ArdoiseFactory:", address(factory));

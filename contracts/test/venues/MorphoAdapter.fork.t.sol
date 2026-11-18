@@ -38,13 +38,14 @@ contract MorphoAdapterForkTest is Test {
     MorphoAdapter internal morpho;
     address internal user = makeAddr("user");
     IArdoise internal account;
-    bool internal forked;
 
     function setUp() public {
         string memory url = vm.envOr("ARC_FORK_URL", string(""));
-        if (bytes(url).length == 0) return;
+        if (bytes(url).length == 0) {
+            vm.skip(true);
+            return;
+        }
         vm.createSelectFork(url);
-        forked = true;
         address nativeCoin = 0x1800000000000000000000000000000000000000;
         vm.etch(nativeCoin, address(new ArcNativeCoinMock()).code);
         vm.allowCheatcodes(nativeCoin);
@@ -77,7 +78,6 @@ contract MorphoAdapterForkTest is Test {
     }
 
     function test_fork_readsTheMarketLikeTheApp() public view {
-        if (!forked) return;
         assertEq(morpho.asset(), USDC);
         assertEq(morpho.collateralToken(), CIRBTC);
         assertEq(morpho.lltv(), 0.86e18);
@@ -90,8 +90,9 @@ contract MorphoAdapterForkTest is Test {
     }
 
     function test_fork_paysFromMorphoWhenTheUserHasNoAavePosition() public {
-        if (!forked) return;
-        // Whichever venue is cheaper, the user can only borrow on Morpho.
+        // The case this test is about: Aave V4 cheaper, but the user can only borrow on Morpho.
+        // Skipped on a day when Morpho is the cheaper one, where it would prove nothing.
+        vm.skip(aave.rate() >= morpho.rate());
         assertEq(address(account.bestVenue(5e6)), address(morpho));
         address payee = makeAddr("payee");
         vm.prank(user);
@@ -103,7 +104,6 @@ contract MorphoAdapterForkTest is Test {
     }
 
     function test_fork_refusesWhatTheGuardRefusesOnMorpho() public {
-        if (!forked) return;
         // About 60 USD of collateral at 86% LLTV and a 1.25 minimum: about 41 USD at most.
         vm.prank(user);
         account.setCaps(100e6, 100e6);
@@ -113,7 +113,6 @@ contract MorphoAdapterForkTest is Test {
     }
 
     function test_fork_sweepRepaysTheMorphoDebt() public {
-        if (!forked) return;
         vm.prank(user);
         account.pay(5e6, ARC, bytes32(uint256(uint160(user))), 0, "");
         vm.warp(block.timestamp + 1 days);
@@ -127,7 +126,6 @@ contract MorphoAdapterForkTest is Test {
     }
 
     function test_fork_onlyTheUsersAccountMayBorrow() public {
-        if (!forked) return;
         // The user's Morpho authorization is the adapter's, but nobody else can spend it.
         address stranger = makeAddr("stranger");
         vm.expectRevert(abi.encodeWithSelector(IVenue.UnauthorizedCaller.selector, stranger, user));
@@ -139,7 +137,6 @@ contract MorphoAdapterForkTest is Test {
     }
 
     function test_fork_fullRepaymentClearsThePositionAndReturnsTheRest() public {
-        if (!forked) return;
         vm.prank(user);
         account.pay(5e6, ARC, bytes32(uint256(uint160(user))), 0, "");
         vm.warp(block.timestamp + 7 days);

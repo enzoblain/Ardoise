@@ -92,7 +92,9 @@ contract MorphoAdapter is IVenue {
     /// @dev The market's supply minus its borrows, interest included: Morpho lends a market's
     /// supply only to that market's borrowers.
     function available() external view returns (uint256 amount) {
-        Market memory m = _expectedMarket();
+        // Accrued interest raises supply and borrows alike, so the last accrual's totals give
+        // the same difference without asking the interest rate model.
+        Market memory m = _market();
         return m.totalSupplyAssets > m.totalBorrowAssets ? m.totalSupplyAssets - m.totalBorrowAssets : 0;
     }
 
@@ -112,7 +114,9 @@ contract MorphoAdapter is IVenue {
 
     /// @inheritdoc IVenue
     /// @dev Morpho's own health test: collateral x price x LLTV against the debt, liquidation
-    /// below 1.0. The debt includes the interest accrued since the market's last update.
+    /// below 1.0. The debt includes the interest accrued since the market's last update. The
+    /// extra debt is counted as assets, while Morpho rounds the shares of a new borrow up, so the
+    /// debt after a borrow may exceed the projection by a few wei.
     function healthAfter(address user, uint256 extraDebt) external view returns (uint256 healthFactor) {
         (uint256 collateral, uint256 debt) = _position(user);
         if (collateral == 0) return 0;

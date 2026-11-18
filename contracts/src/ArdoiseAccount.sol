@@ -156,7 +156,10 @@ contract ArdoiseAccount is IArdoise {
     /// owner has no position (or not enough margin) never blocks a payment another venue can
     /// make. When no venue is allowed in full, the one allowing the most is returned, and
     /// `pay()` then reverts with `PaymentRefused` and that amount. Without a guard, the cheapest
-    /// venue with enough liquidity is returned.
+    /// venue with enough liquidity is returned. A guard check that reverts on every venue ends in
+    /// `NoVenueAvailable`, which hides the guard's own error. Cost: a venue the guard allows only
+    /// in part costs its full search (about 25 `healthAfter` calls), and `pay()` asks the guard
+    /// again for the chosen venue; acceptable with the factory's two venues.
     function bestVenue(uint256 amount) public view returns (IVenue venue) {
         IVenue[] memory list = venues();
         uint256 n = list.length;
