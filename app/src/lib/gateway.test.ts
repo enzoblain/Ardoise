@@ -10,7 +10,7 @@ import {
   parseOrders,
   rejectReason,
 } from "../../../keeper/src/gateway";
-import { burnIntentTypedData, gatewayBalance, orderSpec, type StandingOrder } from "@/lib/gateway";
+import { burnIntentTypedData, gatewayBalance, orderSpec, signOrder, type StandingOrder } from "@/lib/gateway";
 
 const OWNER: Address = "0xdf41621b35b0c3512d1177DE1423747900fC7a77";
 const ACCOUNT: Address = "0x00000000000000000000000000000000000Ac0c1";
@@ -63,5 +63,27 @@ describe("gatewayBalance", () => {
   it("fails clearly when Gateway refuses", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ message: "bad depositor" }), { status: 400 })));
     await expect(gatewayBalance(OWNER)).rejects.toThrow(/400: bad depositor/);
+  });
+});
+
+describe("signOrder", () => {
+  const estimate = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ body: [{ burnIntent: { maxBlockHeight: "63618938", maxFee: "27333" } }] }))),
+    );
+
+  it("marks a smart account's order for Gateway's ERC-1271 check, and the keeper still parses it", async () => {
+    estimate();
+    const order = await signOrder({ contractSigner: true, signTypedData: async () => "0x1234" }, orderSpec(OWNER, ACCOUNT, 5_000_000n), 2n);
+    expect(order.contractSigner).toBe(true);
+    expect(order.burnIntent.maxFee).toBe("54666");
+    expect(parseOrders([order])).toHaveLength(1);
+  });
+
+  it("leaves a browser wallet's order unflagged", async () => {
+    estimate();
+    const order = await signOrder({ contractSigner: false, signTypedData: async () => "0x1234" }, orderSpec(OWNER, ACCOUNT, 5_000_000n));
+    expect("contractSigner" in order).toBe(false);
   });
 });

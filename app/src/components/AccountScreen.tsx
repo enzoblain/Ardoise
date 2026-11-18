@@ -8,6 +8,7 @@ import { createChainArdoise } from "@/lib/chainArdoise";
 import { deployment } from "@/lib/contracts/deployments";
 import { createMockArdoise } from "@/lib/mockArdoise";
 import { network } from "@/lib/network";
+import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { AccountSetup } from "@/components/AccountSetup";
 import { PayScreen } from "@/components/PayScreen";
@@ -21,9 +22,9 @@ import { Statement } from "@/components/Statement";
  * Without a wallet it runs the simulated demo account, so anyone can try the
  * flow. Once the owner connects a wallet (a browser wallet, or a passkey that
  * owns a Circle smart account) on a network where the contracts are deployed,
- * it walks through the one-time setup, then switches to the on-chain account.
- * A browser wallet also gets the Protection panel (Gateway reserve on Base),
- * which signs on Base and so needs a wallet that can switch chains.
+ * it walks through the one-time setup, then switches to the on-chain account
+ * and adds the Protection panel (Gateway reserve on Base): a browser wallet
+ * signs there itself, a passkey through the same smart account on Base.
  *
  * @param props.venues Venues with their live rates, read on the server.
  */
@@ -51,6 +52,10 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
     [wallet, accountAddress, venues],
   );
   const account = live ?? demo;
+  const gatewaySigner = useMemo(
+    () => (wallet ? (wallet.kind === "browser" ? browserGatewaySigner(wallet.provider, wallet.address) : passkeyGatewaySigner(wallet)) : undefined),
+    [wallet],
+  );
 
   // A different wallet account invalidates everything read so far. A network
   // switch does not: the Protection panel moves to Base to deposit and back,
@@ -108,9 +113,9 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
             <div className="card">
               <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
             </div>
-            {live && wallet?.kind === "browser" && accountAddress && (
+            {live && gatewaySigner && accountAddress && (
               <div className="card">
-                <ProtectionPanel provider={wallet.provider} owner={wallet.address} account={accountAddress} />
+                <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
               </div>
             )}
           </div>

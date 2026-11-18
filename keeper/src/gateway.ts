@@ -83,6 +83,11 @@ export interface BurnIntent {
 export interface StandingOrder {
   burnIntent: BurnIntent;
   signature: Hex;
+  /**
+   * Set when the depositor is a smart account (a passkey): Gateway then checks
+   * the signature with ERC-1271 on the source chain instead of as an EOA's.
+   */
+  contractSigner?: true;
 }
 
 /**
@@ -136,7 +141,7 @@ const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
  * EIP-712 types and Circle's docs use them): a 20-byte value is ambiguous
  * once encoded, and the keeper checks the recipient it reads here.
  *
- * @param json Parsed JSON: an array of `{ burnIntent, signature }`.
+ * @param json Parsed JSON: an array of `{ burnIntent, signature, contractSigner? }`.
  * @param onSkip Told about each malformed entry, which is skipped so that
  *   one bad entry does not disable the others.
  * @returns The well-formed orders.
@@ -151,6 +156,7 @@ export function parseOrders(json: unknown, onSkip: (index: number) => void = () 
     const valid =
       order !== null &&
       isHex(order.signature) &&
+      (order.contractSigner === undefined || order.contractSigner === true) &&
       spec !== undefined &&
       ADDRESS_FIELDS.every((field) => typeof spec[field] === "string" && BYTES32.test(spec[field])) &&
       typeof spec.salt === "string" &&

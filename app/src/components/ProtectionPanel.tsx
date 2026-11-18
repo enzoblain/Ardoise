@@ -1,21 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  createPublicClient,
-  createWalletClient,
-  custom,
-  http,
-  parseUnits,
-  type Address,
-  type EIP1193Provider,
-  type Hex,
-} from "viem";
-import { arcClient } from "@/lib/arc";
+import { parseUnits, type Address, type Hex } from "viem";
 import { formatUsdc } from "@/lib/format";
 import {
-  depositAbi,
-  gateway,
   gatewayBalance,
   gatewayTransfer,
   keeperOrders,
@@ -23,12 +11,11 @@ import {
   sendToKeeper,
   signOrder,
   submitToGateway,
-  sweepAbi,
   type OrderSummary,
   type StandingOrder,
 } from "@/lib/gateway";
+import type { GatewaySigner } from "@/lib/gatewaySigner";
 import { network, txUrl } from "@/lib/network";
-import { switchChain } from "@/lib/wallet";
 
 /**
  * The keeper's standing-order intake; public, it holds no secret. The keeper
@@ -44,11 +31,13 @@ const POLL_MS = 3_000;
  * the standing orders the keeper may use when the margin gets too low, and
  * a one-click repayment from that reserve.
  *
- * @param props.provider Browser wallet of the owner.
- * @param props.owner Owner of the account and depositor on Gateway.
+ * @param props.signer The owner's wallet (browser or passkey): depositor and
+ *   signer on Gateway, owner of the account.
  * @param props.account The owner's Ardoise account, the only recipient orders may name.
  */
-export function ProtectionPanel({ provider, owner, account }: { provider: EIP1193Provider; owner: Address; account: Address }) {
+export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; account: Address }) {
+  const owner = signer.address;
+  const confirming = signer.prompt === "passkey" ? "Confirm with your passkey…" : "Confirm in your wallet…";
   const [balance, setBalance] = useState<bigint>();
   const [orders, setOrders] = useState<OrderSummary[]>();
   // Stops a running delivery poll when the panel goes away.
@@ -67,8 +56,6 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
   const [orderCount, setOrderCount] = useState(2);
   const [repayText, setRepayText] = useState("1");
   const [delivered, setDelivered] = useState(false);
-
-  const signer = createWalletClient({ account: owner, transport: custom(provider) });
 
   const refresh = useCallback(async () => {
     try {
@@ -100,33 +87,11 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
   const deposit = () =>
     step("deposit", async () => {
       const amount = parseUnits(depositText, 6);
-      const chain = network.base.chain;
-      await switchChain(provider, chain);
-      try {
-        const wallet = createWalletClient({ account: owner, chain, transport: custom(provider) });
-        const base = createPublicClient({ chain, transport: http() });
-        const approval = await wallet.writeContract({
-          address: gateway.sourceUsdc,
-          abi: depositAbi,
-          functionName: "approve",
-          args: [gateway.walletContract, amount],
-        });
-        await base.waitForTransactionReceipt({ hash: approval });
-        const hash = await wallet.writeContract({
-          address: gateway.walletContract,
-          abi: depositAbi,
-          functionName: "deposit",
-          args: [gateway.sourceUsdc, amount],
-        });
-        await base.waitForTransactionReceipt({ hash });
-        setMessage({
-          text: `${formatUsdc(amount)} USDC deposited. Gateway credits it once ${network.base.label} finalizes the block, usually within minutes.`,
-          tx: { chain: "base", hash },
-        });
-      } finally {
-        // The rest of the app signs on Arc.
-        await switchChain(provider, network.arc.chain).catch(() => undefined);
-      }
+      const hash = await signer.deposit(amount);
+      setMessage({
+        text: `${formatUsdc(amount)} USDC deposited. Gateway credits it once ${network.base.label} finalizes the block, usually within minutes.`,
+        tx: { chain: "base", hash },
+      });
     });
 
   const signOrders = () =>
@@ -170,14 +135,14 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
 
   const applyNow = () =>
     step("sweep", async () => {
-      await switchChain(provider, network.arc.chain);
-      const wallet = createWalletClient({ account: owner, chain: network.arc.chain, transport: custom(provider) });
-      const hash = await wallet.writeContract({ address: account, abi: sweepAbi, functionName: "sweep" });
-      await arcClient.waitForTransactionReceipt({ hash });
+      const hash = await signer.sweep(account);
       setDelivered(false);
       setMessage({ text: "Applied to your debt.", tx: { chain: "arc", hash } });
     });
 
+  // A passkey account signs through ERC-1271 on Base, which needs the account
+  // deployed there: its first deposit does it, so signing waits for a reserve.
+  const awaitingReserve = signer.prompt === "passkey" && !(balance !== undefined && balance > 0n);
   const total = orders?.reduce((sum, o) => sum + BigInt(o.value), 0n) ?? 0n;
 
   return (
@@ -201,10 +166,18 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
         <AmountAction
           value={depositText}
           onChange={setDepositText}
-          label={busy === "deposit" ? "Confirm in your wallet…" : `Deposit on ${network.base.label}`}
+          label={busy === "deposit" ? confirming : `Deposit on ${network.base.label}`}
           disabled={busy !== undefined}
           onClick={deposit}
         />
+        {signer.prompt === "passkey" && (
+          <p className="text-xs text-faint">
+            Your passkey account deposits from its own balance on {network.base.label}, at the same address: send it USDC
+            {network.name === "mainnet" ? " and a little ETH for gas" : ""} on {network.base.label} first,{" "}
+            <span className="font-mono break-all">{owner}</span>. The first deposit also deploys the account there, which
+            Gateway needs to check its signatures.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 rounded-2xl border border-line bg-sunken p-4">
@@ -232,8 +205,8 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
             <AmountAction
               value={orderValueText}
               onChange={setOrderValueText}
-              label={busy === "orders" ? "Sign in your wallet…" : "Sign"}
-              disabled={busy !== undefined}
+              label={busy === "orders" ? confirming : "Sign"}
+              disabled={busy !== undefined || awaitingReserve}
               onClick={signOrders}
             />
           </div>
@@ -253,7 +226,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
           value={repayText}
           onChange={setRepayText}
           label={busy === "repay" ? "Delivering…" : "Repay"}
-          disabled={busy !== undefined}
+          disabled={busy !== undefined || awaitingReserve}
           onClick={repayNow}
         />
         {delivered && (
@@ -263,7 +236,7 @@ export function ProtectionPanel({ provider, owner, account }: { provider: EIP119
             disabled={busy !== undefined}
             className="btn-secondary w-fit px-4 py-2 text-sm"
           >
-            {busy === "sweep" ? "Confirm in your wallet…" : "Apply to my debt now"}
+            {busy === "sweep" ? confirming : "Apply to my debt now"}
           </button>
         )}
       </div>
