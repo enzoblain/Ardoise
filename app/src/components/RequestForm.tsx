@@ -15,7 +15,7 @@ import {
 } from "@/lib/paymentRequest";
 import { deadlineOf, landedInTime, publish } from "@/lib/requestSession";
 import { RequestWatcher, currentBlock, type ReceivedPayment } from "@/lib/requestWatch";
-import { useNow, useRequestSession } from "@/components/useRequestSession";
+import { useNow, useReached, useRequestSession } from "@/components/useRequestSession";
 
 const CHAINS: PayoutChain[] = [network.base, network.arc];
 /** How often the waiting page reads the payee's chain. */
@@ -186,18 +186,34 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
   const minAmount = request.amount ? parseUnits(request.amount, 6) : 0n;
   const amountLabel = request.amount ? `${request.amount} USDC` : "Any amount";
 
-  const { state, relay } = useRequestSession(request.id, false);
-  const deadline = deadlineOf(state);
-  const now = useNow(250, deadline !== undefined && state.closedAt === undefined && !onChain);
+  const [cancelling, setCancelling] = useState<"sending" | "failed">();
 
-  // Simulated payments only exist on the relay; real ones only count on chain.
-  const simulatedPaid = state.paid?.simulated ? state.paid : undefined;
-  const paidAt = onChain ? (onChain.landedAt ?? now) : simulatedPaid?.at;
+  const { state, relay, offset } = useRequestSession(request.id, false);
+  const deadline = deadlineOf(state);
+  const deadlinePassed = useReached(deadline, offset);
+  const now = useNow(250, deadline !== undefined && !deadlinePassed && state.closedAt === undefined && !onChain, offset);
+
+  // Only a payment seen on chain is money received. A "simulated" report comes
+  // from the relay, which anyone holding the link can write to, so it gets a
+  // neutral view of its own and never the received one.
+  const demoReported = !onChain && state.paid?.simulated === true && state.closedAt === undefined;
+  const paidAt = onChain ? (onChain.landedAt ?? Date.now() + offset) : undefined;
   const late = paidAt !== undefined && !landedInTime(state, paidAt);
-  const expired = state.closedBy === "expired" || (deadline !== undefined && paidAt === undefined && now >= deadline);
+  const expired = state.closedBy === "expired" || (deadlinePassed && !onChain && !demoReported);
   const cancelled = state.closedBy === "cancelled";
-  const view: "received" | "late" | "closed" | "joined" | "waiting" =
-    paidAt !== undefined ? (late ? "late" : "received") : cancelled || expired ? "closed" : deadline !== undefined ? "joined" : "waiting";
+  const view: "received" | "late" | "demo" | "closed" | "joined" | "waiting" =
+    paidAt !== undefined
+      ? late
+        ? "late"
+        : "received"
+      : demoReported
+        ? "demo"
+        : cancelled || expired
+          ? "closed"
+          : deadline !== undefined
+            ? "joined"
+            : "waiting";
+  const previewUrl = buildRequestUrl(new URL(url).origin, { ...request, preview: true });
 
   // Each view replaces the last: move focus to its heading so keyboard and screen reader users follow.
   useEffect(() => heading.current?.focus(), [view]);
@@ -249,6 +265,16 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
     if (view === "closed" && expired && state.closedAt === undefined) publish(request.id, { type: "expired" }).catch(() => {});
   }, [view, onChain, expired, state.paid, state.closedAt, request.id]);
 
+  async function cancel() {
+    setCancelling("sending");
+    try {
+      await publish(request.id, { type: "cancelled" });
+      setCancelling(undefined);
+    } catch {
+      setCancelling("failed");
+    }
+  }
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(url);
@@ -265,7 +291,9 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
     <p className="sr-only" aria-live="polite">
       {view === "joined"
         ? "The payer opened the request."
-        : view === "received"
+        : view === "demo"
+          ? "A demo payment was reported: no USDC was received."
+          : view === "received"
           ? `Payment received: ${amountPaid}.`
           : view === "late"
             ? "A payment arrived after the request closed."
@@ -291,9 +319,35 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
         transaction ↗
       </a>
     </p>
-  ) : (
-    <p className="text-sm text-faint">Paid from the demo account: nothing moved on chain.</p>
-  );
+  ) : null;
+
+  if (view === "demo") {
+    return (
+      <>
+        {announcement}
+        <section className="card mx-auto flex w-full max-w-xl flex-col items-center gap-5 py-10 text-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full border border-line-strong text-2xl text-muted" aria-hidden>
+            i
+          </span>
+          <div className="flex flex-col gap-1">
+            <h2 ref={heading} tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">
+              Demo payment reported
+            </h2>
+            <span className="text-sm text-muted">
+              {amountLabel} · {chain.label}
+              {request.memo && <> · {request.memo}</>}
+            </span>
+          </div>
+          <p className="max-w-sm text-sm text-muted">
+            The payer used Ardoise&apos;s demo account, which simulates payments: <strong className="text-foreground">no USDC was received</strong>. A real payment shows here once it is seen on {chain.label}.
+          </p>
+          <button type="button" onClick={onNew} className="btn-primary px-6">
+            New request
+          </button>
+        </section>
+      </>
+    );
+  }
 
   if (view === "received" || view === "late" || view === "closed") {
     const badge =
@@ -304,9 +358,7 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
           : "border border-line-strong text-muted";
     const title =
       view === "received"
-        ? simulatedPaid && !onChain
-          ? "Payment received (simulated)"
-          : "Payment received"
+        ? "Payment received"
         : view === "late"
           ? "Paid after the request closed"
           : cancelled
@@ -387,10 +439,17 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
               <span className="h-2 w-2 rounded-full bg-accent motion-safe:animate-pulse" aria-hidden />
               Payer connected: waiting for their payment
             </p>
-            <span className="text-5xl font-semibold tabular-nums tracking-tight" aria-hidden>
+            <span className="text-5xl font-semibold tabular-nums tracking-tight" role="timer" aria-label={`${secondsLeft} seconds left`}>
               {secondsLeft} s
             </span>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-line-strong" aria-hidden>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-line-strong"
+              role="progressbar"
+              aria-label="Time left for the payer"
+              aria-valuemin={0}
+              aria-valuemax={30}
+              aria-valuenow={secondsLeft}
+            >
               <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${(secondsLeft / 30) * 100}%` }} />
             </div>
           </div>
@@ -423,7 +482,8 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
                   Download QR code
                 </a>
               )}
-              <a href={url} target="_blank" rel="noreferrer" className="btn-secondary px-5 py-2.5 text-sm">
+              {/* A preview: opening it does not start the real payer's 30 s. */}
+              <a href={previewUrl} target="_blank" rel="noreferrer" className="btn-secondary px-5 py-2.5 text-sm">
                 Open as the payer ↗
               </a>
               <button type="button" onClick={onEdit} className="btn-secondary px-5 py-2.5 text-sm">
@@ -433,13 +493,18 @@ function WaitingView({ open, onEdit, onNew }: { open: OpenRequest; onEdit: () =>
           )}
           <button
             type="button"
-            onClick={() => void publish(request.id, { type: "cancelled" }).catch(() => {})}
-            disabled={relay !== "live"}
+            onClick={() => void cancel()}
+            disabled={relay !== "live" || cancelling === "sending"}
             className="btn-secondary px-5 py-2.5 text-sm text-danger"
           >
-            Cancel request
+            {cancelling === "sending" ? "Cancelling…" : "Cancel request"}
           </button>
         </div>
+        {cancelling === "failed" && (
+          <p role="alert" className="text-sm text-danger">
+            The request could not be cancelled: the relay did not answer. Try again.
+          </p>
+        )}
       </section>
     </>
   );

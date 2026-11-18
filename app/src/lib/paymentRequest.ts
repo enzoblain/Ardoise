@@ -19,6 +19,8 @@ export interface PaymentRequest {
   memo?: string;
   /** Random id of the request, so a payment made from it can reach the payee's waiting page. */
   id?: string;
+  /** Set on the payee's own "Open as the payer" link: opening it does not start the payer's 30 s. */
+  preview?: boolean;
 }
 
 /** Longest memo the pay screen accepts. */
@@ -67,6 +69,7 @@ export function buildRequestUrl(origin: string, request: PaymentRequest): string
   const memo = cleanMemo(request.memo ?? "");
   if (memo) url.searchParams.set("memo", memo);
   if (request.id) url.searchParams.set("id", request.id);
+  if (request.preview) url.searchParams.set("preview", "1");
   return url.toString();
 }
 
@@ -94,6 +97,7 @@ export function parseRequest(params: Record<string, string | string[] | undefine
     amount: amount && isRequestAmount(amount) ? amount : undefined,
     memo: memo || undefined,
     id: REQUEST_ID.test(first("id") ?? "") ? first("id") : undefined,
+    ...(first("preview") === "1" ? { preview: true } : {}),
   };
 }
 

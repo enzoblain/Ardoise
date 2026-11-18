@@ -109,3 +109,11 @@ describe("paysRequest", () => {
     expect(paysRequest({ payee: PAYEE, chain: "base", amount: 7_499_999n }, request)).toBe(false);
   });
 });
+
+describe("preview links", () => {
+  it("round-trips the preview flag and leaves it out otherwise", () => {
+    const url = new URL(buildRequestUrl(ORIGIN, { payee: PAYEE, chain: "base", id: "abcdefgh", preview: true }));
+    expect(parseRequest(Object.fromEntries(url.searchParams))?.preview).toBe(true);
+    expect(parseRequest({ to: PAYEE, preview: "yes" })).not.toHaveProperty("preview");
+  });
+});
