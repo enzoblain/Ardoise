@@ -6,7 +6,7 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, 
 
 ## Demo
 
-- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. It opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
+- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. It opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
