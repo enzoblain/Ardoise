@@ -65,6 +65,7 @@ const checks: IntakeChecks = {
   accountOf: async (owner) => (owner === OWNER ? ACCOUNT : null),
   verifySignature: (order, depositor) =>
     verifyTypedData({ address: depositor, signature: order.signature, ...burnIntentTypedData(order) }),
+  isContract: async () => false,
   sourceBlockNumber: async () => 60_000_000n,
   isUsed: (order) => used.has(order.burnIntent.spec.salt),
 };
@@ -82,6 +83,25 @@ test("accepts orders to the depositor's own account and skips duplicates", async
   const again = await acceptOrders([order], first.orders, GATEWAY_MAINNET, checks);
   assert.deepEqual(again.results, [{ index: 0, status: "duplicate" }]);
   assert.equal(again.orders.length, 1);
+});
+
+test("flags a deployed smart account's orders for ERC-1271 from the chain, whatever the sender claims", async () => {
+  const order = await signedOrder();
+  const contractChecks: IntakeChecks = { ...checks, isContract: async () => true };
+  const flagged = await acceptOrders([order], [], GATEWAY_MAINNET, contractChecks);
+  assert.deepEqual(flagged.results, [{ index: 0, status: "accepted" }]);
+  assert.equal(flagged.orders[0].contractSigner, true);
+  const claimed = await acceptOrders([{ ...order, contractSigner: true }], [], GATEWAY_MAINNET, checks);
+  assert.equal(claimed.orders[0].contractSigner, undefined);
+});
+
+test("refuses a smart account that is not deployed on the source chain yet", async () => {
+  const order = await signedOrder();
+  // An ERC-6492 signature verifies for an undeployed account, but Gateway cannot check it.
+  const wrapped = { ...order, signature: `${order.signature}${"00".repeat(64)}6492649264926492649264926492649264926492649264926492649264926492` as Hex };
+  const result = await acceptOrders([wrapped], [], GATEWAY_MAINNET, { ...checks, verifySignature: async () => true });
+  assert.equal(result.results[0].status, "rejected");
+  assert.match((result.results[0] as { reason: string }).reason, /not deployed/);
 });
 
 test("rejects orders that do not pay the depositor's account, are forged or come from someone without an account", async () => {

@@ -110,6 +110,11 @@ async function main(): Promise<void> {
         // Handles plain wallets and ERC-1271 smart accounts (passkeys) on Base, the orders' source chain.
         verifySignature: (order, depositor) =>
           baseClient.verifyTypedData({ address: depositor, signature: order.signature, ...burnIntentTypedData(order) }),
+        isContract: async (depositor) => {
+          const code = await baseClient.getCode({ address: depositor });
+          // 0xef0100 + address is an EIP-7702 delegation, set on an EOA.
+          return code !== undefined && !code.startsWith("0xef0100");
+        },
         sourceBlockNumber: () => baseClient.getBlockNumber(),
         isUsed: (order) => gateway?.isUsed(order) ?? false,
       },

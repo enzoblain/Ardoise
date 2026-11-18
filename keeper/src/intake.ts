@@ -1,7 +1,7 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { getAddress, isAddress, zeroAddress, type Address, type Hex } from "viem";
+import { getAddress, isAddress, size, zeroAddress, type Address, type Hex } from "viem";
 
 import { BURN_INTENT_DOMAIN, BURN_INTENT_TYPES, parseOrders, rejectReason, type GatewayNetwork, type StandingOrder } from "./gateway.js";
 import { errorMessage } from "./keeper.js";
@@ -36,6 +36,12 @@ export interface IntakeChecks {
   accountOf(owner: Address): Promise<Address | null>;
   /** Whether `signature` is the depositor's over the burn intent (EOA or ERC-1271 on the source chain). */
   verifySignature(order: StandingOrder, depositor: Address): Promise<boolean>;
+  /**
+   * Whether the depositor is a deployed contract on the source chain (a
+   * passkey smart account). An EOA delegated with EIP-7702 is not one: it
+   * still signs as an EOA.
+   */
+  isContract(depositor: Address): Promise<boolean>;
   /** Current block of the source chain (Base), against which `maxBlockHeight` expires. */
   sourceBlockNumber(): Promise<bigint>;
   /** Whether the funder already used the order. */
@@ -137,7 +143,16 @@ export async function checkOrders(
       results.push({ index, status: "rejected", reason: "the signature is not the depositor's" });
       continue;
     }
-    candidates.push(order);
+    // Gateway checks a smart account's signature with ERC-1271 only when the
+    // order says so, and only on a deployed account: the flag is set here from
+    // the chain rather than taken from the sender, and an account that is not
+    // deployed yet (its signature then verifies only as ERC-6492) is refused.
+    const contract = await checks.isContract(owner);
+    if (!contract && size(order.signature) !== 65) {
+      results.push({ index, status: "rejected", reason: "the depositor's smart account is not deployed on the source chain yet: deposit first" });
+      continue;
+    }
+    candidates.push({ burnIntent: order.burnIntent, signature: order.signature, ...(contract ? { contractSigner: true as const } : {}) });
     keys.add(orderKey(order));
     perOwner.set(ownerKey(order), (perOwner.get(ownerKey(order)) ?? 0) + 1);
     results.push({ index, status: "accepted" });
