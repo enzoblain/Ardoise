@@ -64,6 +64,10 @@ contract DefenseExecutor is IMessageHandlerV2 {
     uint256 private constant BPS = 10_000;
     /// @notice Highest slippage a policy may allow (10%).
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
+    /// @notice Gas that must be left before a swap: about three times what a SwapRouter02
+    /// single-pool swap on the WETH/USDC pool uses (about 95k measured on a Base fork), so a
+    /// relayer cannot pick a gas limit at which a swap of defense size runs out of gas.
+    uint256 public constant MIN_SWAP_GAS = 300_000;
     /// @dev "cctp-forward": Circle's Forwarding Service mints on Arc without a relayer.
     bytes32 private constant FORWARD_HOOK = "cctp-forward";
 
@@ -199,6 +203,10 @@ contract DefenseExecutor is IMessageHandlerV2 {
     error TokenCallFailed();
     /// @notice Thrown on reentrancy.
     error Reentrancy();
+    /// @notice Thrown when less than `MIN_SWAP_GAS` is left before a swap, or a swap ran out of
+    /// gas: the relayer sent too little gas, and reverting keeps the alarm deliverable instead of
+    /// consuming it without a defense.
+    error SwapOutOfGas();
 
     modifier nonReentrant() {
         if (_locked != 1) revert Reentrancy();
@@ -421,6 +429,13 @@ contract DefenseExecutor is IMessageHandlerV2 {
         _call(token.approve(address(swapRouter), amountIn));
 
         uint256 used = 0;
+        // Anyone can relay the message, so a relayer must not be able to pick a gas limit at which
+        // the swap fails for lack of gas while the delivery succeeds and consumes the alarm. The
+        // floor covers a swap costing up to about 285k (a defense-size swap costs about 95k); the
+        // 63/64 check catches a swap that ran out of gas in its own frame (it gets 63/64 of the gas
+        // left, so under 1/64 remains).
+        uint256 gasBefore = gasleft();
+        if (gasBefore < MIN_SWAP_GAS) revert SwapOutOfGas();
         if (amountIn == maxIn) {
             try swapRouter.exactOutputSingle(
                 ISwapRouter02.ExactOutputSingleParams(asset, address(usdc), s.poolFee, address(this), needed, maxIn, 0)
@@ -429,7 +444,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
             ) {
                 used = spentIn;
                 usdcOut = needed;
-            } catch {}
+            } catch {
+                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+            }
         } else {
             uint256 minOut = amountIn * price * 1e6 * (BPS - p.maxSlippageBps) / (unit * priceUnit * BPS);
             try swapRouter.exactInputSingle(
@@ -441,7 +458,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
             ) {
                 used = amountIn;
                 usdcOut = out;
-            } catch {}
+            } catch {
+                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+            }
         }
         _call(token.approve(address(swapRouter), 0));
 

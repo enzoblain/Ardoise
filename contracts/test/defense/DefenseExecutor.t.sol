@@ -221,6 +221,45 @@ contract DefenseExecutorTest is Test {
         assertEq(weth.balanceOf(owner), 1e18);
     }
 
+    function test_defense_swapOutOfGasRevertsSoTheAlarmIsNotConsumed() public {
+        _policyUsdcThenWeth(0, 1e18, 100);
+        _fund(weth, 1e18);
+        router.setHungry(true); // the swap uses all the gas it gets, as with a tight relay
+        bytes memory body = _alarm(1 * USDC, 1);
+        vm.prank(transmitter);
+        vm.expectRevert(DefenseExecutor.SwapOutOfGas.selector);
+        executor.handleReceiveFinalizedMessage{gas: 1_000_000}(ARC, _sender(alarm), 2000, body);
+
+        // Nothing was consumed: once relayed with a working swap, the same alarm runs.
+        assertFalse(executor.alarmUsed(1));
+        router.setHungry(false);
+        _deliver(body);
+        assertEq(messenger.burnCount(), 1);
+    }
+
+    function test_defense_partialSwapOutOfGasAlsoReverts() public {
+        _policyUsdcThenWeth(0, 0.0005e18, 100); // exact-input path
+        _fund(weth, 1e18);
+        router.setHungry(true);
+        bytes memory body = _alarm(1 * USDC, 1);
+        vm.prank(transmitter);
+        vm.expectRevert(DefenseExecutor.SwapOutOfGas.selector);
+        executor.handleReceiveFinalizedMessage{gas: 1_000_000}(ARC, _sender(alarm), 2000, body);
+        assertFalse(executor.alarmUsed(1));
+    }
+
+    function test_defense_tooLittleGasBeforeSwapReverts() public {
+        _policyUsdcThenWeth(0, 1e18, 100);
+        _fund(weth, 1e18);
+        router.setQuirks(0, true); // a failing swap would otherwise consume the alarm
+        bytes memory body = _alarm(1 * USDC, 1);
+        vm.prank(transmitter);
+        vm.expectRevert(DefenseExecutor.SwapOutOfGas.selector);
+        // Enough for the checks and the pull, under the floor once the swap is reached.
+        executor.handleReceiveFinalizedMessage{gas: 250_000}(ARC, _sender(alarm), 2000, body);
+        assertFalse(executor.alarmUsed(1));
+    }
+
     function test_defense_stalePriceRevertsSoTheMessageCanBeRetried() public {
         _policyUsdcThenWeth(0, 1e18, 100);
         _fund(weth, 1e18);
