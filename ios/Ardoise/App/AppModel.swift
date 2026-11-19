@@ -68,9 +68,10 @@ final class AppModel {
 
     /// Short, readable message for any error the SDK or the chain throws.
     static func message(_ error: Error) -> String {
-        // ASAuthorizationError.canceled (1001): the user closed the passkey sheet.
-        if String(reflecting: error).contains("AuthorizationError Code=1001") {
-            return "Sign-in cancelled."
+        // ASAuthorizationError.canceled (1001): the user closed the passkey
+        // sheet, or the device has no passkey for the site.
+        if String(reflecting: error).contains("AuthorizationError Code=1001 ") {
+            return "Cancelled, or no passkey for ardoise-rust.vercel.app on this device."
         }
         let text = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         return text.components(separatedBy: "\n").first ?? text
