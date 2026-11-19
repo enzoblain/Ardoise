@@ -8,7 +8,7 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, 
 
 ## Demo
 
-- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page explains Ardoise with live borrow rates; **Launch app** (or [`/app`](https://ardoise-rust.vercel.app/app)) opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
+- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page opens with a scroll-driven intro (the ring of collateral vaults with the live cirBTC rate, then borrowing, paying and protection); its **Access** button leads to the main page, where **My position** (or [`/app`](https://ardoise-rust.vercel.app/app)) opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
@@ -166,7 +166,7 @@ git clone https://github.com/enzoblain/Ardoise.git
 cd Ardoise/app && npm install && npm run dev
 ```
 
-Open http://localhost:3000 and click **Launch app** (or go to http://localhost:3000/app), enter an amount and a payee address, compare the rates, watch the margin gauge and click **Pay**: the payment appears as a new line in the statement.
+Open http://localhost:3000 and scroll through the intro, click **Access**, then **My position** (or go to http://localhost:3000/app), enter an amount and a payee address, compare the rates, watch the margin gauge and click **Pay**: the payment appears as a new line in the statement.
 
 ### Prerequisites
 
@@ -223,7 +223,7 @@ set -a && source .env && set +a
 
 ```
 contracts/   Solidity contracts (Foundry): account, factory, Aave V4 and Morpho adapters, margin guard, CCTP defense alarm and executor, deployment scripts and records (deployments.md)
-app/         Next.js + viem front end: landing page (`/`, 3D slate hero, live rates), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, stress test, payment tracking page
+app/         Next.js + viem front end: landing page (`/`, scroll-driven intro with a ring of collateral vaults, live rates, Arc and Circle overview), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, stress test, payment tracking page
 ios/         Native iOS app (SwiftUI, Circle's Modular Wallets iOS SDK): passkey sign-in, pay with the venue picker, statement, account; generated from project.yml with XcodeGen
 keeper/      Node keeper: repays debt with sweep() and Gateway standing orders, and receives standing orders from the app
 docs/        Contract interfaces and payment flow (api.md), hackathon roadmap (roadmap.md), README screenshot (images/)
