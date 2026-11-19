@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IMessageTransmitterV2} from "../cctp/IMessageTransmitterV2.sol";
+import {IArdoise} from "../interfaces/IArdoise.sol";
 import {IArdoiseFactory} from "../interfaces/IArdoiseFactory.sol";
 import {IGuard} from "../interfaces/IGuard.sol";
 import {IVenue} from "../interfaces/IVenue.sol";
@@ -53,7 +54,8 @@ contract DefenseAlarm is IDefenseAlarm {
     /// @param factory_ Ardoise factory on Arc.
     /// @param messageTransmitter_ CCTP V2 MessageTransmitter on Arc.
     /// @param executorDomain_ CCTP domain of the executor's chain (6 for Base).
-    /// @param cooldownPeriod_ Minimum time between two alarms for the same owner, in seconds.
+    /// @param cooldownPeriod_ Minimum time between two alarms for the same owner, in seconds; at
+    /// least `alarmTtl_`, and in practice also longer than the burn back to Arc takes.
     /// @param alarmTtl_ Validity of an alarm on the executor's chain, in seconds.
     constructor(
         IArdoiseFactory factory_,
@@ -65,6 +67,8 @@ contract DefenseAlarm is IDefenseAlarm {
         if (address(factory_) == address(0) || address(messageTransmitter_) == address(0)) {
             revert ZeroAddress();
         }
+        // A second alarm must not exist while the first can still be executed.
+        if (alarmTtl_ == 0 || cooldownPeriod_ < alarmTtl_) revert InvalidTiming(cooldownPeriod_, alarmTtl_);
         factory = factory_;
         messageTransmitter = messageTransmitter_;
         executorDomain = executorDomain_;
@@ -101,18 +105,17 @@ contract DefenseAlarm is IDefenseAlarm {
         uint256 targetHf = guard.targetHealthFactor();
         IVenue[] memory list = factory.venues();
         for (uint256 i = 0; i < list.length; ++i) {
-            uint256 hf = _health(guard, list[i], owner);
-            if (hf >= minHf) continue;
-            // forge-lint: disable-next-line(unused-return)
-            (,, uint256 debtUsd) = list[i].health(owner);
+            (bool ok, uint256 hf, uint256 debtUsd, uint256 debt) = _measure(guard, list[i], owner);
+            if (!ok || hf >= minHf) continue;
             uint256 usdWad = _ceilDiv(debtUsd * (targetHf - hf), targetHf);
             uint256 usdc = _ceilDiv(usdWad, WAD_PER_USDC_UNIT);
-            uint256 debt = list[i].debtOf(owner);
             return (list[i], usdc < debt ? usdc : debt);
         }
     }
 
-    // forge-lint: disable-next-item(block-timestamp, reentrancy-events)
+    // The account and the transmitter come from the factory and CCTP; state written after the sweep
+    // is per-owner bookkeeping the sweep cannot reach.
+    // forge-lint: disable-next-item(block-timestamp, reentrancy-events, reentrancy-no-eth)
     /// @inheritdoc IDefenseAlarm
     /// @dev Sends `DefenseMessage.encode(owner, account, amountNeeded, nonce, expiry)` to the
     /// executor at finality 2000, with no destination caller, so anyone can relay it.
@@ -123,6 +126,12 @@ contract DefenseAlarm is IDefenseAlarm {
         if (account == address(0)) revert NoAccount(owner);
         uint64 nextAllowed = cooldown(owner);
         if (nextAllowed != 0 && block.timestamp < nextAllowed) revert CoolingDown(nextAllowed);
+        // USDC already on the account (an earlier defense, a Gateway repayment) is applied first,
+        // so the alarm asks Base only for what is still missing. `sweep()` is public and can only
+        // reduce debt; a failing sweep must not block the alarm.
+        if (account.code.length > 0) {
+            try IArdoise(account).sweep() {} catch {}
+        }
         (, uint256 amountNeeded) = shortfall(owner);
         if (amountNeeded == 0) revert PositionHealthy(owner);
 
@@ -142,15 +151,32 @@ contract DefenseAlarm is IDefenseAlarm {
     }
 
     // Called once per venue of the short, admin-set list.
-    // forge-lint: disable-next-item(calls-loop)
-    /// @dev The guard's simulated health factor when it offers one, the venue's otherwise.
-    function _health(IGuard guard, IVenue venue, address owner) private view returns (uint256 hf) {
-        try ISimulatedHealth(address(guard)).simulatedHealth(venue, owner) returns (uint256 simulated) {
-            return simulated;
+    // forge-lint: disable-next-item(calls-loop, unused-return)
+    /// @dev The owner's position on `venue`: the guard's simulated health factor (the venue's own
+    /// when the guard has no simulation), the debt in USD (WAD) and in the venue's asset. `ok` is
+    /// false when the venue cannot answer, so one failing venue does not block the others.
+    function _measure(IGuard guard, IVenue venue, address owner)
+        private
+        view
+        returns (bool ok, uint256 hf, uint256 debtUsd, uint256 debt)
+    {
+        uint256 venueHf = 0;
+        try venue.health(owner) returns (uint256 h, uint256, uint256 d) {
+            (venueHf, debtUsd) = (h, d);
         } catch {
-            // forge-lint: disable-next-line(unused-return)
-            (hf,,) = venue.health(owner);
+            return (ok, hf, debtUsd, debt);
         }
+        try venue.debtOf(owner) returns (uint256 d) {
+            debt = d;
+        } catch {
+            return (ok, hf, debtUsd, debt);
+        }
+        try ISimulatedHealth(address(guard)).simulatedHealth(venue, owner) returns (uint256 simulated) {
+            hf = simulated;
+        } catch {
+            hf = venueHf;
+        }
+        ok = true;
     }
 
     function _ceilDiv(uint256 a, uint256 b) private pure returns (uint256) {

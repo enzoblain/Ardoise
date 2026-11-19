@@ -40,11 +40,15 @@ interface IDefenseAlarm {
     /// @notice Thrown by `raise` during the owner's cooldown.
     /// @param nextAllowed Timestamp from which an alarm can be raised again.
     error CoolingDown(uint64 nextAllowed);
+    /// @notice Thrown by the constructor when the alarm TTL is zero or longer than the cooldown:
+    /// two alarms for the same owner could then both be executed for one shortfall.
+    error InvalidTiming(uint64 cooldownPeriod, uint64 alarmTtl);
     /// @notice Thrown by the constructor when an address is zero.
     error ZeroAddress();
 
     /// @notice Raises an alarm for `owner` if their position is under the guard's minimum.
-    /// @dev Permissionless. Reverts with `ExecutorNotSet`, `NoAccount`, `GuardNotSet`,
+    /// @dev Permissionless. Calls the account's public `sweep()` first, so USDC already on the
+    /// account is applied before the shortfall is measured. Reverts with `ExecutorNotSet`, `NoAccount`, `GuardNotSet`,
     /// `CoolingDown` or `PositionHealthy`. Emits `AlarmRaised`.
     /// @param owner Owner of the position.
     /// @return nonce Identifier of the alarm.
