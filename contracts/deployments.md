@@ -178,7 +178,7 @@ The keeper's third defense step, in [`keeper/src/defense.ts`](../keeper/src/defe
 1. `sweep()` when the account holds USDC (B2).
 2. The owner's Gateway standing orders when the position is under the guard's minimum and the account holds nothing to repay with (B4). The orders submitted never add up to more than the owner's debt on every venue less the USDC already on the account: an account has no withdrawal, so an order larger than that is skipped and logged (`standing order … skipped: larger than the debt left to repay`).
 3. When the position is still under the minimum, the account still holds nothing to repay with and Gateway is not covering the shortfall (no transfer on its way or settled in the last minute: no order left, every order left larger than the debt left to repay, or Gateway refused them, for example for a reserve too low), the defense relay:
-   - simulates `DefenseAlarm.raise(owner)` on Arc. `CoolingDown(nextAllowed)`: nothing is sent until `nextAllowed`. `PositionHealthy`: the balance on the account restores the position, so the keeper calls `sweep()` on the account directly. Any other revert holds `raise` for that owner for 1 minute, doubling up to 1 hour;
+   - simulates `DefenseAlarm.raise(owner)` on Arc. `CoolingDown(nextAllowed)`: nothing is sent until `nextAllowed`. `PositionHealthy`: the alarm does not see a shortfall, because the balance on the account restores the position or because the alarm judges the position differently (the alarm now in the repository, which is not deployed, would, when deployed for production, ignore the guard's simulated drop and keep the thresholds it pinned at deployment), so the keeper calls `sweep()` on the account directly. Any other revert holds `raise` for that owner for 1 minute, doubling up to 1 hour;
    - sends `raise(owner)` with 30% gas headroom (the alarm's own `sweep()` reverts with `SweepOutOfGas` on a tight estimate) and follows that transaction until it has a receipt (the owner stays on hold meanwhile, so a slow `raise` is never sent twice; without a receipt after 5 minutes it is treated as lost and `raise` is held as after a failure), then reads `AlarmRaised` from the receipt;
    - polls Circle Iris, `GET https://iris-api.circle.com/v2/messages/26?transactionHash=<raise tx>`, every 2 s doubling up to 30 s, until the message's `status` is `complete`, and gives up when the alarm expires;
    - simulates, then sends `receiveMessage(message, attestation)` to the MessageTransmitterV2 on Base (`0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`) with the same key and 50% gas headroom over the estimate, a complement to the executor's gas floor ([PR #48](https://github.com/enzoblain/Ardoise/pull/48): at least 300k gas before a swap plus a 63/64 check, else the delivery reverts with `SwapOutOfGas` instead of skipping the WETH swap and consuming the alarm; that revert is retried like any other failure), follows that transaction until it has a receipt instead of sending it again, and logs the executor's `DefenseExecuted` or `AlarmIgnored`. `TooSoon(owner, nextAllowed)`: delivered again from `nextAllowed` (waiting at least 5 s, so a clock ahead of Base cannot spin) if that is before the alarm's expiry, otherwise given up. `AlarmAlreadyUsed` or a CCTP nonce already used: someone delivered it, nothing left to do. Other failed simulations (no gas spent, for example a stale price, or `SwapFailed` when the pool price is outside the owner's slippage bound, a revert of the executor's source that the deployed executor does not have yet, see the note under *CCTP-attested defense (D1)*): retried after 5 s, doubling up to 1 minute, until the alarm expires. A transaction that reverts or has no receipt after 5 minutes counts as a failed delivery; after 5 of them the alarm is given up. A revert is not counted when the next simulation fails with `SwapFailed`, `SwapOutOfGas` or `StalePrice`: the pool or the oracle moved between simulation and inclusion, and the alarm is still deliverable;
@@ -197,6 +197,19 @@ At start, with the relay on, the keeper logs the alarm address and its wallet's 
 ## CCTP-attested defense (D1)
 
 The alarm reads one factory and the executor trusts one alarm, so each factory has its own pair. Set `DEFENSE_ALARM_ADDRESS` for the keeper to the current alarm (it does not read `DEFENSE_EXECUTOR_ADDRESS`). See *CCTP-attested defense* in [`docs/api.md`](../docs/api.md).
+
+> [!WARNING]
+> **Both pairs deployed below have the old behaviour** (security review findings D-1 and D-2 / C-1). They were built before the alarm pinned what it trusts:
+> 1. **Current pair, for the current factory:** alarm `0x7147a1aE19F0d1Ad0d2885baa55f2D0004D5B3B8`, executor `0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6`. It sees the accounts of the current factory, the keeper is pointed at it, and an owner policy and a WETH approval are live on its executor (table below).
+> 2. **Previous pair, for the first factory:** alarm `0x3BABC3f53E354284C98F272CC4E093730aA05E43`, executor `0x897B6baF462ae207895f2Cf32A0A4c6D98f15296`. It still defends the first factory's accounts; a policy and a WETH approval were set on its executor for the mainnet proof.
+>
+> On both:
+> - the alarm decides on the guard's *simulated* health factor and reads the guard's thresholds on every call. **While either pair has policies, a simulated drop on the guard (`setSimulatedDrop`), or raised thresholds, lets anyone call `raise` and trigger real spending (a sale of WETH within the caps) for every owner holding a policy on that pair's executor.** An alarm raised during a drop stays valid for 900 s after the drop is cleared. Both factories use the same guard, so one drop exposes both pairs;
+> - the alarm reads the venue list and the guard from its factory on every call, so the factory admin can list a venue, or set a guard, that reports a false health factor and raise an alarm on a healthy position.
+>
+> Do not set a simulated drop while a policy that is not a demo wallet's exists on `0x7294F4B0…` or `0x897B6baF…`; an owner removes a policy with `clearPolicy()` and by revoking the approvals.
+>
+> The alarm now in this repository pins its venues, thresholds and health source at construction. It needs a **new alarm and a new executor** (the executor trusts one alarm address), deployed for the current factory as described in *How to deploy*. **That pair is not deployed.**
 
 **Not in either deployed pair: the `SwapFailed` revert and the minimum slippage.** In the source, a swap that fails for a reason other than gas, in practice a pool price outside the owner's slippage bound, reverts the delivery with `SwapFailed(asset)`, so the alarm stays deliverable until it expires, and `setPolicy` refuses a slippage bound under 10 bps when the policy has an asset to sell. Both executors deployed below, the current [`0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6`](https://basescan.org/address/0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6) and the previous [`0x897B6baF462ae207895f2Cf32A0A4c6D98f15296`](https://basescan.org/address/0x897B6baF462ae207895f2Cf32A0A4c6D98f15296), predate these changes: they catch the failed swap and consume the alarm (`AlarmIgnored`, or a burn of the USDC part only), which lets a relayer cancel a defense by moving the WETH/USDC pool in the delivery transaction. As an order of magnitude, on Base forks of 2026-11-19 that cost 1,400 to 2,100 USD of pool fees for a 1% bound, depending on the pool's liquidity at the time. The fix needs a new `DefenseExecutor` for each factory to protect and, since an alarm's executor is set once and an executor trusts one alarm, a new `DefenseAlarm` with it; owners then set their policy and approvals on the new executor and the keeper's `DEFENSE_ALARM_ADDRESS` changes. This redeployment has not been done.
 
@@ -236,6 +249,9 @@ The keeper, restarted from `main` at 08:39 UTC on the Morpho factory with `DEFEN
 | 08:41:30 | keeper `sweep()` repays 0.122745 USDC: simulated health factor back to 1.500 | [`0x6979521d…`](https://explorer.arc.io/tx/0x6979521de46b87d47eede512d313bc7c286dc788af1631b8e8e54402f519a6cb) |
 | 08:42:05 | `guard.setSimulatedDrop(0)` | [`0x125a95f8…`](https://explorer.arc.io/tx/0x125a95f8cbd17b9746f9d76a0c34b84440e0a16c9cd63edf74fd7b903baf2f40) |
 
+> [!WARNING]
+> **Do not repeat this run as it is.** It set a simulated drop on the shared guard while both executors were live. The drop is global: from `setSimulatedDrop(8000)` to `setSimulatedDrop(0)`, anyone could have called `raise` for any owner holding a policy on either executor (`0x7294F4B0…` or `0x897B6baF…`), and an alarm raised then stayed valid for 900 s after the drop was cleared. A run on a simulated drop must use an alarm deployed with `DEFENSE_HONORS_SIMULATION=true` and its own executor, reserved for demos, on which only demo wallets set a policy; a production alarm ignores the simulated drop and is proven on a position whose real health factor is under the minimum.
+
 From the drop to the target: 102 s, of which about a minute is the keeper waiting after it sees the Gateway transfer delivered before it raises the alarm. From `raise` to the repayment on Arc: 15 s.
 
 ### Previous: for the first factory
@@ -270,17 +286,29 @@ Run on 2026-11-19 on the demo position (owner: the project wallet, account [`0xd
 | Arc: `account.sweep()` | [`0xc55f42ad…`](https://explorer.arc.io/tx/0xc55f42adea96b9bddd50ce2d24f613c48aadb838ef62ddcfb3c145350b8add7a) | debt 0.865396 → 0.612270 USDC, simulated health factor 1.504 (target 1.5) |
 | Arc: `guard.setSimulatedDrop(0)` | [`0x26cf0faa…`](https://explorer.arc.io/tx/0x26cf0faa9c821c049812a15216ccdd651c43fc90922be4f0fa8903f9714fc810) | simulation cleared |
 
+> [!WARNING]
+> **Do not repeat this run as it is either**, for the same reason as the keeper run above: between `setSimulatedDrop(7000)` and `setSimulatedDrop(0)`, anyone could have raised an alarm for any policy holder of the executor. Use a demo-only pair.
+
 Timing (block timestamps): `raise` mined → attestation complete: under 9 s (polled every 2 s) → `receiveMessage` mined on Base: 21 s after `raise`, most of it the manual relay → forwarded mint on Arc: 5 s after the Base burn, 26 s after `raise`. The keeper running at the time did not sweep within a minute, so the sweep was sent by hand 66 s after the mint.
 
 ### How to deploy
 
-From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Each pair cost about 0.02 USDC on Arc and 0.000012 ETH on Base (see the tables above).
+From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Each pair above cost about 0.02 USDC on Arc and 0.000012 ETH on Base (see the tables above). These commands deploy the alarm now in this repository; **they have not been run**.
+
+The alarm pins `factory.venues()` and the thresholds of `factory.guard()` as they are in the deployment block, for good. The script refuses to deploy unless the guard's thresholds, and then the alarm's pinned ones, equal `DEFENSE_EXPECTED_MIN_HEALTH_FACTOR` and `DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR` (defaults `1.25e18` and `1.5e18`, the deployed guard's values), so thresholds changed on the guard just before the deployment cannot be pinned silently. The venue list has no such check: read it on the factory before step 1, read it back from the alarm after it (the script logs it too), and stop if anything differs from the adapters in the tables above. An alarm cannot be corrected, only replaced.
 
 ```sh
 set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
-# 1. Arc: the alarm, for the current factory (never hard-coded: pass it)
-DEFENSE_FACTORY=0xB4476B617B750B9f48786c60930bc499343BB4a8 \
+# 0. Arc: what the alarm is about to pin
+cast call 0xB4476B617B750B9f48786c60930bc499343BB4a8 "venues()(address[])" --rpc-url https://rpc.mainnet.arc.io
+cast call 0xB4476B617B750B9f48786c60930bc499343BB4a8 "guard()(address)" --rpc-url https://rpc.mainnet.arc.io
+# 1. Arc: the production alarm, for the current factory (never hard-coded: pass it)
+DEFENSE_FACTORY=0xB4476B617B750B9f48786c60930bc499343BB4a8 DEFENSE_HONORS_SIMULATION=false \
   forge script script/DeployDefense.s.sol:DeployDefenseAlarm --rpc-url https://rpc.mainnet.arc.io --broadcast
+cast call <alarm> "venues()(address[])" --rpc-url https://rpc.mainnet.arc.io            # both adapters, in order
+cast call <alarm> "minHealthFactor()(uint256)" --rpc-url https://rpc.mainnet.arc.io     # 1250000000000000000
+cast call <alarm> "targetHealthFactor()(uint256)" --rpc-url https://rpc.mainnet.arc.io  # 1500000000000000000
+cast call <alarm> "honorsSimulation()(bool)" --rpc-url https://rpc.mainnet.arc.io       # false
 # 2. Base: the executor, trusting that alarm
 DEFENSE_ALARM_ADDRESS=<alarm> \
   forge script script/DeployDefense.s.sol:DeployDefenseExecutor --rpc-url https://mainnet.base.org --broadcast
@@ -289,15 +317,17 @@ DEFENSE_ALARM_ADDRESS=<alarm> DEFENSE_EXECUTOR_ADDRESS=<executor> \
   forge script script/DeployDefense.s.sol:SetDefenseExecutor --rpc-url https://rpc.mainnet.arc.io --broadcast
 # Sources (Sourcify supports both chains)
 forge verify-contract <alarm> src/defense/DefenseAlarm.sol:DefenseAlarm --chain-id 5042 --verifier sourcify \
-  --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64)" \
-    0xB4476B617B750B9f48786c60930bc499343BB4a8 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900)
+  --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64,bool)" \
+    0xB4476B617B750B9f48786c60930bc499343BB4a8 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900 false)
 forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor --chain-id 8453 --verifier sourcify \
   --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256,uint256),(address,address,uint24)[])" \
     "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500,2400)" \
     "[(0x4200000000000000000000000000000000000006,0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70,500)]")
 ```
 
-A new factory (for example with a Morpho venue) needs a new alarm and a new executor, since the executor trusts one alarm address.
+**What needs a new pair.** The executor trusts one alarm address, and the alarm cannot be changed, so each of these needs a new alarm and a new executor, on which every owner sets a policy and approvals again: a new factory, a venue added to or removed from the factory's list, new guard thresholds, a new guard, and a pinned venue that starts to misbehave (it can make `raise` revert for every owner, and nothing can drop it from the alarm). That is the cost of an alarm whose trigger nobody can move after deployment.
+
+**Demo pair.** To show the defense on a simulated price drop, deploy a second, separate pair with `DEFENSE_HONORS_SIMULATION=true` in step 1 (and `true` as the last constructor argument when verifying), with its own executor; the script refuses any other spelling of the flag, except that whitespace after the value is trimmed when the variable is read (`"true "` means `true`). Before the pair is used, the operator must check the health source the script logs and run the `cast call` read-backs of step 1, which are mandatory for both kinds of pair: `honorsSimulation()` must be `true` here and `false` on a production alarm. On that pair the guard owner's simulated drop raises alarms for every policy holder, so only demo wallets may set a policy on its executor, and its addresses must never be given to users or set in the production keeper. Never set a simulated drop to prove the production pair: it ignores it.
 
 ## Privileged roles
 

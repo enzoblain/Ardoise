@@ -9,6 +9,8 @@ import {ITokenMessengerV2} from "../src/cctp/ITokenMessengerV2.sol";
 import {DefenseAlarm} from "../src/defense/DefenseAlarm.sol";
 import {DefenseExecutor, IAggregatorV3, ISwapRouter02} from "../src/defense/DefenseExecutor.sol";
 import {IArdoiseFactory} from "../src/interfaces/IArdoiseFactory.sol";
+import {IGuard} from "../src/interfaces/IGuard.sol";
+import {IVenue} from "../src/interfaces/IVenue.sol";
 
 /// @notice CCTP V2 addresses, identical on Arc and Base mainnet.
 abstract contract DefenseAddresses is Script {
@@ -20,12 +22,24 @@ abstract contract DefenseAddresses is Script {
 
 /// @title DeployDefenseAlarm
 /// @notice Step 1, on Arc mainnet: deploys `DefenseAlarm` for an Ardoise factory.
-/// @dev Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_FACTORY` (required: the factory
+/// @dev The alarm pins the factory's venue list and its guard's thresholds as they are in the
+/// deployment block and never reads them again: the script logs what was pinned, to be compared
+/// with the intended venues and thresholds before the executor is deployed.
+/// Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_FACTORY` (required: the factory
 /// address, never hard-coded so the alarm follows a redeployed factory), `DEFENSE_COOLDOWN`
 /// (seconds between two alarms per owner, default 1800), `DEFENSE_ALARM_TTL` (seconds an alarm
-/// stays valid on Base, default 900; the alarm refuses a TTL longer than the cooldown). Funds still
-/// on their way back from Base are protected by the executor's `minDefenseInterval`. Commands
-/// are in contracts/deployments.md.
+/// stays valid on Base, default 900; the alarm refuses a TTL longer than the cooldown),
+/// `DEFENSE_HONORS_SIMULATION` (`false`, the default when unset or empty, for production: the
+/// alarm decides on the venues' real health factors. `true` makes the guard's simulated price
+/// drop raise alarms for every policy holder of the paired executor: only for a pair reserved for
+/// demos. Any other value reverts, so a typo cannot silently choose a health source; trailing
+/// whitespace is trimmed when the variable is read, so the logged health source and the
+/// `honorsSimulation()` read-back must still be checked before the pair is used),
+/// `DEFENSE_EXPECTED_MIN_HEALTH_FACTOR` and `DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR` (WAD, defaults
+/// 1.25e18 and 1.5e18: the thresholds the guard must report and the alarm must pin, or the script
+/// reverts before sending anything, so thresholds changed on the guard just before the deployment
+/// are not pinned silently). Funds still on their way back from Base are protected by the
+/// executor's `minDefenseInterval`. Commands are in contracts/deployments.md.
 contract DeployDefenseAlarm is DefenseAddresses {
     /// @notice Runs the deployment.
     /// @return alarm The deployed alarm.
@@ -36,6 +50,14 @@ contract DeployDefenseAlarm is DefenseAddresses {
         uint256 cooldown = vm.envOr("DEFENSE_COOLDOWN", uint256(1800));
         uint256 ttl = vm.envOr("DEFENSE_ALARM_TTL", uint256(900));
         require(cooldown <= type(uint64).max && ttl <= type(uint64).max, "timing too large");
+        bool honorsSimulation = _honorsSimulation();
+        uint256 expectedMin = vm.envOr("DEFENSE_EXPECTED_MIN_HEALTH_FACTOR", uint256(1.25e18));
+        uint256 expectedTarget = vm.envOr("DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR", uint256(1.5e18));
+        // Checked before anything is sent: the alarm would pin these values for good.
+        IGuard guard = factory.guard();
+        require(address(guard) != address(0), "factory has no guard");
+        require(guard.minHealthFactor() == expectedMin, "guard minimum is not the expected one");
+        require(guard.targetHealthFactor() == expectedTarget, "guard target is not the expected one");
         vm.startBroadcast(key);
         alarm = new DefenseAlarm(
             factory,
@@ -44,10 +66,36 @@ contract DeployDefenseAlarm is DefenseAddresses {
             // forge-lint: disable-next-line(unsafe-typecast)
             uint64(cooldown), // checked above
             // forge-lint: disable-next-line(unsafe-typecast)
-            uint64(ttl)
+            uint64(ttl),
+            honorsSimulation
         );
         vm.stopBroadcast();
         console.log("DefenseAlarm:", address(alarm));
+        // What the alarm pinned for good: compare with the intended venues and thresholds.
+        IVenue[] memory pinned = alarm.venues();
+        for (uint256 i = 0; i < pinned.length; ++i) {
+            console.log("pinned venue:", address(pinned[i]));
+        }
+        console.log("pinned minimum health factor (WAD):", alarm.minHealthFactor());
+        console.log("pinned target health factor (WAD):", alarm.targetHealthFactor());
+        // Read from the alarm, not from the local values: this is what was actually deployed.
+        require(alarm.minHealthFactor() == expectedMin, "pinned minimum is not the expected one");
+        require(alarm.targetHealthFactor() == expectedTarget, "pinned target is not the expected one");
+        require(alarm.honorsSimulation() == honorsSimulation, "pinned health source is not the requested one");
+        console.log(
+            alarm.honorsSimulation()
+                ? "health source: guard's SIMULATED health factor - pair with a demo-only executor"
+                : "health source: venues' real health factor (production)"
+        );
+    }
+
+    /// @dev Reads `DEFENSE_HONORS_SIMULATION` strictly. Foundry's boolean parsing turns any
+    /// unknown word into `false`, which would deploy a production alarm for a mistyped `true`.
+    function _honorsSimulation() private view returns (bool) {
+        bytes32 flag = keccak256(bytes(vm.envOr("DEFENSE_HONORS_SIMULATION", string("false"))));
+        if (flag == keccak256("true")) return true;
+        require(flag == keccak256("false") || flag == keccak256(""), "DEFENSE_HONORS_SIMULATION must be true or false");
+        return false;
     }
 }
 

@@ -11,29 +11,53 @@ import {IVenue} from "../interfaces/IVenue.sol";
 import {DefenseMessage} from "./DefenseMessage.sol";
 import {IDefenseAlarm} from "./interfaces/IDefenseAlarm.sol";
 
-/// @notice The guard view the alarm reads, implemented by `MarginGuard` (not part of `IGuard`).
+/// @notice The guard view a simulation-honoring alarm reads, implemented by `MarginGuard` (not
+/// part of `IGuard`).
 interface ISimulatedHealth {
     /// @notice Health factor of `user` on `venue` as the guard sees it, simulated drop included.
     function simulatedHealth(IVenue venue, address user) external view returns (uint256 healthFactor);
 }
 
 /// @title DefenseAlarm
-/// @notice Proves on Arc that an Ardoise position is under the guard's minimum health factor and
-/// sends that proof, through CCTP V2 generic messaging attested by Circle, to the
-/// `DefenseExecutor` on Base, which may then spend the owner's pre-authorized funds there to
-/// repay the debt. Anyone may raise an alarm: the condition is checked here, on chain, so the
-/// relayer decides nothing.
-/// @dev Holds no funds. The factory, and through it the guard and the venues, is read on every
-/// call, so a new guard or venue list is picked up without redeploying; a new factory needs a new
-/// alarm and a new executor. The executor address is set once by the deployer after the executor
-/// is deployed on Base, since each contract needs the other's address.
+/// @notice Proves on Arc that an Ardoise position is under the minimum health factor and sends
+/// that proof, through CCTP V2 generic messaging attested by Circle, to the `DefenseExecutor` on
+/// Base, which may then spend the owner's pre-authorized funds there to repay the debt. Anyone
+/// may raise an alarm: the condition is checked here, on chain, so the relayer decides nothing.
+/// @dev Holds no funds. Everything the trigger depends on is pinned at construction and has no
+/// setter: the venue list, the minimum and target health factors, and the health source. The
+/// factory admin can later list another venue or replace the guard, and the guard owner can
+/// change its thresholds, without moving this alarm's trigger. The price of that is that a new
+/// venue or new thresholds need a new alarm and a new executor (the executor trusts one alarm
+/// address), and every owner then sets a policy on the new executor. The factory is still read
+/// for `accountOf(owner)`, which only the owner's own `createAccount` writes. The pinned venues
+/// are trusted as they are: what they report decides the alarm.
+///
+/// Health source, chosen by `honorsSimulation` at construction:
+/// - `false` (production): the venue's own `health(owner)`. The guard is never called, so its
+///   simulated price drop cannot raise an alarm.
+/// - `true` (demo pair only): the pinned guard's `simulatedHealth`, which scales the venue's
+///   health factor down by the guard's simulated drop. WARNING: the simulated drop is global and
+///   set by the guard owner alone, so such an alarm lets the guard owner (and, while a drop is
+///   on, anyone calling `raise`) trigger real spending on Base for every owner holding a policy
+///   on this alarm's executor, up to their caps. A simulation-honoring alarm must only be paired
+///   with an executor reserved for demos, on which only demo wallets set a policy.
+///
+/// The executor address is set once by the deployer after the executor is deployed on Base, since
+/// each contract needs the other's address.
 contract DefenseAlarm is IDefenseAlarm {
+    /// @notice Largest venue list the constructor accepts.
+    /// @dev `raise` and `shortfall` read every pinned venue, so the list must stay short enough
+    /// for `raise` to fit in a block whatever the factory lists at deployment.
+    uint256 public constant MAX_VENUES = 8;
+
     /// @dev USD values are WAD; USDC has 6 decimals and is valued at 1 USD by the venues.
     uint256 private constant WAD_PER_USDC_UNIT = 1e12;
     /// @dev Standard finality: Arc is final at once and Circle attests in about 0.5 s.
     uint32 private constant FINALITY = 2000;
+    /// @dev Health factor at which a venue liquidates (WAD); the pinned minimum must be above it.
+    uint256 private constant LIQUIDATION_HEALTH_FACTOR = 1e18;
 
-    /// @notice Registry of Ardoise accounts, venues and guard.
+    /// @notice Registry of Ardoise accounts, read for `accountOf(owner)` only after construction.
     IArdoiseFactory public immutable factory;
     /// @notice CCTP V2 MessageTransmitter on Arc.
     IMessageTransmitterV2 public immutable messageTransmitter;
@@ -45,6 +69,14 @@ contract DefenseAlarm is IDefenseAlarm {
     uint64 public immutable alarmTtl;
     /// @notice Address allowed to call `setExecutor`, once.
     address public immutable deployer;
+    /// @inheritdoc IDefenseAlarm
+    uint256 public immutable minHealthFactor;
+    /// @inheritdoc IDefenseAlarm
+    uint256 public immutable targetHealthFactor;
+    /// @inheritdoc IDefenseAlarm
+    bool public immutable honorsSimulation;
+    /// @inheritdoc IDefenseAlarm
+    address public immutable simulationGuard;
 
     /// @inheritdoc IDefenseAlarm
     bytes32 public executor;
@@ -52,31 +84,72 @@ contract DefenseAlarm is IDefenseAlarm {
     uint64 public lastNonce;
     /// @dev Timestamp of each owner's last alarm.
     mapping(address owner => uint64) private _lastRaised;
+    /// @dev Venues pinned by the constructor. Nothing writes this array afterwards.
+    IVenue[] private _venues;
 
+    /// @notice Pins the factory's current venue list and its guard's current thresholds.
+    /// @dev Reverts with `ZeroAddress`, `InvalidTiming`, `GuardNotSet` (the factory has no guard),
+    /// `InvalidThresholds` (unless `target > min > 1e18`) or `InvalidVenues` (empty list, more
+    /// than `MAX_VENUES`, or a venue without code). Check the pinned values with `venues()`,
+    /// `minHealthFactor()` and `targetHealthFactor()` after deployment: they never change.
     /// @param factory_ Ardoise factory on Arc.
     /// @param messageTransmitter_ CCTP V2 MessageTransmitter on Arc.
     /// @param executorDomain_ CCTP domain of the executor's chain (6 for Base).
     /// @param cooldownPeriod_ Minimum time between two alarms for the same owner, in seconds; at
     /// least `alarmTtl_`. Funds in flight are covered by the executor's `minDefenseInterval`.
     /// @param alarmTtl_ Validity of an alarm on the executor's chain, in seconds.
+    /// @param honorsSimulation_ `false` for production: the alarm decides on the venues' own
+    /// health factors. `true` only for an alarm paired with a demo-only executor: the alarm then
+    /// decides on the guard's simulated health factor (see the contract's notes).
     constructor(
         IArdoiseFactory factory_,
         IMessageTransmitterV2 messageTransmitter_,
         uint32 executorDomain_,
         uint64 cooldownPeriod_,
-        uint64 alarmTtl_
+        uint64 alarmTtl_,
+        bool honorsSimulation_
     ) {
         if (address(factory_) == address(0) || address(messageTransmitter_) == address(0)) {
             revert ZeroAddress();
         }
         // A second alarm must not exist while the first can still be executed.
         if (alarmTtl_ == 0 || cooldownPeriod_ < alarmTtl_) revert InvalidTiming(cooldownPeriod_, alarmTtl_);
+
+        IGuard guard = factory_.guard();
+        if (address(guard) == address(0)) revert GuardNotSet();
+        uint256 minHf = guard.minHealthFactor();
+        uint256 targetHf = guard.targetHealthFactor();
+        // Same rule as `MarginGuard`, checked again because the factory accepts any guard: a
+        // minimum at or under 1 would only fire once the venue can liquidate, and a target at or
+        // under the minimum would make `shortfall` underflow or ask for nothing.
+        if (minHf <= LIQUIDATION_HEALTH_FACTOR || targetHf <= minHf) revert InvalidThresholds(minHf, targetHf);
+
+        IVenue[] memory list = factory_.venues();
+        if (list.length == 0 || list.length > MAX_VENUES) revert InvalidVenues();
+        for (uint256 i = 0; i < list.length; ++i) {
+            // A venue without code cannot be skipped by the try/catch in `_measure`: decoding its
+            // empty answer would revert `raise` for every owner, with no way to remove it.
+            // forge-lint: disable-next-line(require-revert-in-loop)
+            if (address(list[i]).code.length == 0) revert InvalidVenues();
+            _venues.push(list[i]);
+        }
+
         factory = factory_;
         messageTransmitter = messageTransmitter_;
         executorDomain = executorDomain_;
         cooldownPeriod = cooldownPeriod_;
         alarmTtl = alarmTtl_;
         deployer = msg.sender;
+        minHealthFactor = minHf;
+        targetHealthFactor = targetHf;
+        honorsSimulation = honorsSimulation_;
+        // A production alarm keeps no guard address at all, so nothing in it can call the guard.
+        simulationGuard = honorsSimulation_ ? address(guard) : address(0);
+    }
+
+    /// @inheritdoc IDefenseAlarm
+    function venues() external view returns (IVenue[] memory) {
+        return _venues;
     }
 
     /// @inheritdoc IDefenseAlarm
@@ -93,31 +166,30 @@ contract DefenseAlarm is IDefenseAlarm {
         return last == 0 ? 0 : last + cooldownPeriod;
     }
 
-    // The venue list is admin-set and short.
+    // The venue list is pinned at construction and at most `MAX_VENUES` long.
     // forge-lint: disable-next-item(calls-loop)
     /// @inheritdoc IDefenseAlarm
-    /// @dev The first venue in the factory's list whose (simulated) health factor is under the
-    /// minimum is used. Health factors scale with 1 / debt at constant collateral, so repaying
-    /// `debt x (target - health) / target` restores the target; the result is capped at the
-    /// owner's debt on that venue, then reduced by the venue's asset already on the owner's
+    /// @dev The first pinned venue whose health factor (see `honorsSimulation`) is under the
+    /// pinned minimum is used. Health factors scale with 1 / debt at constant collateral, so
+    /// repaying `debt x (target - health) / target` restores the target; the result is capped at
+    /// the owner's debt on that venue, then reduced by the venue's asset already on the owner's
     /// account. That balance repays the debt on the next `sweep()`, so the executor is never asked
     /// for it, whether or not the sweep in `raise` ran (a caller can starve a repayment nested in
     /// the sweep of gas without the sweep reverting).
     function shortfall(address owner) public view returns (IVenue venue, uint256 amountNeeded) {
-        IGuard guard = factory.guard();
-        if (address(guard) == address(0)) revert GuardNotSet();
-        uint256 minHf = guard.minHealthFactor();
-        uint256 targetHf = guard.targetHealthFactor();
-        IVenue[] memory list = factory.venues();
-        for (uint256 i = 0; i < list.length; ++i) {
-            (bool ok, uint256 hf, uint256 debtUsd, uint256 debt) = _measure(guard, list[i], owner);
+        uint256 minHf = minHealthFactor;
+        uint256 targetHf = targetHealthFactor;
+        uint256 count = _venues.length;
+        for (uint256 i = 0; i < count; ++i) {
+            IVenue candidate = _venues[i];
+            (bool ok, uint256 hf, uint256 debtUsd, uint256 debt) = _measure(candidate, owner);
             if (!ok || hf >= minHf) continue;
             uint256 usdWad = _ceilDiv(debtUsd * (targetHf - hf), targetHf);
             uint256 usdc = _ceilDiv(usdWad, WAD_PER_USDC_UNIT);
             if (usdc > debt) usdc = debt;
             address account = address(factory.accountOf(owner));
-            uint256 idle = account == address(0) ? 0 : IERC20(list[i].asset()).balanceOf(account);
-            return (list[i], usdc > idle ? usdc - idle : 0);
+            uint256 idle = account == address(0) ? 0 : IERC20(candidate.asset()).balanceOf(account);
+            return (candidate, usdc > idle ? usdc - idle : 0);
         }
     }
 
@@ -166,20 +238,20 @@ contract DefenseAlarm is IDefenseAlarm {
         emit AlarmRaised(owner, account, amountNeeded, nonce, expiry);
     }
 
-    // Called once per venue of the short, admin-set list.
+    // Called once per pinned venue.
     // forge-lint: disable-next-item(calls-loop, unused-return)
-    /// @dev The owner's position on `venue`: the guard's simulated health factor (the venue's own
-    /// when the guard has no simulation), the debt in USD (WAD) and in the venue's asset. `ok` is
-    /// false when the venue reverts, so one failing venue does not block the others (a venue
-    /// returning malformed data still reverts the call; venues are admin-set).
-    function _measure(IGuard guard, IVenue venue, address owner)
+    /// @dev The owner's position on `venue`: its health factor, the debt in USD (WAD) and in the
+    /// venue's asset. The health factor is the venue's own, except on a simulation-honoring alarm,
+    /// where it is the pinned guard's simulated one (the venue's own if that guard read reverts).
+    /// `ok` is false when the venue reverts, so one failing venue does not block the others (a
+    /// venue returning malformed data still reverts the call; venues are pinned at construction).
+    function _measure(IVenue venue, address owner)
         private
         view
         returns (bool ok, uint256 hf, uint256 debtUsd, uint256 debt)
     {
-        uint256 venueHf = 0;
         try venue.health(owner) returns (uint256 h, uint256, uint256 d) {
-            (venueHf, debtUsd) = (h, d);
+            (hf, debtUsd) = (h, d);
         } catch {
             return (ok, hf, debtUsd, debt);
         }
@@ -188,10 +260,12 @@ contract DefenseAlarm is IDefenseAlarm {
         } catch {
             return (ok, hf, debtUsd, debt);
         }
-        try ISimulatedHealth(address(guard)).simulatedHealth(venue, owner) returns (uint256 simulated) {
-            hf = simulated;
-        } catch {
-            hf = venueHf;
+        if (honorsSimulation) {
+            try ISimulatedHealth(simulationGuard).simulatedHealth(venue, owner) returns (uint256 simulated) {
+                hf = simulated;
+            } catch {
+                // Keep the venue's own health factor: a broken guard must not silence real alarms.
+            }
         }
         ok = true;
     }

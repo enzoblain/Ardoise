@@ -237,7 +237,10 @@ export class DefenseRelay {
         return "waiting";
       }
       if (reverted?.errorName === "PositionHealthy") {
-        this.logOnce(owner, "alarm", "defense alarm not needed: the balance on the account restores the position");
+        // Either the balance on the account restores the position, or the alarm judges it
+        // differently from the keeper: a production alarm ignores the guard's simulated drop
+        // and keeps the thresholds it pinned at deployment.
+        this.logOnce(owner, "alarm", "defense alarm not raised: the alarm sees no shortfall once the account is swept");
         return "sweep";
       }
       this.recordRaiseFailure(owner, `simulating raise() failed: ${reverted?.errorName ?? errorMessage(error)}`);
