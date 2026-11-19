@@ -80,7 +80,9 @@ struct ActivateView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            Text("Send cirBTC and USDC to this address on Arc. The same address on Base keeps your Gateway reserve.")
+            Text(renewal
+                ? "Send USDC for gas to this address on Arc if it runs low. The same address on Base keeps your Gateway reserve."
+                : "Send cirBTC and USDC to this address on Arc. The same address on Base keeps your Gateway reserve.")
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
         }
