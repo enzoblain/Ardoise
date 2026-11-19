@@ -16,10 +16,10 @@ The task breakdown for the hackathon (who does what, when, on which branch) is i
 ## Stack and commands
 
 - Stack: Solidity (Foundry) on Arc mainnet (chain id 5042), Aave V4 and Morpho as lending venues, Circle CCTP / Gateway, Next.js + viem front end, Node keeper
-- Prerequisites: Node.js 22.9+, npm, Foundry (`foundryup`); clone with `--recurse-submodules` (or run `git submodule update --init`)
+- Prerequisites: Node.js 22.9+, npm, Foundry (`foundryup`); for the iOS app, Xcode 26 and XcodeGen (`brew install xcodegen`); clone with `--recurse-submodules` (or run `git submodule update --init`)
 - Install: `cd app && npm install`, `cd keeper && npm install` (contracts need no install beyond the submodule)
 - Run: `cd app && npm run dev` (front end on http://localhost:3000), `cd keeper && npm start` (keeper); both read the repo-root `.env`, Foundry does not (`set -a && source .env && set +a` first)
-- Test: `cd contracts && forge build && forge test` (mainnet fork tests also run with `ARC_FORK_URL` set), `cd app && npm run lint && npm test && npm run build` (`npm test` also type-checks the tests, which import keeper code: install `keeper/` first), `cd keeper && npm run typecheck`
+- Test: `cd contracts && forge build && forge test` (mainnet fork tests also run with `ARC_FORK_URL` set), `cd app && npm run lint && npm test && npm run build` (`npm test` also type-checks the tests, which import keeper code: install `keeper/` first), `cd keeper && npm run typecheck`, `cd ios && xcodebuild test -project Ardoise.xcodeproj -scheme Ardoise -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` (regenerate the project with `xcodegen` after adding or moving Swift files)
 
 ## Rules for every agent working in this repository
 
