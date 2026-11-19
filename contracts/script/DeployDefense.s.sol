@@ -9,6 +9,7 @@ import {ITokenMessengerV2} from "../src/cctp/ITokenMessengerV2.sol";
 import {DefenseAlarm} from "../src/defense/DefenseAlarm.sol";
 import {DefenseExecutor, IAggregatorV3, ISwapRouter02} from "../src/defense/DefenseExecutor.sol";
 import {IArdoiseFactory} from "../src/interfaces/IArdoiseFactory.sol";
+import {IGuard} from "../src/interfaces/IGuard.sol";
 import {IVenue} from "../src/interfaces/IVenue.sol";
 
 /// @notice CCTP V2 addresses, identical on Arc and Base mainnet.
@@ -28,11 +29,15 @@ abstract contract DefenseAddresses is Script {
 /// address, never hard-coded so the alarm follows a redeployed factory), `DEFENSE_COOLDOWN`
 /// (seconds between two alarms per owner, default 1800), `DEFENSE_ALARM_TTL` (seconds an alarm
 /// stays valid on Base, default 900; the alarm refuses a TTL longer than the cooldown),
-/// `DEFENSE_HONORS_SIMULATION` (default `false`, production: the alarm decides on the venues' real
-/// health factors. `true` makes the guard's simulated price drop raise alarms for every policy
-/// holder of the paired executor: only for a pair reserved for demos). Funds still on their way
-/// back from Base are protected by the executor's `minDefenseInterval`. Commands are in
-/// contracts/deployments.md.
+/// `DEFENSE_HONORS_SIMULATION` (`false`, the default when unset or empty, for production: the
+/// alarm decides on the venues' real health factors. `true` makes the guard's simulated price
+/// drop raise alarms for every policy holder of the paired executor: only for a pair reserved for
+/// demos. Any other value reverts, so a typo cannot silently choose a health source),
+/// `DEFENSE_EXPECTED_MIN_HEALTH_FACTOR` and `DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR` (WAD, defaults
+/// 1.25e18 and 1.5e18: the thresholds the guard must report and the alarm must pin, or the script
+/// reverts before sending anything, so thresholds changed on the guard just before the deployment
+/// are not pinned silently). Funds still on their way back from Base are protected by the
+/// executor's `minDefenseInterval`. Commands are in contracts/deployments.md.
 contract DeployDefenseAlarm is DefenseAddresses {
     /// @notice Runs the deployment.
     /// @return alarm The deployed alarm.
@@ -43,7 +48,14 @@ contract DeployDefenseAlarm is DefenseAddresses {
         uint256 cooldown = vm.envOr("DEFENSE_COOLDOWN", uint256(1800));
         uint256 ttl = vm.envOr("DEFENSE_ALARM_TTL", uint256(900));
         require(cooldown <= type(uint64).max && ttl <= type(uint64).max, "timing too large");
-        bool honorsSimulation = vm.envOr("DEFENSE_HONORS_SIMULATION", false);
+        bool honorsSimulation = _honorsSimulation();
+        uint256 expectedMin = vm.envOr("DEFENSE_EXPECTED_MIN_HEALTH_FACTOR", uint256(1.25e18));
+        uint256 expectedTarget = vm.envOr("DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR", uint256(1.5e18));
+        // Checked before anything is sent: the alarm would pin these values for good.
+        IGuard guard = factory.guard();
+        require(address(guard) != address(0), "factory has no guard");
+        require(guard.minHealthFactor() == expectedMin, "guard minimum is not the expected one");
+        require(guard.targetHealthFactor() == expectedTarget, "guard target is not the expected one");
         vm.startBroadcast(key);
         alarm = new DefenseAlarm(
             factory,
@@ -64,11 +76,24 @@ contract DeployDefenseAlarm is DefenseAddresses {
         }
         console.log("pinned minimum health factor (WAD):", alarm.minHealthFactor());
         console.log("pinned target health factor (WAD):", alarm.targetHealthFactor());
+        // Read from the alarm, not from the local values: this is what was actually deployed.
+        require(alarm.minHealthFactor() == expectedMin, "pinned minimum is not the expected one");
+        require(alarm.targetHealthFactor() == expectedTarget, "pinned target is not the expected one");
+        require(alarm.honorsSimulation() == honorsSimulation, "pinned health source is not the requested one");
         console.log(
-            honorsSimulation
+            alarm.honorsSimulation()
                 ? "health source: guard's SIMULATED health factor - pair with a demo-only executor"
                 : "health source: venues' real health factor (production)"
         );
+    }
+
+    /// @dev Reads `DEFENSE_HONORS_SIMULATION` strictly. Foundry's boolean parsing turns any
+    /// unknown word into `false`, which would deploy a production alarm for a mistyped `true`.
+    function _honorsSimulation() private view returns (bool) {
+        bytes32 flag = keccak256(bytes(vm.envOr("DEFENSE_HONORS_SIMULATION", string("false"))));
+        if (flag == keccak256("true")) return true;
+        require(flag == keccak256("false") || flag == keccak256(""), "DEFENSE_HONORS_SIMULATION must be true or false");
+        return false;
     }
 }
 
