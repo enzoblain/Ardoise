@@ -19,7 +19,7 @@ The task breakdown for the hackathon (who does what, when, on which branch) is i
 - Prerequisites: Node.js 22.9+, npm, Foundry (`foundryup`); for the iOS app, Xcode 26 and XcodeGen (`brew install xcodegen`); clone with `--recurse-submodules` (or run `git submodule update --init`)
 - Install: `cd app && npm install`, `cd keeper && npm install` (contracts need no install beyond the submodule)
 - Run: `cd app && npm run dev` (front end on http://localhost:3000), `cd keeper && npm start` (keeper); both read the repo-root `.env`, Foundry does not (`set -a && source .env && set +a` first)
-- Test: `cd contracts && forge build && forge test` (mainnet fork tests also run with `ARC_FORK_URL` set), `cd app && npm run lint && npm test && npm run build` (`npm test` also type-checks the tests, which import keeper code: install `keeper/` first), `cd keeper && npm run typecheck && npm test` (GitHub Actions runs the contract, app and keeper tests on every pull request: `.github/workflows/ci.yml`), `cd ios && xcodebuild test -project Ardoise.xcodeproj -scheme Ardoise -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` (regenerate the project with `xcodegen` after adding or moving Swift files; TestFlight builds come from the manual **iOS TestFlight** GitHub Actions workflow (not run yet); the tests build but Xcode 27 beta's test runner cannot attach to the simulator, so they have not run yet)
+- Test: `cd contracts && forge build && forge test` (mainnet fork tests also run with `ARC_FORK_URL` set), `cd app && npm run lint && npm test && npm run build` (`npm test` also type-checks the tests, which import keeper code: install `keeper/` first), `cd keeper && npm run typecheck && npm test` (GitHub Actions runs the contract, app and keeper tests on every pull request: `.github/workflows/ci.yml`), `cd ios && xcodebuild test -project Ardoise.xcodeproj -scheme Ardoise -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` (regenerate the project with `xcodegen` after adding or moving Swift files; TestFlight builds come from the manual **iOS TestFlight** GitHub Actions workflow; the tests build but Xcode 27 beta's test runner cannot attach to the simulator, so they have not run yet)
 
 ## Rules for every agent working in this repository
 
@@ -29,7 +29,7 @@ Everything in the repository is written in **English**: code, identifiers, comme
 
 ### Commits
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/). A `commit-msg` hook in `.githooks/` rejects any message that does not.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/). A `commit-msg` hook in `.githooks/` rejects any message that does not. The hooks run once git points at that folder: `git config core.hooksPath .githooks` (once per clone).
 
 ```
 <type>(<optional scope>): <subject>
@@ -41,6 +41,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/). A `
 - **Subject:** imperative mood ("add", not "added" or "adds"), lowercase first letter, no trailing period, 72 characters maximum.
 - **One logical change per commit.** Do not mix a feature, a refactor and a formatting pass in one commit.
 - Commit working states often; every commit must build.
+- No `Co-Authored-By:` trailer and no "Generated with" line from an AI tool (Claude, Anthropic): the `commit-msg` hook rejects them. Pull request bodies follow the same rule.
 - Never bypass the hooks with `--no-verify`. If a hook blocks a commit by mistake, tell the user instead of working around it.
 
 Examples:

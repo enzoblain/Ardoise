@@ -6,6 +6,7 @@ struct SignInView: View {
     @Environment(AppModel.self) private var model
     @State private var username = ""
     @State private var busy = false
+    @State private var toast: Toast?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -25,7 +26,7 @@ struct SignInView: View {
                     Label("Use my passkey", systemImage: "person.badge.key.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .primaryButton()
                 .controlSize(.large)
                 Divider().overlay(Theme.line)
                 Eyebrow(text: "New here")
@@ -36,21 +37,27 @@ struct SignInView: View {
                     .padding(12)
                     .background(Theme.background, in: RoundedRectangle(cornerRadius: 12))
                 Button("Create a passkey") { connect(register: true) }
-                    .buttonStyle(.bordered)
+                    .secondaryButton()
                     .controlSize(.large)
                     .frame(maxWidth: .infinity)
                     .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .disabled(busy)
-            if let error = model.error {
-                Text(error).font(.footnote).foregroundStyle(Theme.danger)
-            }
             Text("Your passkey owns a Circle smart account on Arc mainnet. The same passkey works on ardoise-rust.vercel.app.")
                 .font(.footnote)
                 .foregroundStyle(Theme.muted)
             Spacer()
         }
         .padding(24)
+        .background(ScreenBackground())
+        .toast($toast)
+        // `initial`: the error is set while the loading screen is shown, before
+        // this view comes back. Cleared once shown, so the same error shows again.
+        .onChange(of: model.error, initial: true) { _, error in
+            guard let error else { return }
+            toast = .error("Could not sign in", detail: error)
+            model.error = nil
+        }
     }
 
     private func connect(register: Bool) {

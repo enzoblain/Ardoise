@@ -88,6 +88,8 @@ final class AppModel {
         setup = nil
         state = nil
         lines = []
+        // An error from this session must not show on the sign-in screen.
+        error = nil
         phase = .signedOut
     }
 

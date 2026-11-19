@@ -235,10 +235,11 @@ export function rejectReason(
  * the margin.
  *
  * The picked orders never add up to more than `maxTotal`. An order has a
- * fixed amount and an Ardoise account has no withdrawal, so whatever an
- * order brings beyond the owner's debt would stay on the account for good:
- * an order that would pass `maxTotal` is left out, even if nothing else
- * covers the shortfall.
+ * fixed amount, so whatever it brings beyond the owner's debt would stay on
+ * the account (accounts of earlier factories have no withdrawal; on the
+ * current one the owner would have to withdraw it by hand): an order that
+ * would pass `maxTotal` is left out, even if nothing else covers the
+ * shortfall.
  *
  * @param orders Usable orders for one account.
  * @param shortfall USDC missing, in base units.

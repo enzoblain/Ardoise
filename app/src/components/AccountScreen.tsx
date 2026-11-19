@@ -11,10 +11,12 @@ import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { AccountSetup } from "@/components/AccountSetup";
+import { VenueCheckNotice } from "@/components/VenueCheck";
 import { PayScreen } from "@/components/PayScreen";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
 import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
+import { WithdrawPanel } from "@/components/WithdrawPanel";
 
 /**
  * The account's views, sharing one account client: the pay screen and,
@@ -35,6 +37,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
   const [accountAddress, setAccountAddress] = useState<Address>();
   const [connectError, setConnectError] = useState<string>();
   const [payments, setPayments] = useState(0);
+  const [unexpectedVenue, setUnexpectedVenue] = useState(false);
 
   const live = useMemo<ArdoiseClient | undefined>(
     () =>
@@ -113,13 +116,14 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
       />
       {connectError && <p className="text-sm text-danger">{connectError}</p>}
       {live && <LiveNotices account={live} version={payments} />}
+      {live && wallet && accountAddress && deployment && <VenueCheckNotice wallet={wallet} deployment={deployment} account={accountAddress} onUnexpected={setUnexpectedVenue} />}
       {wallet && deployment && !accountAddress ? (
         <div className="card mx-auto w-full max-w-xl">
           <AccountSetup wallet={wallet} deployment={deployment} onReady={onReady} />
         </div>
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <section className="card" aria-label="Pay">
+          <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay" inert={unexpectedVenue}>
             <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
           </section>
           <div className="flex flex-col gap-6">
@@ -131,6 +135,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
                 <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
               </div>
             )}
+            {live && wallet && accountAddress && <div className="card"><WithdrawPanel wallet={wallet} account={accountAddress} version={payments} /></div>}
             <section className="card" aria-label="Stress test">
               <StressTest
                 key={live ? "live-stress" : "demo-stress"}

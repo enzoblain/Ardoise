@@ -12,7 +12,7 @@ enum Theme {
     static let danger = Color(red: 0xf8 / 255, green: 0x71 / 255, blue: 0x71 / 255)
 }
 
-/// A rounded card with the web app's border.
+/// A rounded glass card (a flat bordered one before iOS 26).
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -20,8 +20,7 @@ struct Card<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.line))
+            .glassSurface(cornerRadius: 20)
     }
 }
 

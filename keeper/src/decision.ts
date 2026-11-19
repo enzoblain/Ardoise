@@ -107,7 +107,9 @@ export function applySimulatedDrop(position: VenuePosition, dropBps: bigint): Ve
  * The result is capped at the venue's USDC debt, as `DefenseAlarm.shortfall`
  * caps it: `debtUsd` can exceed it (a debt in another asset on the same
  * venue, thresholds set far above the position), and USDC sent to the
- * account beyond its debt cannot leave it, since accounts have no withdrawal.
+ * account beyond its debt would stay there: accounts of earlier factories
+ * have no withdrawal, and on the current one the owner would have to
+ * withdraw it by hand.
  *
  * @param position Position to restore.
  * @param targetHealthFactor Health factor to reach (WAD).
@@ -127,8 +129,9 @@ export function repaymentToTarget(position: VenuePosition, targetHealthFactor: b
 /**
  * Most USDC that may still be brought to an account: the owner's debt on
  * every venue, less the USDC already on the account, which the next
- * `sweep()` applies first. Anything above it would stay on the account for
- * good, since accounts have no withdrawal.
+ * `sweep()` applies first. Anything above it would stay on the account:
+ * for good on accounts of earlier factories, which have no withdrawal, and
+ * until the owner withdraws it by hand on the current one.
  *
  * @param state What the keeper read about the account.
  * @returns The amount in USDC base units; 0 when the balance already covers
