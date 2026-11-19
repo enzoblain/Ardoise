@@ -29,7 +29,7 @@ Checked after mining: `factory.venues()` returns both adapters in that order and
 
 **`payVia` on mainnet.** With Aave V4 at 3.11% and Morpho at 4.04%, `bestVenue(0.10 USDC)` returns the Aave V4 adapter. Two payments of 0.10 USDC on Arc to the owner, one per venue: `payVia(AaveV4Adapter, …)` opened line #1 [`0xd644175e…`](https://explorer.arc.io/tx/0xd644175e6ff3de535a4db46248ffbdd8dbf0eec4ac88aaaf0f26dddcffe7e1aa) (Aave V4 health factor 3.009 → 2.586), `payVia(MorphoAdapter, …)` opened line #2 [`0x22c73905…`](https://explorer.arc.io/tx/0x22c7390583ce2d2d66c9a594775bdc9af4e5c654c2840e4fcd1daf5af682ca14) on the venue that is not the cheapest (Morpho debt 0.100001 USDC, health factor 13.47).
 
-The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so the defense must be deployed against this factory.
+The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so a separate pair was deployed for this factory (see *CCTP-attested defense*, *Current*).
 
 The Gateway standing orders recorded in the B3 run were signed for the previous account (`0xdcB201E7…`), and the keeper only submits an order whose recipient is the account it defends. The automatic Gateway repayment therefore needs new standing orders signed for `0x4d298b39…` before it can run again on this factory.
 
@@ -202,8 +202,8 @@ Deployed on 2026-11-19 from commit [`7791d59`](https://github.com/enzoblain/Ardo
 | Deploy `DefenseAlarm` (Arc) | [`0x3e3b0d3d…`](https://explorer.arc.io/tx/0x3e3b0d3dfba25bc3d22ea6c2eaaa64fa3606530112a609e555e29ae4ba1906a1) | 32023774 | 908,467 | 0.0182 USDC |
 | Deploy `DefenseExecutor` (Base) | [`0xfa8aa7a4…`](https://basescan.org/tx/0xfa8aa7a42bb983a30b36c9df608693d68f7b3e0337982d821eb161cbe86d2d2c) | 59432556 | 1,998,446 | 0.000012 ETH |
 | `alarm.setExecutor` (Arc) | [`0x81a44fd5…`](https://explorer.arc.io/tx/0x81a44fd5065f597bbc809d29dd75abdd135ec68b76251140e99306c02ed315b6) | 32023817 | 44,899 | 0.0012 USDC |
-| Owner policy (Base): `WETH.approve(executor, 0.0002e18)` | [`0x9f786c41…`](https://basescan.org/tx/0x9f786c419a14c8c2377fc9f540fec15da06b1a4d38cfbead2546ceeb0b7eebdf) | 59432665 | | |
-| Owner policy (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0x878f698a…`](https://basescan.org/tx/0x878f698a58abfd59cd3ed165592397b3db1e228e33c46c08ffb927868d9d85dd) | 59432670 | | |
+| Owner policy (Base): `WETH.approve(executor, 0.0002e18)` | [`0x9f786c41…`](https://basescan.org/tx/0x9f786c419a14c8c2377fc9f540fec15da06b1a4d38cfbead2546ceeb0b7eebdf) | 59432665 | 46,019 | |
+| Owner policy (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0x878f698a…`](https://basescan.org/tx/0x878f698a58abfd59cd3ed165592397b3db1e228e33c46c08ffb927868d9d85dd) | 59432670 | 211,307 | |
 
 Checked after mining: `alarm.factory()` returns the Morpho factory, `alarm.executor()` the executor and `executor.alarm()` the alarm. A call to `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` (the alarm finds its account [`0x4d298b39…`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49) and the position is above the minimum), not `NoAccount`. The broadcasts are in [`broadcast/DeployDefense.s.sol/8453/run-latest.json`](broadcast/DeployDefense.s.sol/8453/run-latest.json) (executor) and [`broadcast/DeployDefense.s.sol/5042/run-latest.json`](broadcast/DeployDefense.s.sol/5042/run-latest.json) (`setExecutor`; the alarm deployment is listed above).
 
@@ -243,7 +243,7 @@ Timing (block timestamps): `raise` mined → attestation complete: under 9 s (po
 
 ### How to deploy
 
-From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). The 2026-11-19 deployment above cost 0.025 USDC on Arc and 0.000012 ETH on Base.
+From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Each pair cost about 0.02 USDC on Arc and 0.000012 ETH on Base (see the tables above).
 
 ```sh
 set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
