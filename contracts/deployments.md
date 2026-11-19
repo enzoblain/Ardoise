@@ -272,7 +272,11 @@ The keeper wallet holds no role (see *Keeper*).
 | `ARDOISE_GUARD_OWNER` | `DeployGuard.s.sol` | Owner of the new guard, default the factory admin |
 | `ARDOISE_GUARD_OWNER` | `Deploy.s.sol` | Owner that `ARDOISE_GUARD` must have, default the factory admin; a guard owned by another address, or with a simulated drop set, is refused before anything is sent |
 
-After broadcasting, both scripts check on chain that `factory.admin()` and `guard.owner()` are the intended addresses and that `simulatedDropBps()` is 0. `DefenseAlarm` takes its `deployer` from the transaction sender, so steps 1 and 3 of *How to deploy* above must be sent by the same key, and that key keeps no power once `setExecutor` is done.
+Both variables, like `ARDOISE_GUARD` and `ARDOISE_FACTORY_ADDRESS`, are read strictly: an empty value means unset, and a value that is not an address (a missing or extra digit, text) or the zero address stops the script before anything is sent, instead of falling back to the deployer. Whitespace around the value is ignored. The letter case of the address is not checked, so compare the `admin:` and `owner:` lines the script prints with the intended addresses before adding `--broadcast`.
+
+Both scripts end with checks that `factory.admin()` and `guard.owner()` are the intended addresses and that `simulatedDropBps()` is 0. `forge script` runs them in its local simulation, before any transaction is sent: they stop a wrong deployment from being broadcast, they do not re-read the chain afterwards. After mining, read `admin()`, `venues()`, `guard()` and the guard's `owner()` with `cast call`.
+
+When the sender of `DeployGuard.s.sol` is not the admin and the factory already has a guard, `ARDOISE_REPLACE_GUARD=true` is still required, although the script leaves the factory unchanged: the `setGuard` call it prints replaces that guard. For a factory deployed with a separate admin and no guard, also set `ARDOISE_FACTORY_ADDRESS` to that factory, since the script defaults to the first one. `DefenseAlarm` takes its `deployer` from the transaction sender, so steps 1 and 3 of *How to deploy* above must be sent by the same key, and that key keeps no power once `setExecutor` is done.
 
 ## How to deploy the guard
 
@@ -300,7 +304,7 @@ forge script script/Deploy.s.sol --rpc-url https://rpc.mainnet.arc.io --broadcas
 
 The local simulation works with Arc's native USDC, since the deployment moves no tokens. It costs about 3.9M gas, about 0.10 USDC of Arc gas. A new factory means new accounts, and a new adapter means every user grants a new borrow allowance.
 
-The deployer becomes the factory admin. To give the role to another address, set `ARDOISE_FACTORY_ADMIN` (see *Privileged roles*): the script then stops after deploying the factory and the adapters and prints the `setVenues` and `setGuard` calls the admin has to send. After broadcasting, the script checks `factory.admin()`, each adapter's `factory()` and, when the deployer is the admin, `factory.venues()` and `factory.guard()`.
+The deployer becomes the factory admin. To give the role to another address, set `ARDOISE_FACTORY_ADMIN` (see *Privileged roles*): the script then stops after deploying the factory and the adapters and prints the `setVenues` and `setGuard` calls the admin has to send. In its simulation, before anything is sent, the script checks `factory.admin()`, each adapter's `factory()` and, when the deployer is the admin, `factory.venues()` and `factory.guard()`. An `ARDOISE_GUARD` is refused unless its owner is `ARDOISE_GUARD_OWNER` (default the factory admin) and its simulated drop is 0.
 
 ### Verifying the sources
 
