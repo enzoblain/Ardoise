@@ -64,8 +64,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     uint256 private constant BPS = 10_000;
     /// @notice Highest slippage a policy may allow (10%).
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
-    /// @notice Gas a swap must have available: about twice what a SwapRouter02 single-pool swap
-    /// uses, so no frame inside the swap can run out of gas while the executor keeps going.
+    /// @notice Gas that must be left before a swap: about three times what a SwapRouter02
+    /// single-pool swap on the WETH/USDC pool uses (about 95k measured on a Base fork), so a
+    /// relayer cannot pick a gas limit at which a swap of defense size runs out of gas.
     uint256 public constant MIN_SWAP_GAS = 300_000;
     /// @dev "cctp-forward": Circle's Forwarding Service mints on Arc without a relayer.
     bytes32 private constant FORWARD_HOOK = "cctp-forward";
@@ -430,8 +431,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
         uint256 used = 0;
         // Anyone can relay the message, so a relayer must not be able to pick a gas limit at which
         // the swap fails for lack of gas while the delivery succeeds and consumes the alarm. The
-        // floor covers the swap and every call inside it; the 63/64 check catches a swap that ran
-        // out of gas anyway (it gets 63/64 of the gas left, so under 1/64 remains).
+        // floor covers a swap costing up to about 285k (a defense-size swap costs about 95k); the
+        // 63/64 check catches a swap that ran out of gas in its own frame (it gets 63/64 of the gas
+        // left, so under 1/64 remains).
         uint256 gasBefore = gasleft();
         if (gasBefore < MIN_SWAP_GAS) revert SwapOutOfGas();
         if (amountIn == maxIn) {
