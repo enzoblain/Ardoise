@@ -43,6 +43,16 @@ final class FormatTests: XCTestCase {
         XCTAssertNil(Format.parseUsdc("abc"))
     }
 
+    func testGroupsAnAddressByFour() {
+        XCTAssertEqual(Format.grouped("0x094aea4481b40686f3440cfce5088582d5ec5769"), "0x094a ea44 81b4 0686 f344 0cfc e508 8582 d5ec 5769")
+        XCTAssertEqual(Format.grouped("abc"), "abc")
+    }
+
+    func testFormatsCirBtc() {
+        XCTAssertEqual(Format.cirBtc(25_000), "0.00025")
+        XCTAssertEqual(Format.cirBtc(100_000_000), "1")
+    }
+
     func testHealthFactorAndMargin() {
         let wad = Format.wad
         XCTAssertEqual(Format.healthFactor(wad * 195 / 100), "1.95")

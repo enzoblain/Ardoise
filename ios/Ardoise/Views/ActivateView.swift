@@ -57,7 +57,9 @@ struct ActivateView: View {
     private var addressCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             Eyebrow(text: "Your account address on Arc")
-            Text(model.wallet?.address ?? "")
+            // In groups of four, so it is easy to compare and never hyphenated;
+            // the copy button copies the address as is.
+            Text(Format.grouped(model.wallet?.address ?? ""))
                 .font(.system(.title3, design: .monospaced))
                 .foregroundStyle(Theme.chalk)
                 .textSelection(.enabled)
@@ -134,6 +136,7 @@ struct ActivateView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
+        .tint(canActivate ? Theme.accent : Theme.line)
         .disabled(!canActivate || activating)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

@@ -65,6 +65,22 @@ enum Format {
         return hf <= 1 ? 0 : 1 - 1 / hf
     }
 
+    /// "0x094a ea44 81b4 …": an address in groups of four after the 0x.
+    static func grouped(_ address: String) -> String {
+        guard address.hasPrefix("0x") else { return address }
+        var groups: [String] = ["0x"]
+        var current = ""
+        for character in address.dropFirst(2) {
+            current.append(character)
+            if current.count == 4 {
+                groups.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+        return groups.joined(separator: " ").replacingOccurrences(of: "0x ", with: "0x")
+    }
+
     /// "0x54e1…18d7".
     static func short(_ address: String) -> String {
         guard address.count > 10 else { return address }
