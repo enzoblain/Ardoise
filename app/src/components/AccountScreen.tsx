@@ -11,11 +11,11 @@ import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { AccountSetup } from "@/components/AccountSetup";
+import { VenueCheckNotice } from "@/components/VenueCheck";
 import { PayScreen } from "@/components/PayScreen";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
 import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
-import { VenueCheckNotice } from "@/components/VenueCheck";
 
 /**
  * The account's views, sharing one account client: the pay screen and,
