@@ -29,7 +29,7 @@ Checked after mining: `factory.venues()` returns both adapters in that order and
 
 **`payVia` on mainnet.** With Aave V4 at 3.11% and Morpho at 4.04%, `bestVenue(0.10 USDC)` returns the Aave V4 adapter. Two payments of 0.10 USDC on Arc to the owner, one per venue: `payVia(AaveV4Adapter, …)` opened line #1 [`0xd644175e…`](https://explorer.arc.io/tx/0xd644175e6ff3de535a4db46248ffbdd8dbf0eec4ac88aaaf0f26dddcffe7e1aa) (Aave V4 health factor 3.009 → 2.586), `payVia(MorphoAdapter, …)` opened line #2 [`0x22c73905…`](https://explorer.arc.io/tx/0x22c7390583ce2d2d66c9a594775bdc9af4e5c654c2840e4fcd1daf5af682ca14) on the venue that is not the cheapest (Morpho debt 0.100001 USDC, health factor 13.47).
 
-The defense alarm reads its factory as an immutable, so the alarm and executor deployed for the previous factory do not see accounts of this one until they are redeployed against it.
+The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so the defense is deployed against this factory.
 
 ### Previous factory (Aave V4 only)
 
@@ -51,7 +51,7 @@ Accounts (`ArdoiseAccount`) are deployed by the factory through `createAccount()
 | Deploy `AaveV4Adapter` | [`0x21965436…`](https://explorer.arc.io/tx/0x21965436377db88b621f763b972da0b2fc3d7bb04fea2b7b7f9882e42698ad17) |
 | `setVenues([AaveV4Adapter])` | [`0x5ad5c9d7…`](https://explorer.arc.io/tx/0x5ad5c9d74fed75250c2a7f062a27b16c10057214505e0622e319b3782744eddb) |
 
-The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadcast/Deploy.s.sol/5042/run-latest.json).
+The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json` at commit `37d9fe4`](https://github.com/enzoblain/Ardoise/blob/37d9fe4/contracts/broadcast/Deploy.s.sol/5042/run-latest.json) (the current file holds the Morpho factory's broadcast).
 
 ### Constructor arguments
 
@@ -106,7 +106,7 @@ The keeper (tasks B2 and B5) runs off chain, on the machine of whoever operates 
 | Item | Value |
 |------|-------|
 | Keeper wallet | [`0xfA1Fd59bD90961d68AB60f66EE242e1Dd7c45541`](https://explorer.arc.io/address/0xfA1Fd59bD90961d68AB60f66EE242e1Dd7c45541), a dedicated wallet created for the keeper, funded with 1 USDC for gas on 2026-11-18 |
-| Factory watched | `0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, accounts read from block `31777009` |
+| Factory watched | `0xB4476B617B750B9f48786c60930bc499343BB4a8` (the Morpho factory), accounts read from block `31976642`; until 2026-11-19, the first factory `0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD` from block `31777009` |
 | RPC | `https://rpc.mainnet.arc.io` (the default when `ARC_RPC_URL` is empty) |
 
 ### Configuration
@@ -116,8 +116,8 @@ In the repo-root `.env` (gitignored; the variables are described in [`.env.examp
 ```sh
 ARC_RPC_URL=                                                        # empty: public Arc mainnet RPC
 KEEPER_PRIVATE_KEY=                                                 # key of the keeper wallet, never committed or printed
-ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD
-ARDOISE_FACTORY_DEPLOY_BLOCK=31777009
+ARDOISE_FACTORY_ADDRESS=0xB4476B617B750B9f48786c60930bc499343BB4a8
+ARDOISE_FACTORY_DEPLOY_BLOCK=31976642
 ```
 
 Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. Without `KEEPER_PRIVATE_KEY` the keeper runs dry: it logs its decisions and sends nothing. To replace the wallet, create one with `cast wallet new`, put its key in `.env` only and send it about 1 USDC on Arc.
