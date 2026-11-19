@@ -166,7 +166,7 @@ Deployed on 2026-11-19 from commit [`f48a7f2`](https://github.com/enzoblain/Ardo
 |------|-------------|-------|-----|------|
 | Deploy `DefenseAlarm` (Arc) | [`0x263bef1c…`](https://explorer.arc.io/tx/0x263bef1c00aa23203f211e77869cb6613166918ba8c92464e6b68402379d156d) | 31975421 | 908,467 | 0.0234 USDC |
 | Deploy `DefenseExecutor` (Base) | [`0xe36b79e6…`](https://basescan.org/tx/0xe36b79e68ec9f5ccf0997530938ce1d715fb2b4f8ed44ad2d1ae7dd1458effe8) | 59310147 | 1,998,458 | 0.000012 ETH |
-| `alarm.setExecutor` (Arc) | [`0xc3ce8cf5…`](https://explorer.arc.io/tx/0xc3ce8cf5f1741a2a6286293d238cc71768e81a7caa95e663752342498c654863) | 31975485 | — | 0.0012 USDC |
+| `alarm.setExecutor` (Arc) | [`0xc3ce8cf5…`](https://explorer.arc.io/tx/0xc3ce8cf5f1741a2a6286293d238cc71768e81a7caa95e663752342498c654863) | 31975485 | 44,899 | 0.0012 USDC |
 
 ### Mainnet proof
 
@@ -176,7 +176,7 @@ Run on 2026-11-19 on the demo position (owner: the project wallet, account [`0xd
 |------|-------------|--------|
 | Base: wrap 0.0002 ETH | [`0xe1ef27ec…`](https://basescan.org/tx/0xe1ef27ec701bfd8068f28bee9f620b0077136515635177621b277bafd49f2bd0) | 0.0002 WETH |
 | Base: `WETH.approve(executor, 0.0002e18)` | [`0x7765a1d2…`](https://basescan.org/tx/0x7765a1d2817235b908ed8ab64e204e8823b080b7a59adda808170822bc15d4d7) | |
-| Base: `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0xf248c348…`](https://basescan.org/tx/0xf248c348a97cd95c6f468aaef6899909907c1588d32c767c185564c0586e0868) | USDC first (none held), then WETH, 1% slippage, 0.025 USDC max fee |
+| Base: `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0xf248c348…`](https://basescan.org/tx/0xf248c348a97cd95c6f468aaef6899909907c1588d32c767c185564c0586e0868) | USDC first (none held), then WETH, 100 bps (1%) max slippage, 0.025 USDC max fee |
 | Arc: `guard.setSimulatedDrop(7000)` | [`0x229348a8…`](https://explorer.arc.io/tx/0x229348a873f56128a9f7862e125eac99335c161a0e05ab27bcd9e1cf9f18a82e) | simulated health factor 1.07, under the 1.25 minimum (a 55% drop leaves it at 1.61) |
 | Arc: `alarm.raise(owner)` | [`0x24ec3513…`](https://explorer.arc.io/tx/0x24ec351379fa834f71145c43b00a339c3ab8407368bb74a94d33582dc1d9f655) | 326,590 gas; `AlarmRaised`, `amountNeeded` 0.253127 USDC, nonce 1 |
 | Circle attestation | `iris-api.circle.com/v2/messages/26?transactionHash=0x24ec3513…` | `complete`, finality 2000 |
