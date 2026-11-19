@@ -1,11 +1,11 @@
-import { Instrument_Serif } from "next/font/google";
+import { Fraunces } from "next/font/google";
 import { LogoMark } from "@/components/LogoMark";
 import styles from "./Intro.module.css";
 import { ScrollProgress } from "./ScrollProgress";
 import { SoloVaultCard, VaultRing } from "./VaultRing";
 
 /** Display typeface of the intro: the title and the chapter headings. */
-const display = Instrument_Serif({ subsets: ["latin"], weight: "400" });
+const display = Fraunces({ subsets: ["latin"], weight: "300" });
 
 /** Splits a heading into words that light up one after the other on scroll. */
 function Words({ text }: { text: string }) {
@@ -48,15 +48,14 @@ export function Intro({ rate }: { rate: string | null }) {
       <section className={styles.act} data-progress>
         <div className={styles.stage}>
           <header className={styles.header}>
-            <span className={styles.brand}>
-              <LogoMark size={26} />
-              Ardoise
-            </span>
-            <p className={styles.tagline}>
-              Post collateral, pay anyone in USDC, keep your assets. A bot guards the position on Arc mainnet.
-            </p>
+            <div>
+              <h1 className={`${styles.title} ${display.className}`}>Ardoise</h1>
+              <p className={styles.tagline}>
+                Post collateral, pay anyone in USDC, keep your assets. A bot guards the position on Arc mainnet.
+              </p>
+            </div>
+            <LogoMark className={styles.mark} />
           </header>
-          <h1 className={`${styles.title} ${display.className}`}>Ardoise</h1>
           <div className={styles.ring}>
             <VaultRing rate={rate} />
           </div>
