@@ -46,6 +46,8 @@ export function PayScreen({
   const [destination, setDestination] = useState<PayoutChain>(network.base);
   const [payee, setPayee] = useState("");
   const [memo, setMemo] = useState("");
+  // Venue the user picked; undefined follows the recommendation (`bestVenue`).
+  const [pickedVenueId, setPickedVenueId] = useState<string>();
 
   // `null`: no guard is set yet; undefined: not read yet.
   const [minHealthFactor, setMinHealthFactor] = useState<bigint | null>();
@@ -105,6 +107,7 @@ export function PayScreen({
         payee: payeeValid ? (payee as Address) : PREVIEW_PAYEE,
         maxFee,
         memo,
+        venueId: pickedVenueId,
       })
       .then((q) => {
         if (!current) return;
@@ -115,10 +118,13 @@ export function PayScreen({
     return () => {
       current = false;
     };
-  }, [account, amount, maxFee, destination, payee, payeeValid, memo, paymentCount]);
+  }, [account, amount, maxFee, destination, payee, payeeValid, memo, pickedVenueId, paymentCount]);
 
   // A quote is only used if it was computed for what the form shows now.
   const fresh = quote !== undefined && amount !== undefined && maxFee !== undefined && quote.borrow === amount + maxFee;
+  // With a choice of venues, the payment names the one on screen (`payVia`), so
+  // it borrows exactly where the user saw; with one venue, `pay()` decides.
+  const choosing = fresh && quote.options.length > 1;
 
   async function send() {
     if (amount === undefined || maxFee === undefined || !payeeValid || !fresh) return;
@@ -144,6 +150,7 @@ export function PayScreen({
         payee: payee as Address,
         maxFee,
         memo,
+        venueId: choosing ? quote.venue?.id : undefined,
       });
       setReceipt(line);
       setPaymentCount((n) => n + 1);
@@ -243,7 +250,14 @@ export function PayScreen({
         </label>
       </fieldset>
 
-      <RateComparison venues={venues} chosenId={fresh ? quote.venue?.id : undefined} />
+      <RateComparison
+        venues={venues}
+        options={fresh ? quote.options : undefined}
+        borrow={fresh ? quote.borrow : undefined}
+        recommendedId={fresh ? quote.recommended?.id : undefined}
+        chosenId={fresh ? quote.venue?.id : pickedVenueId}
+        onChoose={setPickedVenueId}
+      />
 
       {fresh && quote.venue && quote.healthBefore && minHealthFactor !== undefined && (
         <MarginGauge
@@ -378,6 +392,8 @@ function describeError(error: PaymentError): string {
       return `Over your spending cap: ${formatUsdc(error.remaining)} USDC left (fees included).`;
     case "NoVenueAvailable":
       return "No lending venue has enough USDC for this amount right now.";
+    case "UnknownVenue":
+      return "This venue is not one the account can borrow from.";
     case "PaymentRefused":
       return error.allowed > 0n
         ? `Refused to protect your position: it would leave too little margin. You can borrow up to ${formatUsdc(error.allowed)} USDC (fees included) right now.`

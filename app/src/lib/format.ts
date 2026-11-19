@@ -30,3 +30,14 @@ export function formatBps(bps: number): string {
 export function formatPercent(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
+
+/**
+ * Formats a large USDC amount compactly, for liquidity figures.
+ *
+ * @param units Amount in USDC units (6 decimals).
+ * @returns For example "26.3M", "412K" or "950".
+ */
+export function formatUsdcCompact(units: bigint): string {
+  const whole = Number(units / 1_000_000n);
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(whole);
+}

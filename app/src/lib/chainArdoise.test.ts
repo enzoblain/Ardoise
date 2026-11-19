@@ -24,6 +24,8 @@ const ADAPTER: Address = "0x38B564d0b3d57216A34d83FbF08DE48744567b38";
 const PAYEE: Address = "0xdf41621b35b0c3512d1177DE1423747900fC7a77";
 const TX: Hex = `0x${"ab".repeat(32)}`;
 const AAVE: Venue = { id: "aave-v4", address: ADAPTER, name: "Aave V4", rateBps: 310, available: 10n ** 13n };
+const MORPHO_ADAPTER: Address = "0x00000000000000000000000000000000000a0c40";
+const MORPHO: Venue = { id: "morpho", address: MORPHO_ADAPTER, name: "Morpho", rateBps: 420, available: 10n ** 13n };
 
 /** State of a fake Arc with one account on one Aave adapter. */
 interface FakeArc {
@@ -31,6 +33,10 @@ interface FakeArc {
   dropBps: bigint;
   caps: [bigint, bigint, bigint];
   allowed: bigint | null;
+  /** Guard answer per venue address, overriding `allowed`. */
+  allowedOn: Record<Address, bigint>;
+  /** Function names passed to `simulateContract`. */
+  simulated: string[];
   simulateError?: Error;
   receiptError?: Error;
   logs: Log[];
@@ -38,7 +44,7 @@ interface FakeArc {
 }
 
 function fakeArc(overrides: Partial<FakeArc> = {}): FakeArc {
-  return { guard: GUARD, dropBps: 0n, caps: [10_000_000n, 20_000_000n, 0n], allowed: null, logs: [], logRanges: [], ...overrides };
+  return { guard: GUARD, dropBps: 0n, caps: [10_000_000n, 20_000_000n, 0n], allowed: null, allowedOn: {}, simulated: [], logs: [], logRanges: [], ...overrides };
 }
 
 function revert(errorName: "CapExceeded" | "NoVenueAvailable", args: readonly bigint[]): Error {
@@ -71,7 +77,7 @@ function paidLog(lineId: bigint): Log {
 
 type SmartAccount = NonNullable<Parameters<typeof createChainArdoise>[0]["smartAccount"]>;
 
-function client(arc: FakeArc, options: { smartAccount?: SmartAccount; eventsUrl?: string } = {}) {
+function client(arc: FakeArc, options: { smartAccount?: SmartAccount; eventsUrl?: string; venues?: Venue[] } = {}) {
   const publicClient = {
     async readContract({ functionName, args }: { functionName: string; args: readonly unknown[] }) {
       switch (functionName) {
@@ -92,7 +98,7 @@ function client(arc: FakeArc, options: { smartAccount?: SmartAccount; eventsUrl?
         case "healthAfter":
           return (16n * WAD) / 10n;
         case "checkMargin":
-          return arc.allowed ?? (args[2] as bigint);
+          return arc.allowedOn[args[1] as Address] ?? arc.allowed ?? (args[2] as bigint);
         case "line":
           return {
             id: args[0],
@@ -110,7 +116,8 @@ function client(arc: FakeArc, options: { smartAccount?: SmartAccount; eventsUrl?
           throw new Error(`unexpected read ${functionName}`);
       }
     },
-    async simulateContract() {
+    async simulateContract({ functionName }: { functionName: string }) {
+      arc.simulated.push(functionName);
       if (arc.simulateError) throw arc.simulateError;
       return { result: 1n, request: {} };
     },
@@ -214,6 +221,42 @@ describe("on-chain Ardoise client", () => {
     const quote = await account.quote(request(1_000_000n));
     expect(quote.healthBefore?.healthFactor).toBe((14n * WAD) / 10n);
     expect(quote.healthAfter).toBe((112n * WAD) / 100n);
+  });
+
+  it("lists each venue with its guard answer and quotes the one the user chose", async () => {
+    const arc = fakeArc({ allowedOn: { [MORPHO_ADAPTER]: 500_000n } });
+    const { account } = client(arc, { venues: [AAVE, MORPHO] });
+    const recommended = await account.quote(request(1_000_000n));
+    expect(recommended.recommended?.id).toBe("aave-v4");
+    expect(recommended.venue?.id).toBe("aave-v4");
+    expect(recommended.options.map((o) => [o.venue.id, o.allowed])).toEqual([
+      ["aave-v4", 1_054_000n],
+      ["morpho", 500_000n],
+    ]);
+    expect(arc.simulated).toEqual(["pay"]);
+
+    const onMorpho = await account.quote(request(1_000_000n, { venueId: "morpho" }));
+    expect(onMorpho.venue?.id).toBe("morpho");
+    expect(onMorpho.recommended?.id).toBe("aave-v4");
+    expect(onMorpho.error).toEqual({ code: "PaymentRefused", allowed: 500_000n });
+
+    const onAave = await account.quote(request(1_000_000n, { venueId: "aave-v4" }));
+    expect(onAave.error).toBeUndefined();
+    expect(arc.simulated).toEqual(["pay", "payVia"]);
+  });
+
+  it("reports NoVenueAvailable when the chosen venue lacks the liquidity", async () => {
+    const { account } = client(fakeArc(), { venues: [AAVE, { ...MORPHO, available: 1_000n }] });
+    const quote = await account.quote(request(1_000_000n, { venueId: "morpho" }));
+    expect(quote.error).toEqual({ code: "NoVenueAvailable" });
+    expect(quote.options.find((o) => o.venue.id === "morpho")?.liquidityOk).toBe(false);
+  });
+
+  it("pays through payVia on the chosen venue", async () => {
+    const { account, sent } = client(fakeArc(), { venues: [AAVE, MORPHO] });
+    await account.pay(request(1_000_000n, { venueId: "morpho" }));
+    expect(sent[0]).toMatchObject({ address: ACCOUNT, functionName: "payVia" });
+    expect((sent[0] as { args: readonly unknown[] }).args[0]).toBe(MORPHO_ADAPTER);
   });
 
   it("pays from the owner's wallet and builds the line from the Paid event", async () => {
