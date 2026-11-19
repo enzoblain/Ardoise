@@ -186,17 +186,41 @@ At start, with the relay on, the keeper logs the alarm address and its wallet's 
 
 ## CCTP-attested defense (D1)
 
-> [!WARNING]
-> **Not deployed yet.** The contracts, tests and scripts are in [`src/defense/`](src/defense/) and [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol); see *CCTP-attested defense* in [`docs/api.md`](../docs/api.md). Fill in the addresses below once deployed and set `DEFENSE_ALARM_ADDRESS` for the keeper (it does not read `DEFENSE_EXECUTOR_ADDRESS`).
+Deployed on 2026-11-19 from commit [`f48a7f2`](https://github.com/enzoblain/Ardoise/commit/f48a7f2) (after [#48](https://github.com/enzoblain/Ardoise/pull/48) and [#50](https://github.com/enzoblain/Ardoise/pull/50)) with [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol), by the project wallet, for the factory above (cooldown 1800 s, alarm TTL 900 s; executor: fast burns, price age 1500 s, minimum interval 2400 s). Set `DEFENSE_ALARM_ADDRESS` for the keeper (it does not read `DEFENSE_EXECUTOR_ADDRESS`). See *CCTP-attested defense* in [`docs/api.md`](../docs/api.md).
 
 | Contract | Chain | Address | Source verification |
 |----------|-------|---------|---------------------|
-| `DefenseAlarm` | Arc mainnet | Pending | — |
-| `DefenseExecutor` | Base mainnet | Pending | — |
+| `DefenseAlarm` | Arc mainnet | [`0x3BABC3f53E354284C98F272CC4E093730aA05E43`](https://explorer.arc.io/address/0x3BABC3f53E354284C98F272CC4E093730aA05E43) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0x3BABC3f53E354284C98F272CC4E093730aA05E43) |
+| `DefenseExecutor` | Base mainnet | [`0x897B6baF462ae207895f2Cf32A0A4c6D98f15296`](https://basescan.org/address/0x897B6baF462ae207895f2Cf32A0A4c6D98f15296) | [Sourcify, exact match](https://repo.sourcify.dev/8453/0x897B6baF462ae207895f2Cf32A0A4c6D98f15296) |
+
+| Step | Transaction | Block | Gas | Cost |
+|------|-------------|-------|-----|------|
+| Deploy `DefenseAlarm` (Arc) | [`0x263bef1c…`](https://explorer.arc.io/tx/0x263bef1c00aa23203f211e77869cb6613166918ba8c92464e6b68402379d156d) | 31975421 | 908,467 | 0.0234 USDC |
+| Deploy `DefenseExecutor` (Base) | [`0xe36b79e6…`](https://basescan.org/tx/0xe36b79e68ec9f5ccf0997530938ce1d715fb2b4f8ed44ad2d1ae7dd1458effe8) | 59310147 | 1,998,458 | 0.000012 ETH |
+| `alarm.setExecutor` (Arc) | [`0xc3ce8cf5…`](https://explorer.arc.io/tx/0xc3ce8cf5f1741a2a6286293d238cc71768e81a7caa95e663752342498c654863) | 31975485 | 44,899 | 0.0012 USDC |
+
+### Mainnet proof
+
+Run on 2026-11-19 on the demo position (owner: the project wallet, account [`0xdcB201E7…`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD)): health factor 3.57, debt 0.865 USDC. The two Gateway standing orders were taken out of the keeper's orders file for the run, so Gateway would not repay first, and put back unchanged afterwards. The running keeper did not have the D2 relay yet, so the project wallet relayed the message to Base.
+
+| Step | Transaction | Result |
+|------|-------------|--------|
+| Base: wrap 0.0002 ETH | [`0xe1ef27ec…`](https://basescan.org/tx/0xe1ef27ec701bfd8068f28bee9f620b0077136515635177621b277bafd49f2bd0) | 0.0002 WETH |
+| Base: `WETH.approve(executor, 0.0002e18)` | [`0x7765a1d2…`](https://basescan.org/tx/0x7765a1d2817235b908ed8ab64e204e8823b080b7a59adda808170822bc15d4d7) | |
+| Base: `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0xf248c348…`](https://basescan.org/tx/0xf248c348a97cd95c6f468aaef6899909907c1588d32c767c185564c0586e0868) | USDC first (none held), then WETH, 100 bps (1%) max slippage, 0.025 USDC max fee |
+| Arc: `guard.setSimulatedDrop(7000)` | [`0x229348a8…`](https://explorer.arc.io/tx/0x229348a873f56128a9f7862e125eac99335c161a0e05ab27bcd9e1cf9f18a82e) | simulated health factor 1.07, under the 1.25 minimum (a 55% drop leaves it at 1.61) |
+| Arc: `alarm.raise(owner)` | [`0x24ec3513…`](https://explorer.arc.io/tx/0x24ec351379fa834f71145c43b00a339c3ab8407368bb74a94d33582dc1d9f655) | 326,590 gas; `AlarmRaised`, `amountNeeded` 0.253127 USDC, nonce 1 |
+| Circle attestation | `iris-api.circle.com/v2/messages/26?transactionHash=0x24ec3513…` | `complete`, finality 2000 |
+| Base: `MessageTransmitterV2.receiveMessage(message, attestation)` | [`0xc26de466…`](https://basescan.org/tx/0xc26de466e79196ff47dff7926032ffd1a4362ab401b55280497bf150b1ef40e7) | 444,685 gas; 0.000157 WETH swapped for 0.278127 USDC (`AssetUsed`), burned to the account with `maxFee` 0.025 (`DefenseExecuted`) |
+| Arc: Circle's forwarder mints | [`0x3fcc6ffd…`](https://explorer.arc.io/tx/0x3fcc6ffd7b14066b782ccc492ece8052271560a53c87e09b49ea27095c6bacc8) | 0.253127 USDC on the account |
+| Arc: `account.sweep()` | [`0xc55f42ad…`](https://explorer.arc.io/tx/0xc55f42adea96b9bddd50ce2d24f613c48aadb838ef62ddcfb3c145350b8add7a) | debt 0.865396 → 0.612270 USDC, simulated health factor 1.504 (target 1.5) |
+| Arc: `guard.setSimulatedDrop(0)` | [`0x26cf0faa…`](https://explorer.arc.io/tx/0x26cf0faa9c821c049812a15216ccdd651c43fc90922be4f0fa8903f9714fc810) | simulation cleared |
+
+Timing (block timestamps): `raise` mined → attestation complete: under 9 s (polled every 2 s) → `receiveMessage` mined on Base: 21 s after `raise`, most of it the manual relay → forwarded mint on Arc: 5 s after the Base burn, 26 s after `raise`. The keeper running at the time did not sweep within a minute, so the sweep was sent by hand 66 s after the mint.
 
 ### How to deploy
 
-From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Simulated on 2026-11-19 against both chains from the project wallet: about 1.05M gas on Arc for the alarm (about 0.03 USDC) and 2.47M gas on Base for the executor (about 0.00003 ETH at 0.006 gwei).
+From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). The 2026-11-19 deployment above cost 0.025 USDC on Arc and 0.000012 ETH on Base.
 
 ```sh
 set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
@@ -220,13 +244,6 @@ forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor
 ```
 
 A new factory (for example with a Morpho venue) needs a new alarm and a new executor, since the executor trusts one alarm address.
-
-### Mainnet proof (planned)
-
-1. On Base, from the demo owner: wrap a little ETH (`WETH.deposit`), `setPolicy([USDC, WETH], [0, 0.001e18], 86400, 100, 0.03e6)` (WETH only, to show the swap), `WETH.approve(executor, max)`.
-2. On Arc, the guard owner: `guard.setSimulatedDrop(5500)`; check `alarm.shortfall(owner)`.
-3. Anyone: `alarm.raise(owner)`; fetch the attestation from `https://iris-api.circle.com/v2/messages/26?transactionHash=<raise tx>`; call `receiveMessage(message, attestation)` on the Base MessageTransmitterV2.
-4. Check `DefenseExecuted` on Base, the forwarded mint on the demo account on Arc, then `sweep()` (keeper); clear the simulation with `setSimulatedDrop(0)`. Record every link here.
 
 ## How to deploy the guard
 
