@@ -60,6 +60,16 @@ final class PasskeyWallet: @unchecked Sendable {
     /// - Throws: The bundler's error (a contract revert shows up here), or
     ///   `WalletError.reverted` when the operation was mined but failed.
     func send(to: String, data: Data) async throws -> String {
+        try await send(calls: [(to: to, data: data)])
+    }
+
+    /// Sends several calls as one user operation, signed once with the passkey,
+    /// and waits for it to be mined.
+    ///
+    /// - Parameter calls: Contracts to call and their call data, in order.
+    /// - Returns: The Arc transaction hash.
+    /// - Throws: As `send(to:data:)`.
+    func send(calls: [(to: String, data: Data)]) async throws -> String {
         // Circle's bundler prices user operations itself: use its medium tier,
         // as the web app does.
         let price = try await bundler.getUserOperationGasPrice()
@@ -69,7 +79,7 @@ final class PasskeyWallet: @unchecked Sendable {
         )
         let userOpHash = try await bundler.sendUserOperation(
             account: account,
-            calls: [EncodeCallDataArg(to: to, data: "0x" + data.map { String(format: "%02x", $0) }.joined())],
+            calls: calls.map { EncodeCallDataArg(to: $0.to, data: "0x" + $0.data.map { String(format: "%02x", $0) }.joined()) },
             partialUserOp: partial
         )
         // From here the payment is on its way: any failure to read its outcome

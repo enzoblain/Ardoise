@@ -20,6 +20,7 @@
 		4ADE3DD84800F6ECEE63DE69 /* Fees.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894DB9EB9C7708B06AF8EA0A /* Fees.swift */; };
 		530CCD2A9ECC940896E6B886 /* web3swift in Frameworks */ = {isa = PBXBuildFile; productRef = 328343852FB8D8DF1B55A5C6 /* web3swift */; };
 		568913466C9E3E5FEDB00F1B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F3A87C2E89C03D8972C351 /* Theme.swift */; };
+		58DB80B3E8E335D7336D3C8F /* Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F18A92C8E462F325B1D85E /* Setup.swift */; };
 		5B66BF8118122208B286F1D7 /* Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9380A897A4016C7FD921ABF8 /* Format.swift */; };
 		61E4107FBBFE3352CA7842DC /* StatementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 480B400E520315C8AD1A0B95 /* StatementView.swift */; };
 		6E903F25B57308B4D10A519C /* Deployment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0DD876C02290FE570AC9B /* Deployment.swift */; };
@@ -55,6 +56,7 @@
 		8B11F81A1A45E2939936D5FF /* ArcRpc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcRpc.swift; sourceTree = "<group>"; };
 		9380A897A4016C7FD921ABF8 /* Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Format.swift; sourceTree = "<group>"; };
 		A18E2D137291410A5381EDB8 /* Abis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Abis.swift; sourceTree = "<group>"; };
+		A8F18A92C8E462F325B1D85E /* Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Setup.swift; sourceTree = "<group>"; };
 		B1A608032DEB12EE97AF5D30 /* ArdoiseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArdoiseApp.swift; sourceTree = "<group>"; };
 		B2E0DD876C02290FE570AC9B /* Deployment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deployment.swift; sourceTree = "<group>"; };
 		B9076BD8B42D4EE44F2A7587 /* ArdoiseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArdoiseService.swift; sourceTree = "<group>"; };
@@ -149,6 +151,7 @@
 				8B11F81A1A45E2939936D5FF /* ArcRpc.swift */,
 				B9076BD8B42D4EE44F2A7587 /* ArdoiseService.swift */,
 				B2E0DD876C02290FE570AC9B /* Deployment.swift */,
+				A8F18A92C8E462F325B1D85E /* Setup.swift */,
 			);
 			path = Chain;
 			sourceTree = "<group>";
@@ -298,6 +301,7 @@
 				02A039F5A8246EE72992B62E /* HomeView.swift in Sources */,
 				43CC99182A10024B616D498F /* PasskeyWallet.swift in Sources */,
 				7AADCFDFA39CE7651317039E /* PayView.swift in Sources */,
+				58DB80B3E8E335D7336D3C8F /* Setup.swift in Sources */,
 				12A52D77FA3E0639C89046EB /* SignInView.swift in Sources */,
 				61E4107FBBFE3352CA7842DC /* StatementView.swift in Sources */,
 				568913466C9E3E5FEDB00F1B /* Theme.swift in Sources */,
@@ -387,15 +391,17 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Ardoise/Ardoise.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Ardoise/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.enzoblain.ardoise;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -481,15 +487,17 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Ardoise/Ardoise.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Ardoise/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.enzoblain.ardoise;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
