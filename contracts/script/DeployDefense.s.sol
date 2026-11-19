@@ -32,7 +32,9 @@ abstract contract DefenseAddresses is Script {
 /// `DEFENSE_HONORS_SIMULATION` (`false`, the default when unset or empty, for production: the
 /// alarm decides on the venues' real health factors. `true` makes the guard's simulated price
 /// drop raise alarms for every policy holder of the paired executor: only for a pair reserved for
-/// demos. Any other value reverts, so a typo cannot silently choose a health source),
+/// demos. Any other value reverts, so a typo cannot silently choose a health source; trailing
+/// whitespace is trimmed when the variable is read, so the logged health source and the
+/// `honorsSimulation()` read-back must still be checked before the pair is used),
 /// `DEFENSE_EXPECTED_MIN_HEALTH_FACTOR` and `DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR` (WAD, defaults
 /// 1.25e18 and 1.5e18: the thresholds the guard must report and the alarm must pin, or the script
 /// reverts before sending anything, so thresholds changed on the guard just before the deployment
