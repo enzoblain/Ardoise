@@ -15,6 +15,7 @@ import { PayScreen } from "@/components/PayScreen";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
 import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
+import { VenueCheckNotice } from "@/components/VenueCheck";
 
 /**
  * The account's views, sharing one account client: the pay screen and,
@@ -113,6 +114,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
       />
       {connectError && <p className="text-sm text-danger">{connectError}</p>}
       {live && <LiveNotices account={live} version={payments} />}
+      {live && wallet && accountAddress && deployment && <VenueCheckNotice wallet={wallet} deployment={deployment} account={accountAddress} />}
       {wallet && deployment && !accountAddress ? (
         <div className="card mx-auto w-full max-w-xl">
           <AccountSetup wallet={wallet} deployment={deployment} onReady={onReady} />

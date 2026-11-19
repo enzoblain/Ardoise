@@ -8,6 +8,7 @@ import { formatUsdc } from "@/lib/format";
 import { network, txUrl } from "@/lib/network";
 import { activationCalls, missingSteps, readSetup, runStep, type SetupState, type SetupStep } from "@/lib/setup";
 import { CopyButton } from "@/components/CopyButton";
+import { useVenueCheck, VenueWarning } from "@/components/VenueCheck";
 import { sendFromPasskey, switchChain, type ConnectedWallet, type PasskeyWallet } from "@/lib/wallet";
 
 // Allowance given to the shared adapter: three days at the default daily cap
@@ -52,6 +53,7 @@ export function AccountSetup({
   const [running, setRunning] = useState<SetupStep>();
   const [lastTx, setLastTx] = useState<string>();
   const [error, setError] = useState<string>();
+  const venueCheck = useVenueCheck(deployment, state?.account ?? null);
 
   const refresh = useCallback(async () => {
     try {
@@ -121,7 +123,7 @@ export function AccountSetup({
               {!done && (
                 <button
                   type="button"
-                  disabled={!next || running !== undefined}
+                  disabled={!next || running !== undefined || (step === "approveBorrow" && venueCheck.blocked)}
                   onClick={() => void run(step)}
                   className="btn-primary mt-2 w-fit px-4 py-2 text-sm"
                 >
@@ -132,6 +134,7 @@ export function AccountSetup({
           );
         })}
       </ol>
+      <VenueWarning check={venueCheck} wallet={wallet} />
       {lastTx && (
         <p className="text-xs text-faint">
           Last step:{" "}
@@ -162,6 +165,7 @@ function PasskeySetup({
   refresh: () => Promise<void>;
 }) {
   const [gas, setGas] = useState<bigint>();
+  const venueCheck = useVenueCheck(deployment, state.account);
   const [running, setRunning] = useState(false);
   const [lastTx, setLastTx] = useState<string>();
   const [error, setError] = useState<string>();
@@ -231,10 +235,11 @@ function PasskeySetup({
           </Item>
         )}
       </ol>
+      <VenueWarning check={venueCheck} wallet={wallet} />
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={!funded || needsGas || calls.length === 0 || running}
+          disabled={!funded || needsGas || calls.length === 0 || running || venueCheck.blocked}
           onClick={() => void activate()}
           className="btn-primary w-fit px-4 py-2 text-sm"
         >
