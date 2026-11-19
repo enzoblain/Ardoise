@@ -269,6 +269,31 @@ contract DefenseExecutorTest is Test {
         c.minDefenseInterval = 1 days + 1;
         vm.expectRevert(DefenseExecutor.InvalidConfig.selector);
         new DefenseExecutor(c, none);
+        // Both bounds themselves are accepted.
+        c.minDefenseInterval = 15 minutes;
+        assertEq(new DefenseExecutor(c, none).minDefenseInterval(), 15 minutes);
+        c.minDefenseInterval = 1 days;
+        assertEq(new DefenseExecutor(c, none).minDefenseInterval(), 1 days);
+    }
+
+    function test_defense_tooSoonAlarmIsConsumedOnceExpired() public {
+        _policyUsdcOnly(10 * USDC);
+        _fund(usdc, 10 * USDC);
+        _deliver(_alarm(1 * USDC, 1));
+        bytes memory second = _alarm(1 * USDC, 2); // valid for 1 hour, interval 15 minutes
+        skip(5 minutes);
+        vm.expectRevert(
+            abi.encodeWithSelector(DefenseExecutor.TooSoon.selector, owner, executor.lastDefenseAt(owner) + 15 minutes)
+        );
+        vm.prank(transmitter);
+        executor.handleReceiveFinalizedMessage(ARC, _sender(alarm), 2000, second);
+        // Relayed again after its expiry, it is consumed instead of staying stuck.
+        skip(1 hours);
+        vm.expectEmit(address(executor));
+        emit DefenseExecutor.AlarmIgnored(owner, 2, DefenseExecutor.IgnoreReason.Expired);
+        _deliver(second);
+        assertTrue(executor.alarmUsed(2));
+        assertEq(messenger.burnCount(), 1);
     }
 
     function test_defense_revertsAlarmWithinMinIntervalOfLastBurn() public {
