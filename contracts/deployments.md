@@ -33,6 +33,10 @@ The defense alarm reads its factory as an immutable: an alarm deployed against t
 
 The Gateway standing orders recorded in the B3 run were signed for the previous account (`0xdcB201E7…`), and the keeper only submits an order whose recipient is the account it defends. The automatic Gateway repayment therefore needs new standing orders signed for `0x4d298b39…` before it can run again on this factory.
 
+### Not deployed: `withdraw` on the account
+
+`ArdoiseAccount.withdraw(amount)` (owner only, sends the account's idle USDC to the owner; see [`docs/api.md`](../docs/api.md#implementation-notes-ardoiseaccount-ardoisefactory)) is in the source but **on no deployed account**. Accounts are not upgradeable and the factory embeds the account's code, so it takes a new factory (see *How to redeploy*), new accounts and, since the adapters and the defense alarm read their factory as an immutable, new adapters, new borrow allowances or authorizations, and a new alarm and executor pair. Until then, the accounts of both factories on this page behave as before: USDC on them can only repay debt, and the app has no withdrawal button.
+
 ### Previous factory (Aave V4 only)
 
 Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardoise/commit/37d9fe4) (branch `chore/deploy-mainnet`, [PR #14](https://github.com/enzoblain/Ardoise/pull/14)) with [`script/Deploy.s.sol`](script/Deploy.s.sol), in block [31777009](https://explorer.arc.io/block/31777009). Deployer and factory admin: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7).
