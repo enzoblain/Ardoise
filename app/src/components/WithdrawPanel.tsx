@@ -16,25 +16,29 @@ import { parseWithdrawAmount, readIdleUsdc, sendWithdraw } from "@/lib/withdraw"
  *
  * @param props.wallet The owner's connected wallet.
  * @param props.account The owner's `ArdoiseAccount`.
+ * @param props.version Bumped after each payment, to read the balance again.
  */
-export function WithdrawPanel({ wallet, account }: { wallet: ConnectedWallet; account: Address }) {
+export function WithdrawPanel({ wallet, account, version }: { wallet: ConnectedWallet; account: Address; version: number }) {
   const [balance, setBalance] = useState<bigint>();
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [lastTx, setLastTx] = useState<`0x${string}`>();
   const [error, setError] = useState<string>();
+  // Kept apart from `error`, so that re-reading the balance never hides why a withdrawal failed.
+  const [readError, setReadError] = useState<string>();
 
   const refresh = useCallback(async () => {
     try {
       setBalance(await readIdleUsdc(arcClient, account));
+      setReadError(undefined);
     } catch (e) {
-      setError((e as Error).message.split("\n")[0]);
+      setReadError((e as Error).message.split("\n")[0]);
     }
   }, [account]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, version]);
 
   const parsed = balance === undefined || input === "" ? undefined : parseWithdrawAmount(input, balance);
 
@@ -45,11 +49,12 @@ export function WithdrawPanel({ wallet, account }: { wallet: ConnectedWallet; ac
     try {
       setLastTx(await sendWithdraw(wallet, arcClient, account, parsed.amount));
       setInput("");
-      await refresh();
     } catch (e) {
       setError((e as Error).message.split("\n")[0]);
     } finally {
       setRunning(false);
+      // Also after a revert: a sweep landing first changes the balance (InsufficientBalance).
+      await refresh();
     }
   }
 
@@ -104,6 +109,7 @@ export function WithdrawPanel({ wallet, account }: { wallet: ConnectedWallet; ac
           </a>
         </p>
       )}
+      {readError && <p className="text-sm text-danger">Could not read the balance: {readError}</p>}
       {error && <p className="text-sm text-danger">{error}</p>}
     </section>
   );

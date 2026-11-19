@@ -132,7 +132,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
                 <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
               </div>
             )}
-            {live && wallet && accountAddress && <div className="card"><WithdrawPanel wallet={wallet} account={accountAddress} /></div>}
+            {live && wallet && accountAddress && <div className="card"><WithdrawPanel wallet={wallet} account={accountAddress} version={payments} /></div>}
             <section className="card" aria-label="Stress test">
               <StressTest
                 key={live ? "live-stress" : "demo-stress"}
