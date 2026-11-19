@@ -4,6 +4,31 @@ Addresses of the Ardoise contracts. The app (C4) and the keeper (B2) read them f
 
 ## Arc mainnet (chain id 5042)
 
+### Current: factory with the Morpho venue (PR #39)
+
+Deployed on 2026-11-19 from the `feat/morpho-venue` branch ([PR #39](https://github.com/enzoblain/Ardoise/pull/39), main merged in) with [`script/Deploy.s.sol`](script/Deploy.s.sol) and `ARDOISE_GUARD` set to the existing guard, in block [31976642](https://explorer.arc.io/block/31976642), by the project wallet (factory admin). Same constructor arguments as below (caps 10 / 20 USDC, finality 2000); the factory lists two venues, Aave V4 then Morpho, and accounts created here have `payVia(venue, …)`. Accounts of the previous factory keep working but are not the ones the app and the keeper read. Gas: 0.162 USDC.
+
+| Contract | Address | Source verification |
+|----------|---------|---------------------|
+| `ArdoiseFactory` | [`0xB4476B617B750B9f48786c60930bc499343BB4a8`](https://explorer.arc.io/address/0xB4476B617B750B9f48786c60930bc499343BB4a8) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xB4476B617B750B9f48786c60930bc499343BB4a8) |
+| `AaveV4Adapter` (USDC on the Aave V4 Main Spoke, reserve 0) | [`0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F`](https://explorer.arc.io/address/0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F) |
+| `MorphoAdapter` (cirBTC/USDC market `0xc2db905f…5815d` on Morpho `0x34CD0407…7fCD`) | [`0x48BbdF2Fda17FC197909C82dE1d95242659e80a5`](https://explorer.arc.io/address/0x48BbdF2Fda17FC197909C82dE1d95242659e80a5) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0x48BbdF2Fda17FC197909C82dE1d95242659e80a5) |
+| `MarginGuard` (unchanged, see below) | [`0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080`](https://explorer.arc.io/address/0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080) |
+
+| Transaction | Hash |
+|-------------|------|
+| Deploy `ArdoiseFactory` | [`0x1ebcb728…`](https://explorer.arc.io/tx/0x1ebcb728121f0f79202693b4e1866cf26139959de02a16e95fa3c555fcbdd790) |
+| Deploy `AaveV4Adapter` | [`0xdde0b791…`](https://explorer.arc.io/tx/0xdde0b7910bc570b6578a6f0aaa6fdcaaacffd71c3c8ae9fb857ef92c8a0999e9) |
+| Deploy `MorphoAdapter` | [`0x133b159a…`](https://explorer.arc.io/tx/0x133b159a578adf10e2a86acd199bfa4ce0a07c8a64cc6f806cb26ad788008321) |
+| `setVenues([AaveV4Adapter, MorphoAdapter])` | [`0x44bd18ba…`](https://explorer.arc.io/tx/0x44bd18ba4a63d6e5e40a6ca63dd22563f2eb7eb4e0bd1e68f0c41903c0a637e7) |
+| `setGuard(MarginGuard)` | [`0xb705a9ae…`](https://explorer.arc.io/tx/0xb705a9aeda83d35a55519029672efcf40136d8350b0dbaa8a9731f228a0cad13) |
+
+Checked after mining: `factory.venues()` returns both adapters in that order and `factory.guard()` returns the guard. `MorphoAdapter(factory, morpho, marketId)` was verified with constructor arguments `(0xB4476B61…B4a8, 0x34CD04070dD72b14E241112F6d83812Df5Af7fCD, 0xc2db905f174e5defcce01d321b09f15f78856a36a21b90cc7e1abbc29225815d)`. The broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadcast/Deploy.s.sol/5042/run-latest.json).
+
+The defense alarm reads its factory as an immutable, so the alarm and executor deployed for the previous factory do not see accounts of this one until they are redeployed against it.
+
+### Previous factory (Aave V4 only)
+
 Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardoise/commit/37d9fe4) (branch `chore/deploy-mainnet`, [PR #14](https://github.com/enzoblain/Ardoise/pull/14)) with [`script/Deploy.s.sol`](script/Deploy.s.sol), in block [31777009](https://explorer.arc.io/block/31777009). Deployer and factory admin: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7).
 
 | Contract | Address | Source verification |

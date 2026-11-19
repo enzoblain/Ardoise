@@ -25,16 +25,16 @@ export interface Deployment {
   cirBtc: Address;
 }
 
-// From contracts/deployments.md (A4, PR #14). The contracts only exist on
+// From contracts/deployments.md (factory with the Morpho venue, PR #39). The contracts only exist on
 // Arc mainnet: on testnet the app runs the simulated account.
 export const MAINNET_DEPLOYMENT: Deployment = {
-  factory: "0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD",
-  deployBlock: 31_777_009n,
+  factory: "0xB4476B617B750B9f48786c60930bc499343BB4a8",
+  deployBlock: 31_976_642n,
   aaveSpoke: "0xB843bdC3a87A05E77E07Df9FE48928b3A34b134d",
   aaveTaker: "0xe9fae1C386c6f45B1fb3C3Ef01aDE424DAd4bCcF",
   aaveGiver: "0x01Da80Eef3004ebbF90b7637B1De7fF30fBc7cf1",
-  aaveAdapter: "0x38B564d0b3d57216A34d83FbF08DE48744567b38",
-  morphoAdapter: null,
+  aaveAdapter: "0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F",
+  morphoAdapter: "0x48BbdF2Fda17FC197909C82dE1d95242659e80a5",
   usdcReserveId: 0n,
   cirBtcReserveId: 2n,
   cirBtc: "0x171A4217b86A807A64eB94757Db6849fb4bDbAA0",
