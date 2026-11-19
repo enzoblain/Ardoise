@@ -29,7 +29,7 @@ Everything in the repository is written in **English**: code, identifiers, comme
 
 ### Commits
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/). A `commit-msg` hook in `.githooks/` rejects any message that does not.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/). A `commit-msg` hook in `.githooks/` rejects any message that does not. The hooks run once git points at that folder: `git config core.hooksPath .githooks` (once per clone).
 
 ```
 <type>(<optional scope>): <subject>
@@ -41,6 +41,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/). A `
 - **Subject:** imperative mood ("add", not "added" or "adds"), lowercase first letter, no trailing period, 72 characters maximum.
 - **One logical change per commit.** Do not mix a feature, a refactor and a formatting pass in one commit.
 - Commit working states often; every commit must build.
+- No `Co-Authored-By:` trailer and no "Generated with" line from an AI tool (Claude, Anthropic): the `commit-msg` hook rejects them. Pull request bodies follow the same rule.
 - Never bypass the hooks with `--no-verify`. If a hook blocks a commit by mistake, tell the user instead of working around it.
 
 Examples:
