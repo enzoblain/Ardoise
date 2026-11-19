@@ -26,7 +26,6 @@
   --s3: clamp(0, calc((var(--p) - 0.53) * 16), 1);
   --reveal: clamp(0, calc((var(--p) - 0.67) * 10), 1);
   --final: clamp(0, calc((var(--p) - 0.76) * 12), 1);
-  --access: clamp(0, calc((var(--p) - 0.84) * 14), 1);
   position: relative;
   height: 760vh;
 }
@@ -444,8 +443,19 @@
 }
 
 /* The way into the main page: a pane of clear glass over the colour. */
-.day .column > .accessRow {
-  opacity: var(--access);
+.accessRow {
+  /* 1 once the slide has settled, 0 before: the step triggers the
+     transition, which waits two seconds and then fades the button in. */
+  --shown: clamp(0, calc((var(--final) - 0.98) * 60), 1);
+  position: absolute;
+  left: 50%;
+  bottom: 6vh;
+  opacity: var(--shown);
+  transform: translateX(-50%);
+  translate: 0 calc((1 - var(--shown)) * 14px);
+  transition:
+    opacity 1.1s ease 2s,
+    translate 1.1s ease 2s;
 }
 
 .access {
@@ -586,10 +596,19 @@
   .step1,
   .step2,
   .step3,
-  .day .column > *,
-  .day .column > .accessRow {
+  .day .column > * {
     opacity: 1;
     transform: none;
+  }
+
+  .accessRow {
+    position: static;
+    padding-bottom: 3rem;
+    opacity: 1;
+    transform: none;
+    translate: none;
+    transition: none;
+    text-align: center;
   }
 
   .mainEnter {

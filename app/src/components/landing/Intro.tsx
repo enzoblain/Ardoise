@@ -124,9 +124,9 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
                   Staking the reserve while it waits <span className={styles.soon}>Soon</span>
                 </li>
               </ul>
-              <div className={styles.accessRow}>
-                <AccessButton />
-              </div>
+            </div>
+            <div className={styles.accessRow}>
+              <AccessButton />
             </div>
             <div className={styles.phone}>
               <div className={styles.screen}>
