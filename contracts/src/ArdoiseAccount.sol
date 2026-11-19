@@ -245,33 +245,36 @@ contract ArdoiseAccount is IArdoise {
     // Repays through each line's venue inside the non-reentrant lock.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
     /// @inheritdoc IArdoise
-    /// @dev Lines whose venue debt is already 0 are closed on the way at no cost. A line whose
-    /// venue refuses the repayment is skipped rather than blocking the sweep, so the keeper is
-    /// never stuck behind one line. What is left once the open lines are covered repays the
-    /// owner's remaining debt on each venue of the factory: the line estimates use simple
-    /// interest while venues compound, and the owner may have debt opened outside Ardoise.
-    /// Anything left after that stays in the account.
+    /// @dev Venues are served in order of health factor, lowest first (ties keep the factory's
+    /// order), so the balance goes to the position closest to liquidation: with Aave V4 and
+    /// Morpho as separate positions, repaying a line on the healthy one would leave the other in
+    /// danger. For each venue, its open lines are repaid oldest first, then whatever remains of
+    /// the owner's debt there: the line estimates use simple interest while venues compound, and
+    /// the owner may have debt opened outside Ardoise. Open lines on a venue the factory no longer
+    /// lists come last. Lines whose venue debt is already 0 are closed on the way at no cost; a
+    /// venue that refuses the repayment is skipped rather than blocking the sweep, so the keeper
+    /// is never stuck behind one line. Anything left after that stays in the account.
     function sweep() external nonReentrant returns (uint256 repaid) {
         uint256 balance = usdc.balanceOf(address(this));
         uint256 count = _lines.length;
-        uint256 i = _firstOpen;
-        while (i < count && _lines[i].closed) ++i;
-        _firstOpen = i;
-        for (; i < count && balance > 0; ++i) {
-            Line storage l = _lines[i];
-            if (l.closed) continue;
-            (uint256 lineRepaid, uint256 spent) = _repayLine(i + 1, l, balance, address(this));
-            repaid += lineRepaid;
-            balance -= spent;
-        }
-        IVenue[] memory list = balance > 0 ? venues() : new IVenue[](0);
-        for (uint256 v = 0; v < list.length && balance > 0; ++v) {
-            (bool ok, uint256 debt) = _debtOf(list[v]);
-            if (!ok || debt == 0) continue;
-            (, uint256 venueRepaid, uint256 spent) = _venueRepay(list[v], _min(balance, debt), address(this));
+        uint256 first = _firstOpen;
+        while (first < count && _lines[first].closed) ++first;
+        _firstOpen = first;
+        if (balance == 0) return 0;
+
+        IVenue[] memory order = _byHealth(venues());
+        uint256 done;
+        for (uint256 v = 0; v < order.length && balance > 0; ++v) {
+            (done, balance) = _sweepLines(order, order[v], first, balance);
+            repaid += done;
+            (bool ok, uint256 debt) = _debtOf(order[v]);
+            if (!ok || debt == 0 || balance == 0) continue;
+            (, uint256 venueRepaid, uint256 spent) = _venueRepay(order[v], _min(balance, debt), address(this));
             repaid += venueRepaid;
             balance -= spent;
         }
+        (done,) = _sweepLines(order, IVenue(address(0)), first, balance);
+        repaid += done;
     }
 
     /// @notice Whether a debt line is closed: fully repaid by its own estimate, or its venue
@@ -385,15 +388,9 @@ contract ArdoiseAccount is IArdoise {
         emit Paid(lineId, venue, amount, maxFee, borrowed, rateBps, destinationDomain, payee, memo);
     }
 
-    // The venue list is admin-set and short.
-    // forge-lint: disable-next-item(calls-loop)
     /// @dev Whether `venue` is in the factory's venue list.
     function _isVenue(IVenue venue) private view returns (bool) {
-        IVenue[] memory list = venues();
-        for (uint256 i = 0; i < list.length; ++i) {
-            if (list[i] == venue) return true;
-        }
-        return false;
+        return _contains(venues(), venue);
     }
 
     // Only reached from `repay` and `sweep`, both non-reentrant.
@@ -460,6 +457,63 @@ contract ArdoiseAccount is IArdoise {
             _call(usdc.approve(address(venue), 0));
             if (external_) _call(usdc.transfer(payer, amount - spent));
         }
+    }
+
+    // Only reached from `sweep`, which is non-reentrant.
+    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
+    /// @dev Applies `balance` to the open lines on `venue`, oldest first, from index `first`. With
+    /// `venue` zero, it takes the open lines whose venue is not in `listed` instead. Returns the
+    /// debt repaid and the balance left.
+    function _sweepLines(IVenue[] memory listed, IVenue venue, uint256 first, uint256 balance)
+        private
+        returns (uint256 repaid, uint256 left)
+    {
+        left = balance;
+        uint256 count = _lines.length;
+        for (uint256 i = first; i < count && left > 0; ++i) {
+            Line storage l = _lines[i];
+            if (l.closed) continue;
+            if (address(venue) == address(0) ? _contains(listed, l.venue) : l.venue != venue) continue;
+            (uint256 lineRepaid, uint256 spent) = _repayLine(i + 1, l, left, address(this));
+            repaid += lineRepaid;
+            left -= spent;
+        }
+    }
+
+    // The venue list is admin-set and short.
+    // forge-lint: disable-next-item(calls-loop)
+    /// @dev `list` sorted by the owner's health factor on each venue, lowest first, keeping the
+    /// list's order on ties; a venue that cannot report its health goes last.
+    function _byHealth(IVenue[] memory list) private view returns (IVenue[] memory) {
+        uint256 n = list.length;
+        uint256[] memory hf = new uint256[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            hf[i] = type(uint256).max;
+            try list[i].health(owner) returns (uint256 h, uint256, uint256) {
+                hf[i] = h;
+            } catch {}
+        }
+        // Insertion sort, stable: the list holds a handful of venues.
+        for (uint256 i = 1; i < n; ++i) {
+            IVenue venue = list[i];
+            uint256 h = hf[i];
+            uint256 j = i;
+            while (j > 0 && hf[j - 1] > h) {
+                list[j] = list[j - 1];
+                hf[j] = hf[j - 1];
+                --j;
+            }
+            list[j] = venue;
+            hf[j] = h;
+        }
+        return list;
+    }
+
+    function _contains(IVenue[] memory list, IVenue venue) private pure returns (bool) {
+        for (uint256 i = 0; i < list.length; ++i) {
+            if (list[i] == venue) return true;
+        }
+        return false;
     }
 
     // forge-lint: disable-next-item(calls-loop)

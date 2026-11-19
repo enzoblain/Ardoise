@@ -580,6 +580,56 @@ contract ArdoiseAccountTest is Test {
         assertEq(usdc.balanceOf(address(account)), 2 * USDC);
     }
 
+    function test_sweep_repaysTheVenueClosestToLiquidationFirst() public {
+        vm.startPrank(owner);
+        account.pay(2 * USDC, ARC, _b(payee), 0, ""); // line 1, Aave, the oldest
+        account.payVia(morpho, 3 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho
+        vm.stopPrank();
+        // Morpho is the position in danger: the balance goes there, not to the older Aave line.
+        morpho.setHealth(1.1e18);
+        aave.setHealth(1.8e18);
+        usdc.mint(address(account), 3 * USDC);
+        assertEq(account.sweep(), 3 * USDC);
+        assertTrue(account.closed(2));
+        assertFalse(account.closed(1));
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(aave.debtOf(owner), 2 * USDC);
+    }
+
+    function test_sweep_servesVenueDebtBeforeMovingToTheNextVenue() public {
+        _payArc(1 * USDC); // Aave
+        morpho.setDebt(owner, 1 * USDC); // opened outside Ardoise
+        aave.setHealth(1.9e18);
+        morpho.setHealth(1.2e18);
+        usdc.mint(address(account), 1 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(aave.debtOf(owner), 1 * USDC);
+    }
+
+    function test_sweep_putsAVenueThatCannotReportHealthLast() public {
+        vm.startPrank(owner);
+        account.pay(1 * USDC, ARC, _b(payee), 0, ""); // Aave
+        account.payVia(morpho, 1 * USDC, ARC, _b(payee), 0, ""); // Morpho
+        vm.stopPrank();
+        aave.setHealth(1.01e18);
+        // A broken Morpho health read must not block the sweep nor jump the queue.
+        vm.mockCallRevert(address(morpho), abi.encodeWithSelector(IVenue.health.selector), "down");
+        usdc.mint(address(account), 1 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertEq(aave.debtOf(owner), 0);
+        assertEq(morpho.debtOf(owner), 1 * USDC);
+    }
+
+    function test_sweep_stillRepaysLinesOnAVenueTheFactoryDropped() public {
+        _payArc(1 * USDC); // line 1 on Aave
+        _setVenues(morpho, morpho);
+        usdc.mint(address(account), 1 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertTrue(account.closed(1));
+        assertEq(aave.debtOf(owner), 0);
+    }
+
     function test_repay_bubblesVenueRevert() public {
         _payArc(1 * USDC);
         aave.setRepayBroken(true);

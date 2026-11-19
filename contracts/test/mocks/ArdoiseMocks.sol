@@ -19,6 +19,8 @@ contract TokenVenue is IVenue {
     uint256 public rateBps;
     /// @notice Liquidity returned by `available()`.
     uint256 public liquidity;
+    /// @notice Health factor returned by `health`.
+    uint256 public currentHealth = 2e18;
     /// @notice Health factor returned by `healthAfter`, whatever the amount.
     uint256 public projectedHealth = type(uint256).max;
     /// @notice When true, `available()` reverts.
@@ -51,6 +53,11 @@ contract TokenVenue is IVenue {
     function setMarket(uint256 rateBps_, uint256 liquidity_) external {
         rateBps = rateBps_;
         liquidity = liquidity_;
+    }
+
+    /// @notice Sets the health factor `health` returns.
+    function setHealth(uint256 healthFactor) external {
+        currentHealth = healthFactor;
     }
 
     /// @notice Sets the misbehaviours.
@@ -97,8 +104,8 @@ contract TokenVenue is IVenue {
     }
 
     /// @inheritdoc IVenue
-    function health(address) external pure returns (uint256, uint256, uint256) {
-        return (2e18, 100e18, 50e18);
+    function health(address) external view returns (uint256, uint256, uint256) {
+        return (currentHealth, 100e18, 50e18);
     }
 
     /// @inheritdoc IVenue

@@ -173,7 +173,8 @@ interface IArdoise {
     /// @return repaid Amount applied to the line.
     function repay(uint256 lineId, uint256 amount) external returns (uint256 repaid);
 
-    /// @notice Applies the account's own USDC balance to its debt, oldest line first.
+    /// @notice Applies the account's own USDC balance to its debt, starting with the venue whose
+    /// position has the lowest health factor; on each venue, oldest line first.
     /// @dev Public and non-reentrant: it can only reduce debt, so the keeper and anyone else may
     /// call it.
     /// @return repaid Total amount repaid.
