@@ -23,10 +23,9 @@ abstract contract DefenseAddresses is Script {
 /// @dev Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_FACTORY` (required: the factory
 /// address, never hard-coded so the alarm follows a redeployed factory), `DEFENSE_COOLDOWN`
 /// (seconds between two alarms per owner, default 1800), `DEFENSE_ALARM_TTL` (seconds an alarm
-/// stays valid on Base, default 600). The cooldown must exceed the TTL plus the time a burn back
-/// to Arc can take (about 20 minutes at standard finality from Base), so that a second alarm
-/// cannot take the owner's funds again while the first defense is in flight. Commands are in
-/// contracts/deployments.md.
+/// stays valid on Base, default 600; the alarm refuses a TTL longer than the cooldown). Funds still
+/// on their way back from Base are protected by the executor's `minDefenseInterval`. Commands
+/// are in contracts/deployments.md.
 contract DeployDefenseAlarm is DefenseAddresses {
     /// @notice Runs the deployment.
     /// @return alarm The deployed alarm.
@@ -57,7 +56,9 @@ contract DeployDefenseAlarm is DefenseAddresses {
 /// as the only asset it can sell (ETH/USD Chainlink feed, 0.05% Uniswap V3 pool).
 /// @dev Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_ALARM_ADDRESS` (required),
 /// `DEFENSE_BURN_FINALITY` (1000 fast, default; 2000 standard), `DEFENSE_MAX_PRICE_AGE`
-/// (seconds, default 1500: the feed's heartbeat on Base is 1200 s).
+/// (seconds, default 1500: the feed's heartbeat on Base is 1200 s), `DEFENSE_MIN_INTERVAL`
+/// (seconds between two burns for the same owner, default 3600: longer than a standard-finality
+/// burn from Base, 13 to 19 minutes, takes to be minted on Arc).
 contract DeployDefenseExecutor is DefenseAddresses {
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
@@ -74,6 +75,7 @@ contract DeployDefenseExecutor is DefenseAddresses {
         uint256 finality = vm.envOr("DEFENSE_BURN_FINALITY", uint256(1000));
         require(finality == 1000 || finality == 2000, "finality must be 1000 or 2000");
         uint256 maxPriceAge = vm.envOr("DEFENSE_MAX_PRICE_AGE", uint256(1500));
+        uint256 minInterval = vm.envOr("DEFENSE_MIN_INTERVAL", uint256(3600));
         DefenseExecutor.SwapAssetConfig[] memory assets = new DefenseExecutor.SwapAssetConfig[](1);
         assets[0] = DefenseExecutor.SwapAssetConfig(WETH, IAggregatorV3(ETH_USD_FEED), WETH_USDC_POOL_FEE);
         vm.startBroadcast(key);
@@ -87,7 +89,8 @@ contract DeployDefenseExecutor is DefenseAddresses {
                 swapRouter: ISwapRouter02(SWAP_ROUTER_02),
                 // forge-lint: disable-next-line(unsafe-typecast)
                 burnFinality: uint32(finality), // 1000 or 2000, checked above
-                maxPriceAge: maxPriceAge
+                maxPriceAge: maxPriceAge,
+                minDefenseInterval: minInterval
             }),
             assets
         );

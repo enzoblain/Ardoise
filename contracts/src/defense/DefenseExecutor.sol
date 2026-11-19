@@ -71,7 +71,8 @@ contract DefenseExecutor is IMessageHandlerV2 {
     enum IgnoreReason {
         Expired,
         NoPolicy,
-        NotEnoughFunds
+        NotEnoughFunds,
+        TooSoon
     }
 
     /// @notice Swap route and price feed of an asset the executor can sell for USDC.
@@ -99,6 +100,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// @param swapRouter Uniswap V3 SwapRouter02.
     /// @param burnFinality CCTP finality of the burn to Arc (1000 fast, 2000 standard).
     /// @param maxPriceAge Oldest Chainlink answer accepted, in seconds.
+    /// @param minDefenseInterval Minimum time between two burns for the same owner, in seconds:
+    /// longer than a burn can take to be minted on Arc, so that a new alarm raised before the
+    /// previous funds arrived cannot take the owner's funds again.
     struct Config {
         address messageTransmitter;
         ITokenMessengerV2 tokenMessenger;
@@ -108,6 +112,7 @@ contract DefenseExecutor is IMessageHandlerV2 {
         ISwapRouter02 swapRouter;
         uint32 burnFinality;
         uint256 maxPriceAge;
+        uint256 minDefenseInterval;
     }
 
     /// @notice An asset that can be sold for USDC: its Chainlink USD feed and Uniswap V3 fee tier.
@@ -139,11 +144,15 @@ contract DefenseExecutor is IMessageHandlerV2 {
     uint32 public immutable burnFinality;
     /// @notice Oldest Chainlink answer accepted, in seconds.
     uint256 public immutable maxPriceAge;
+    /// @notice Minimum time between two burns for the same owner, in seconds.
+    uint256 public immutable minDefenseInterval;
 
     /// @notice Assets that can be sold for USDC, set at deployment.
     mapping(address asset => SwapAsset) public swapAssets;
     /// @notice Alarms already consumed.
     mapping(uint64 nonce => bool) public alarmUsed;
+    /// @notice Timestamp of each owner's last burn to Arc.
+    mapping(address owner => uint256) public lastDefenseAt;
 
     mapping(address owner => Policy) private _policies;
     mapping(address owner => mapping(address asset => Usage)) private _usage;
@@ -214,6 +223,7 @@ contract DefenseExecutor is IMessageHandlerV2 {
         swapRouter = config.swapRouter;
         burnFinality = config.burnFinality;
         maxPriceAge = config.maxPriceAge;
+        minDefenseInterval = config.minDefenseInterval;
         for (uint256 i = 0; i < assets.length; ++i) {
             SwapAssetConfig memory c = assets[i];
             if (c.asset == address(config.usdc) || address(c.feed) == address(0)) revert InvalidConfig();
@@ -290,7 +300,8 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// @inheritdoc IMessageHandlerV2
     /// @dev Reverts (so the message can be relayed again) for a wrong caller, source, sender,
     /// a replayed alarm or a malformed body. An expired alarm, a missing policy or funds that do
-    /// not cover the fee consume the alarm without a burn (`AlarmIgnored`).
+    /// not cover the fee, or an alarm within `minDefenseInterval` of the owner's last burn (its
+    /// funds may still be on their way to Arc) consume the alarm without a burn (`AlarmIgnored`).
     function handleReceiveFinalizedMessage(
         uint32 sourceDomain,
         bytes32 sender,
@@ -332,6 +343,12 @@ contract DefenseExecutor is IMessageHandlerV2 {
             emit AlarmIgnored(a.owner, a.nonce, IgnoreReason.Expired);
             return;
         }
+        uint256 last = lastDefenseAt[a.owner];
+        // forge-lint: disable-next-line(block-timestamp)
+        if (last != 0 && block.timestamp < last + minDefenseInterval) {
+            emit AlarmIgnored(a.owner, a.nonce, IgnoreReason.TooSoon);
+            return;
+        }
         Policy storage p = _policies[a.owner];
         if (p.assets.length == 0) {
             emit AlarmIgnored(a.owner, a.nonce, IgnoreReason.NoPolicy);
@@ -352,6 +369,7 @@ contract DefenseExecutor is IMessageHandlerV2 {
             emit AlarmIgnored(a.owner, a.nonce, IgnoreReason.NotEnoughFunds);
             return;
         }
+        lastDefenseAt[a.owner] = block.timestamp;
         _call(usdc.approve(address(tokenMessenger), gathered));
         tokenMessenger.depositForBurnWithHook(
             gathered,

@@ -113,8 +113,8 @@ contract DefenseAlarm is IDefenseAlarm {
         }
     }
 
-    // The account and the transmitter come from the factory and CCTP; state written after the sweep
-    // is per-owner bookkeeping the sweep cannot reach.
+    // The account and the transmitter come from the factory and CCTP; the cooldown is written
+    // before the sweep, and what follows is the nonce and the message.
     // forge-lint: disable-next-item(block-timestamp, reentrancy-events, reentrancy-no-eth)
     /// @inheritdoc IDefenseAlarm
     /// @dev Sends `DefenseMessage.encode(owner, account, amountNeeded, nonce, expiry)` to the
@@ -126,19 +126,27 @@ contract DefenseAlarm is IDefenseAlarm {
         if (account == address(0)) revert NoAccount(owner);
         uint64 nextAllowed = cooldown(owner);
         if (nextAllowed != 0 && block.timestamp < nextAllowed) revert CoolingDown(nextAllowed);
+        // Start the cooldown before any external call, so nothing reached from the sweep can raise
+        // a second alarm in the same transaction; a revert below rolls it back.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint64 nowTs = uint64(block.timestamp); // fits until the year 584 billion
+        _lastRaised[owner] = nowTs;
         // USDC already on the account (an earlier defense, a Gateway repayment) is applied first,
         // so the alarm asks Base only for what is still missing. `sweep()` is public and can only
         // reduce debt; a failing sweep must not block the alarm.
         if (account.code.length > 0) {
-            try IArdoise(account).sweep() {} catch {}
+            uint256 gasBefore = gasleft();
+            try IArdoise(account).sweep() {}
+            catch {
+                // A caller must not skip the sweep by starving it of gas: the call gets 63/64 of
+                // what is left, so an out-of-gas failure leaves less than 1/64 behind.
+                if (gasleft() <= gasBefore / 63) revert SweepOutOfGas();
+            }
         }
         (, uint256 amountNeeded) = shortfall(owner);
         if (amountNeeded == 0) revert PositionHealthy(owner);
 
         nonce = ++lastNonce;
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint64 nowTs = uint64(block.timestamp); // fits until the year 584 billion
-        _lastRaised[owner] = nowTs;
         uint64 expiry = nowTs + alarmTtl;
         messageTransmitter.sendMessage(
             executorDomain,
@@ -154,7 +162,8 @@ contract DefenseAlarm is IDefenseAlarm {
     // forge-lint: disable-next-item(calls-loop, unused-return)
     /// @dev The owner's position on `venue`: the guard's simulated health factor (the venue's own
     /// when the guard has no simulation), the debt in USD (WAD) and in the venue's asset. `ok` is
-    /// false when the venue cannot answer, so one failing venue does not block the others.
+    /// false when the venue reverts, so one failing venue does not block the others (a venue
+    /// returning malformed data still reverts the call; venues are admin-set).
     function _measure(IGuard guard, IVenue venue, address owner)
         private
         view
