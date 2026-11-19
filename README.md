@@ -32,8 +32,8 @@ On Arc, Circle's [Borrow Kit](https://docs.arc.io/app-kit/borrow) lends USDC aga
 
 Ardoise turns a cirBTC position on Arc into a payment account:
 
-- **Pay from your bitcoin.** Enter an amount, a payee and their chain (Arc or Base). Ardoise borrows exactly that amount, plus the cross-chain fee, at the cheapest lending venue, and delivers it. Your bitcoin is never sold and never leaves your own Aave position.
-- **See the rates and your margin before you pay.** The pay screen compares the live USDC borrow rates of Aave V4 and Morpho on Arc and shows how much margin the position keeps before and after the payment.
+- **Pay from your bitcoin.** Enter an amount, a payee and their chain (Arc or Base). Ardoise borrows exactly that amount, plus the cross-chain fee, on the lending venue you pick, and delivers it. The app recommends the cheapest venue the guard allows and selects it by default. Your bitcoin is never sold and never leaves your own Aave position.
+- **See the rates and your margin before you pay.** The pay screen compares Aave V4 and Morpho on Arc side by side: live USDC borrow rate, liquidity and whether the guard allows this payment there. It shows how much margin the chosen position keeps before and after the payment.
 - **One line per payment.** The statement lists every payment as a debt line: amount, venue, rate, payee, memo and interest so far, built from the account's on-chain events. Each cross-chain payment has a tracking page that follows it until it lands on the payee's chain.
 - **Protected from liquidation.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (tested end to end on testnet; the mainnet test is pending).
 
@@ -43,7 +43,7 @@ Without a wallet, anyone can try the whole flow on a demo account simulated in t
 
 | | Borrow Kit | Ardoise |
 |--|-----------|---------|
-| Lenders | Morpho only | Best rate across the venues of the factory where the owner can borrow; the deployed factory lends through Aave V4, and Morpho has an adapter tested against the real market, not deployed yet |
+| Lenders | Morpho only | Aave V4 or Morpho, per payment: the cheapest venue the guard allows is recommended, the user may pick the other; the deployed factory lends through Aave V4, and Morpho has an adapter tested against the real market, not deployed yet |
 | When you borrow | One loan, by hand | Exactly the amount of each payment, at payment time |
 | Where the money goes | Your wallet on Arc | The payee, on Arc or on another chain through CCTP |
 | Liquidation | Warning, then Morpho liquidates | Guard refuses risky payments; keeper repays from the account, or from a Gateway reserve on Base (mainnet test pending) |
@@ -53,7 +53,7 @@ Without a wallet, anyone can try the whole flow on a demo account simulated in t
 
 ```mermaid
 flowchart LR
-  W["User wallet<br/>browser or passkey"] -->|"pay(amount, chain, payee, memo)"| A[ArdoiseAccount<br/>Arc mainnet]
+  W["User wallet<br/>browser or passkey"] -->|"payVia(venue, amount, chain, payee, memo)"| A[ArdoiseAccount<br/>Arc mainnet]
   A -->|checkMargin| G[MarginGuard]
   A -->|"reads venues() and guard()"| F[ArdoiseFactory]
   A -->|borrow| AD[AaveV4Adapter]
@@ -68,8 +68,8 @@ flowchart LR
 ```
 
 1. **One-time setup.** The user already has cirBTC supplied as collateral on Aave V4, in their own position (done on Aave). When they activate Ardoise, the app has them authorize Aave's position managers, create their `ArdoiseAccount` through the factory and give the adapter a capped borrow allowance ([`app/src/lib/setup.ts`](app/src/lib/setup.ts)). A passkey smart account receives its cirBTC by a plain transfer instead, and its activation supplies it on Aave V4, enables it as collateral and runs the other steps in a single user operation (`activationCalls`).
-2. **Pay.** `pay()` checks the account's caps, reads the factory's venues and picks the cheapest one where the guard allows the payment (`bestVenue`; the deployed factory still uses the earlier version, which takes the cheapest venue and then asks the guard), borrows `amount + maxFee` on the user's behalf, then either transfers USDC on Arc or burns it with CCTP so that Circle's forwarder mints it to the payee on the other chain. It records a debt line and emits `Paid` ([`contracts/src/ArdoiseAccount.sol`](contracts/src/ArdoiseAccount.sol)).
-3. **Protect.** `MarginGuard` refuses payments that would leave the health factor under 1.25 ([`contracts/src/guard/MarginGuard.sol`](contracts/src/guard/MarginGuard.sol)). The keeper, an off-chain Node process, watches every account and calls the public `sweep()` to apply the USDC on an account to its debt, oldest line first. When a position is under the minimum and the account holds nothing, it submits one of the owner's Gateway standing orders to bring USDC from Base ([`keeper/src/keeper.ts`](keeper/src/keeper.ts), [`keeper/src/gateway.ts`](keeper/src/gateway.ts)).
+2. **Pay.** `payVia(venue, …)` borrows on the venue the user picked; `pay()` picks the cheapest one where the guard allows the payment (`bestVenue`, which the app recommends). Both check the account's caps and the guard on that venue (the deployed factory still runs the earlier version, with `pay()` only), borrow `amount + maxFee` on the user's behalf, then either transfers USDC on Arc or burns it with CCTP so that Circle's forwarder mints it to the payee on the other chain. It records a debt line and emits `Paid` ([`contracts/src/ArdoiseAccount.sol`](contracts/src/ArdoiseAccount.sol)).
+3. **Protect.** `MarginGuard` refuses payments that would leave the health factor under 1.25 ([`contracts/src/guard/MarginGuard.sol`](contracts/src/guard/MarginGuard.sol)). The keeper, an off-chain Node process, watches every account and calls the public `sweep()` to apply the USDC on an account to its debt, starting with the venue closest to liquidation (lowest health factor), oldest line first on each venue. When a position is under the minimum and the account holds nothing, it submits one of the owner's Gateway standing orders to bring USDC from Base ([`keeper/src/keeper.ts`](keeper/src/keeper.ts), [`keeper/src/gateway.ts`](keeper/src/gateway.ts)).
 
 The collateral never moves to Ardoise: the account can only borrow within the allowance the user granted and repay; it cannot withdraw cirBTC. The full payment sequence, the interfaces and their invariants are in [`docs/api.md`](docs/api.md).
 
