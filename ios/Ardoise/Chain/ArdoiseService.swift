@@ -38,14 +38,16 @@ struct VenueOption: Identifiable, Sendable {
     let venue: Venue
     let rateBps: BigUInt
     let available: BigUInt
-    /// `IGuard.checkMargin(owner, venue, borrow)`.
-    let allowed: BigUInt
+    /// `IGuard.checkMargin(owner, venue, borrow)`; nil when it could not be read.
+    let allowed: BigUInt?
 
-    func usable(for borrow: BigUInt) -> Bool { available >= borrow && allowed >= borrow }
+    func usable(for borrow: BigUInt) -> Bool { available >= borrow && (allowed ?? 0) >= borrow }
 }
 
 /// What a payment would borrow, and where.
 struct PaymentQuote: Sendable {
+    /// CCTP domain the quote was made for: the fee depends on it.
+    let domain: UInt32
     let amount: BigUInt
     let maxFee: BigUInt
     let options: [VenueOption]
@@ -71,6 +73,15 @@ struct DebtLine: Identifiable, Sendable {
     var outstanding: BigUInt {
         let due = principal + accruedInterest
         return due > repaid ? due - repaid : 0
+    }
+}
+
+/// Why a payment cannot be quoted.
+enum QuoteError: LocalizedError {
+    case guardNotSet
+
+    var errorDescription: String? {
+        "Payments are not live yet: the factory has no position guard."
     }
 }
 
@@ -144,7 +155,10 @@ struct ArdoiseService: Sendable {
         let maxFee = domain == Deployment.arcDomain ? 0 : try Fees.maxFee(schedule: try await Fees.schedule(to: domain), amount: amount)
         let borrow = amount + maxFee
         let guardOut = try await rpc.call(Abis.account, at: account, "guard")
-        let guardAddress = (guardOut["0"] as? EthereumAddress)?.address ?? ""
+        guard let guardAddress = (guardOut["0"] as? EthereumAddress)?.address,
+              BigUInt(guardAddress.dropFirst(2), radix: 16) != 0 else {
+            throw QuoteError.guardNotSet
+        }
 
         var options: [VenueOption] = []
         for venue in Deployment.venues {
@@ -155,14 +169,21 @@ struct ArdoiseService: Sendable {
                 venue: venue,
                 rateBps: (try await rate)["0"] as? BigUInt ?? 0,
                 available: (try await available)["0"] as? BigUInt ?? 0,
-                allowed: (try? await margin)?["0"] as? BigUInt ?? 0
+                // A failed read shows as unread, never as a refusal.
+                allowed: (try? await margin)?["0"] as? BigUInt
             ))
         }
+        try Task.checkCancellation()
         // bestVenue reverts when no venue qualifies: no recommendation then.
-        let best = try? await rpc.call(Abis.account, at: account, "bestVenue", [borrow])
+        let best: [String: Any]?
+        do {
+            best = try await rpc.call(Abis.account, at: account, "bestVenue", [borrow])
+        } catch ChainError.reverted {
+            best = nil
+        }
         let bestAddress = (best?["0"] as? EthereumAddress)?.address.lowercased()
         let recommended = Deployment.venues.first { $0.address.lowercased() == bestAddress }
-        return PaymentQuote(amount: amount, maxFee: maxFee, options: options, recommended: recommended)
+        return PaymentQuote(domain: domain, amount: amount, maxFee: maxFee, options: options, recommended: recommended)
     }
 
     /// The account's debt lines, oldest first. `IArdoise.line(id)` is read
@@ -174,7 +195,7 @@ struct ArdoiseService: Sendable {
             let out: [String: Any]
             do {
                 out = try await rpc.call(Abis.account, at: account, "line", [id])
-            } catch ChainError.reverted {
+            } catch ChainError.reverted(let reason) where reason.hasPrefix("UnknownLine") {
                 break
             }
             guard let fields = out["0"] as? [Any], fields.count == 10 else { break }

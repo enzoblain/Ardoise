@@ -63,7 +63,7 @@ struct PayView: View {
                 Button {
                     pay()
                 } label: {
-                    Text(sending ? "Confirm with your passkey…" : "Pay \(amount.map(Format.usdc) ?? "") USDC")
+                    Text(sending ? "Confirm with your passkey…" : "Pay \(quote.map { Format.usdc($0.amount) } ?? "") USDC")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -105,7 +105,8 @@ struct PayView: View {
     }
 
     private var canPay: Bool {
-        guard let quote, let option = chosenOption, !sending, payee.count == 42, payee.hasPrefix("0x") else { return false }
+        guard let quote, let option = chosenOption, !sending, quote.domain == chain.domain, quote.amount == amount,
+              payee.count == 42, payee.hasPrefix("0x") else { return false }
         return option.usable(for: quote.borrow) && quote.borrow <= (model.state?.remaining ?? 0)
     }
 
@@ -126,7 +127,10 @@ struct PayView: View {
         try? await Task.sleep(for: .milliseconds(400))
         guard !Task.isCancelled else { return }
         do {
-            quote = try await model.service.quote(owner: wallet.address, account: account, amount: amount, domain: chain.domain)
+            let fresh = try await model.service.quote(owner: wallet.address, account: account, amount: amount, domain: chain.domain)
+            // A newer amount or chain cancelled this quote: never show it.
+            guard !Task.isCancelled else { return }
+            quote = fresh
         } catch {
             if !Task.isCancelled { quoteError = AppModel.message(error) }
         }
@@ -140,12 +144,22 @@ struct PayView: View {
         Task {
             defer { sending = false }
             do {
+                // Everything comes from the quote on screen, never from the
+                // form, which may have changed since.
                 let data = try model.service.payViaData(
-                    venue: venue, amount: quote.amount, domain: chain.domain,
+                    venue: venue, amount: quote.amount, domain: quote.domain,
                     payee: payee, maxFee: quote.maxFee, memo: memo
                 )
                 sentTx = try await wallet.send(to: account, data: data)
+                // The quote is spent: a new payment needs a new quote.
+                self.quote = nil
+                payee = ""
+                memo = ""
                 await model.refresh()
+            } catch WalletError.unconfirmed(let userOpHash) {
+                // It may well have gone through: never offer the same payment again.
+                self.quote = nil
+                payError = WalletError.unconfirmed(userOpHash).errorDescription
             } catch {
                 payError = AppModel.message(error)
             }
@@ -187,8 +201,9 @@ struct VenueCard: View {
 
     private var status: String {
         if option.available < quote.borrow { return "Not enough liquidity for this payment" }
-        if option.allowed >= quote.borrow { return "Guard OK for this payment" }
-        if option.allowed == 0 { return "Guard refuses: no margin here" }
-        return "Guard refuses: up to \(Format.usdc(option.allowed)) USDC here"
+        guard let allowed = option.allowed else { return "Could not read the guard for this venue" }
+        if allowed >= quote.borrow { return "Guard OK for this payment" }
+        if allowed == 0 { return "Guard refuses: no margin here" }
+        return "Guard refuses: up to \(Format.usdc(allowed)) USDC here"
     }
 }

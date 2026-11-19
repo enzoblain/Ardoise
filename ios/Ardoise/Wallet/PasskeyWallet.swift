@@ -72,7 +72,14 @@ final class PasskeyWallet: @unchecked Sendable {
             calls: [EncodeCallDataArg(to: to, data: "0x" + data.map { String(format: "%02x", $0) }.joined())],
             partialUserOp: partial
         )
-        let receipt = try await bundler.waitForUserOperationReceipt(userOpHash: userOpHash, retryCount: 15)
+        // From here the payment is on its way: any failure to read its outcome
+        // must not look like a payment that can be retried.
+        let receipt: GetUserOperationReceiptResult
+        do {
+            receipt = try await bundler.waitForUserOperationReceipt(userOpHash: userOpHash, retryCount: 15)
+        } catch {
+            throw WalletError.unconfirmed(userOpHash)
+        }
         guard let hash = receipt.receipt.transactionHash else { throw WalletError.unconfirmed(userOpHash) }
         guard receipt.success != false else { throw WalletError.reverted(hash) }
         return hash
@@ -88,7 +95,7 @@ enum WalletError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "Passkeys are not configured: set CIRCLE_CLIENT_KEY in ios/Config.xcconfig."
+            return "Passkeys are not configured: set CIRCLE_CLIENT_KEY in ios/Local.xcconfig."
         case .keyRefused:
             return "Circle refused the client key for this app: it needs an iOS client key for the bundle ID \(Bundle.main.bundleIdentifier ?? ""), with ardoise-rust.vercel.app as its passkey domain."
         case .unconfirmed(let userOpHash):

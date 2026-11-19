@@ -24,7 +24,7 @@ enum Format {
         let normalized = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
         let pieces = normalized.split(separator: ".", omittingEmptySubsequences: false)
         guard (1...2).contains(pieces.count),
-              pieces.allSatisfy({ $0.allSatisfy(\.isNumber) }),
+              pieces.allSatisfy({ $0.allSatisfy { $0.isASCII && $0.isNumber } }),
               let whole = BigUInt(pieces[0].isEmpty ? "0" : String(pieces[0])) else { return nil }
         var fraction = pieces.count == 2 ? String(pieces[1]) : ""
         guard fraction.count <= 6 else { return nil }
