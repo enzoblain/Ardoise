@@ -11,8 +11,6 @@ if (existsSync(rootEnv)) {
   process.loadEnvFile(rootEnv);
 }
 
-// A wallet signs payments and standing orders on these pages, so no other
-// site may frame them (clickjacking). Both headers: older browsers ignore CSP.
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -22,6 +20,8 @@ const nextConfig: NextConfig = {
         source: "/.well-known/apple-app-site-association",
         headers: [{ key: "Content-Type", value: "application/json" }],
       },
+      // A wallet signs payments and standing orders on these pages, so no other
+      // site may frame them (clickjacking). Both headers: older browsers ignore CSP.
       {
         source: "/:path*",
         headers: [
