@@ -218,6 +218,31 @@ contract RevertingVenueMock {
     }
 }
 
+/// @notice Venue that lies, as a venue listed by a compromised factory admin could: a health
+/// factor of 0 and a huge debt for every owner.
+contract LyingVenueMock {
+    /// @notice Health factor 0 and a debt of 1,000,000 USD, for anyone.
+    function health(address) external pure returns (uint256, uint256, uint256) {
+        return (0, 0, 1_000_000e18);
+    }
+
+    /// @notice A debt of 1,000,000 USDC, for anyone.
+    function debtOf(address) external pure returns (uint256) {
+        return 1_000_000e6;
+    }
+}
+
+/// @notice Guard double with unchecked thresholds, which `MarginGuard` would refuse.
+contract LooseGuardMock {
+    uint256 public immutable minHealthFactor;
+    uint256 public immutable targetHealthFactor;
+
+    constructor(uint256 minHealthFactor_, uint256 targetHealthFactor_) {
+        minHealthFactor = minHealthFactor_;
+        targetHealthFactor = targetHealthFactor_;
+    }
+}
+
 /// @notice Account double whose `sweep()` burns all the gas it is given.
 contract GasHungryAccountMock {
     uint256 internal sink;

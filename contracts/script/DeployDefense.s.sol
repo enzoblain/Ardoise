@@ -9,6 +9,7 @@ import {ITokenMessengerV2} from "../src/cctp/ITokenMessengerV2.sol";
 import {DefenseAlarm} from "../src/defense/DefenseAlarm.sol";
 import {DefenseExecutor, IAggregatorV3, ISwapRouter02} from "../src/defense/DefenseExecutor.sol";
 import {IArdoiseFactory} from "../src/interfaces/IArdoiseFactory.sol";
+import {IVenue} from "../src/interfaces/IVenue.sol";
 
 /// @notice CCTP V2 addresses, identical on Arc and Base mainnet.
 abstract contract DefenseAddresses is Script {
@@ -20,12 +21,18 @@ abstract contract DefenseAddresses is Script {
 
 /// @title DeployDefenseAlarm
 /// @notice Step 1, on Arc mainnet: deploys `DefenseAlarm` for an Ardoise factory.
-/// @dev Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_FACTORY` (required: the factory
+/// @dev The alarm pins the factory's venue list and its guard's thresholds as they are in the
+/// deployment block and never reads them again: the script logs what was pinned, to be compared
+/// with the intended venues and thresholds before the executor is deployed.
+/// Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_FACTORY` (required: the factory
 /// address, never hard-coded so the alarm follows a redeployed factory), `DEFENSE_COOLDOWN`
 /// (seconds between two alarms per owner, default 1800), `DEFENSE_ALARM_TTL` (seconds an alarm
-/// stays valid on Base, default 900; the alarm refuses a TTL longer than the cooldown). Funds still
-/// on their way back from Base are protected by the executor's `minDefenseInterval`. Commands
-/// are in contracts/deployments.md.
+/// stays valid on Base, default 900; the alarm refuses a TTL longer than the cooldown),
+/// `DEFENSE_HONORS_SIMULATION` (default `false`, production: the alarm decides on the venues' real
+/// health factors. `true` makes the guard's simulated price drop raise alarms for every policy
+/// holder of the paired executor: only for a pair reserved for demos). Funds still on their way
+/// back from Base are protected by the executor's `minDefenseInterval`. Commands are in
+/// contracts/deployments.md.
 contract DeployDefenseAlarm is DefenseAddresses {
     /// @notice Runs the deployment.
     /// @return alarm The deployed alarm.
@@ -36,6 +43,7 @@ contract DeployDefenseAlarm is DefenseAddresses {
         uint256 cooldown = vm.envOr("DEFENSE_COOLDOWN", uint256(1800));
         uint256 ttl = vm.envOr("DEFENSE_ALARM_TTL", uint256(900));
         require(cooldown <= type(uint64).max && ttl <= type(uint64).max, "timing too large");
+        bool honorsSimulation = vm.envOr("DEFENSE_HONORS_SIMULATION", false);
         vm.startBroadcast(key);
         alarm = new DefenseAlarm(
             factory,
@@ -44,10 +52,23 @@ contract DeployDefenseAlarm is DefenseAddresses {
             // forge-lint: disable-next-line(unsafe-typecast)
             uint64(cooldown), // checked above
             // forge-lint: disable-next-line(unsafe-typecast)
-            uint64(ttl)
+            uint64(ttl),
+            honorsSimulation
         );
         vm.stopBroadcast();
         console.log("DefenseAlarm:", address(alarm));
+        // What the alarm pinned for good: compare with the intended venues and thresholds.
+        IVenue[] memory pinned = alarm.venues();
+        for (uint256 i = 0; i < pinned.length; ++i) {
+            console.log("pinned venue:", address(pinned[i]));
+        }
+        console.log("pinned minimum health factor (WAD):", alarm.minHealthFactor());
+        console.log("pinned target health factor (WAD):", alarm.targetHealthFactor());
+        console.log(
+            honorsSimulation
+                ? "health source: guard's SIMULATED health factor - pair with a demo-only executor"
+                : "health source: venues' real health factor (production)"
+        );
     }
 }
 

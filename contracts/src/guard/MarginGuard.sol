@@ -20,9 +20,12 @@ import {IVenue} from "../interfaces/IVenue.sol";
 /// stricter than a drop of one of them. The simulation is global: the guard is shared by every
 /// account of the factory, so a non-zero drop restricts everyone until the owner resets it. It
 /// can only make the guard stricter, never pass a payment the real guard would refuse. The
-/// simulation only changes Ardoise's own decisions (`checkMargin`, `simulatedHealth`): it never
-/// touches the venue, its oracle or the user's real position, and nobody can be liquidated
-/// because of it. `simulatedDropBps`, `setSimulatedDrop`, `simulatedHealth` and
+/// simulation only changes Ardoise's own answers (`checkMargin`, `simulatedHealth`): it never
+/// touches the venue or its oracle, and nobody can be liquidated because of it. It is not
+/// without effect on users, though: whatever acts on those answers acts on real funds. The
+/// keeper repays earlier from the owner's reserve, and a `DefenseAlarm` deployed to honor the
+/// simulation sells the assets its owners pre-authorized on Base, for every owner at once.
+/// `simulatedDropBps`, `setSimulatedDrop`, `simulatedHealth` and
 /// `SimulationUpdated` are additions of this implementation, not part of `IGuard`.
 contract MarginGuard is IGuard {
     /// @notice Health factor at which the venue liquidates (WAD). Thresholds must stay above it.

@@ -72,7 +72,8 @@ contract CctpBridgeMock {
     }
 }
 
-/// @notice End to end on one test chain: the message `DefenseAlarm.raise` sends is delivered as is
+/// @notice End to end on one test chain, with a production alarm (venues' real health factors) and
+/// a real fall of the collateral: the message `DefenseAlarm.raise` sends is delivered as is
 /// to `DefenseExecutor.handleReceiveFinalizedMessage` (same encoding, sender = the alarm, domain
 /// 26), and the executor burns to the account the alarm named, enough to restore the target health
 /// factor once minted and swept. Each side's unit tests use their own mocks; this one checks that
@@ -119,7 +120,7 @@ contract DefenseEndToEndTest is Test {
         venue.setPosition(owner, 4e18, 2e6); // health factor 1.56
         vm.prank(admin);
         alarm = new DefenseAlarm(
-            IArdoiseFactory(address(factory)), IMessageTransmitterV2(address(bridge)), BASE, 1800, 900
+            IArdoiseFactory(address(factory)), IMessageTransmitterV2(address(bridge)), BASE, 1800, 900, false
         );
 
         usdcBase = new MockToken(6);
@@ -162,9 +163,13 @@ contract DefenseEndToEndTest is Test {
         vm.stopPrank();
     }
 
+    /// @dev The collateral loses 30% of its value: health factor 1.56 -> 1.092, under 1.25.
+    function _collateralFalls() internal {
+        venue.movePrice(owner, 0.7e18);
+    }
+
     function test_raiseIsDeliveredAsIsAndBurnsToTheAccount() public {
-        vm.prank(admin);
-        guard.setSimulatedDrop(3_000); // health factor 1.56 -> 1.092, under 1.25
+        _collateralFalls();
         (, uint256 amountNeeded) = alarm.shortfall(owner);
         assertEq(amountNeeded, 544_000);
 
@@ -212,15 +217,15 @@ contract DefenseEndToEndTest is Test {
 
         // Once minted on Arc (at worst `burned - maxFee`) and swept, the target is reached.
         uint256 minted = burned - maxFee;
-        venue.setPosition(owner, 4e18, 2e6 - minted);
-        assertApproxEqAbs(guard.simulatedHealth(venue, owner), 1.5e18, 10);
+        venue.setPosition(owner, 2.8e18, 2e6 - minted);
+        (uint256 healthFactor,,) = venue.health(owner);
+        assertApproxEqAbs(healthFactor, 1.5e18, 10);
     }
 
     // On mainnet the transmitter itself rejects a second `receiveMessage` of the same message
     // ("Nonce already used") before the executor runs; this checks the executor's own backstop.
     function test_replayedDeliveryIsRefused() public {
-        vm.prank(admin);
-        guard.setSimulatedDrop(3_000);
+        _collateralFalls();
         uint64 nonce = alarm.raise(owner);
         bridge.relay(0);
         vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.AlarmAlreadyUsed.selector, nonce));
@@ -228,8 +233,7 @@ contract DefenseEndToEndTest is Test {
     }
 
     function test_sameBodyFromAnotherSenderIsRefused() public {
-        vm.prank(admin);
-        guard.setSimulatedDrop(3_000);
+        _collateralFalls();
         alarm.raise(owner);
         (,,,, bytes memory body) = bridge.messages(0);
 
@@ -248,8 +252,7 @@ contract DefenseEndToEndTest is Test {
     }
 
     function test_secondAlarmAfterCooldownWaitsForTheInterval() public {
-        vm.prank(admin);
-        guard.setSimulatedDrop(3_000);
+        _collateralFalls();
         alarm.raise(owner);
         bridge.relay(0);
         uint256 firstBurn = vm.getBlockTimestamp();
