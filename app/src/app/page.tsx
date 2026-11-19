@@ -50,14 +50,14 @@ const STACK = [
       { what: "cirBTC", how: "Circle's wrapped bitcoin on Arc, the collateral behind every payment." },
       { what: "CCTP", how: "A payment to Base is burned on Arc and minted on Base by Circle's forwarder, with the fee quoted before paying." },
       { what: "Gateway", how: "A USDC reserve on Base the keeper can draw on, through standing orders that can only repay your own account." },
-      { what: "Modular Wallets", how: "A passkey owns a Circle smart account on Arc: sign in and pay without a seed phrase." },
+      { what: "Modular Wallets", how: "A passkey can own a Circle smart account on Arc, with no seed phrase (built in the app, not yet run on mainnet)." },
     ],
   },
 ];
 
 /**
- * Landing page: opening slides, then, once the visitor asks for it, what Ardoise does, the live borrow rates on Arc mainnet, how
- * Ardoise uses from Arc and Circle, and the way into the app.
+ * Landing page: opening slides, then, once the visitor asks for it, what Ardoise does, the live
+ * borrow rates on Arc mainnet, what Ardoise uses from Arc and Circle, and the way into the app.
  */
 export default async function Landing() {
   const venues = await readVenueRates().catch(() => null);

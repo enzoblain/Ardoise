@@ -90,6 +90,8 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
   useEffect(() => {
     if (autoConnected.current || new URLSearchParams(window.location.search).get("connect") !== "wallet") return;
     autoConnected.current = true;
+    // Drop the parameter so that a reload does not open the wallet prompt again.
+    window.history.replaceState(null, "", window.location.pathname);
     connectWallet().then(setWallet, (e: Error) => setConnectError(e.message.split("\n")[0]));
   }, []);
 

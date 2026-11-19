@@ -112,7 +112,7 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
               <h2 className={`${styles.heading} ${display.className}`}>Add liquidity. Our bot covers your exposure.</h2>
               <p className={styles.lead}>
                 Keep a reserve of USDC next to your position. When the market moves against you, the Ardoise keeper
-                repays your debt with it before a liquidation can happen.
+                repays your debt with it to keep the position away from liquidation.
               </p>
               <ul className={styles.lines}>
                 <li>A guard refuses any payment that would leave your health factor under 1.25.</li>
