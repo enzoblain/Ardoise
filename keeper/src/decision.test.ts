@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   MIN_SWEEP_AMOUNT,
   applySimulatedDrop,
+  debtLeftToFund,
   decide,
   repaymentToTarget,
   type Thresholds,
@@ -25,7 +26,7 @@ const thresholds: Thresholds = {
 /** Position with 7,800 USD of risk-adjusted collateral and `debt` USDC of debt. */
 function position(debt: bigint): VenuePosition {
   const debtUsd = debt * WAD;
-  return { healthFactor: debtUsd === 0n ? MAX_UINT256 : (7_800n * WAD * WAD) / debtUsd, debtUsd };
+  return { healthFactor: debtUsd === 0n ? MAX_UINT256 : (7_800n * WAD * WAD) / debtUsd, debtUsd, debt: debt * USDC };
 }
 
 const noDebt = position(0n);
@@ -110,8 +111,91 @@ test("repaymentToTarget rounds up to the next USDC base unit", () => {
   // One third of a base unit over the target debt must still cost one unit.
   const debtUsd = 5_200n * WAD + USDC_UNIT_THIRD;
   const healthFactor = (7_800n * WAD * WAD) / debtUsd;
-  const repayment = repaymentToTarget({ healthFactor, debtUsd }, thresholds.targetHealthFactor);
+  const repayment = repaymentToTarget({ healthFactor, debtUsd, debt: 5_200n * USDC + 1n }, thresholds.targetHealthFactor);
   assert.equal(repayment, 1n);
+});
+
+test("repaymentToTarget is capped at the USDC debt of the venue", () => {
+  // The venue reports 6,500 USD of debt, of which only 800 USDC is USDC (the
+  // rest borrowed in another asset): 1,300 USDC could never be applied.
+  const mixed: VenuePosition = { ...underMinimum, debt: 800n * USDC };
+  assert.equal(repaymentToTarget(mixed, thresholds.targetHealthFactor), 800n * USDC);
+  // A target far above the position asks for almost the whole debt, never more.
+  assert.equal(repaymentToTarget(underMinimum, 10n ** 12n * WAD), 6_500n * USDC);
+  // A debt of exactly the repayment is not cut.
+  assert.equal(repaymentToTarget({ ...underMinimum, debt: 1_300n * USDC }, thresholds.targetHealthFactor), 1_300n * USDC);
+});
+
+test("the shortfall never exceeds the USDC debt of the venues under the minimum", () => {
+  const mixed: VenuePosition = { ...underMinimum, debt: 800n * USDC };
+  assert.deepEqual(decide({ usdcBalance: 0n, positions: [mixed], thresholds }), {
+    action: "wait",
+    reason: "underfunded",
+    shortfall: 800n * USDC,
+  });
+  assert.equal(decide({ usdcBalance: 300n * USDC, positions: [mixed], thresholds }).shortfall, 500n * USDC);
+});
+
+test("sweeps a balance under the usual minimum when it restores a position under the minimum", () => {
+  // 0.30 USDC of debt at HF 1.20 needs 0.06 USDC to reach 1.5.
+  const small: VenuePosition = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debt: 300_000n };
+  assert.equal(repaymentToTarget(small, thresholds.targetHealthFactor), 60_000n);
+  for (const usdcBalance of [60_000n, 80_000n, MIN_SWEEP_AMOUNT - 1n]) {
+    assert.deepEqual(decide({ usdcBalance, positions: [small], thresholds }), {
+      action: "sweep",
+      reason: "restore-margin",
+      shortfall: 0n,
+    });
+  }
+  // One unit short: the rest is still asked for, so the position never waits with nothing to do.
+  assert.deepEqual(decide({ usdcBalance: 59_999n, positions: [small], thresholds }), {
+    action: "wait",
+    reason: "underfunded",
+    shortfall: 1n,
+  });
+  // The same dust on a healthy position is still not worth a transaction.
+  assert.equal(decide({ usdcBalance: 80_000n, positions: [healthy], thresholds }).reason, "dust");
+});
+
+test("a position under the minimum always ends with a sweep or a positive shortfall", () => {
+  const small: VenuePosition = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debt: 300_000n };
+  for (let usdcBalance = 0n; usdcBalance <= 120_000n; usdcBalance += 1_000n) {
+    const decision = decide({ usdcBalance, positions: [small], thresholds });
+    assert.ok(decision.action === "sweep" || decision.shortfall > 0n, `balance ${usdcBalance}`);
+  }
+});
+
+test("reports a position under the minimum with no USDC debt as unrepayable instead of fine", () => {
+  const foreign: VenuePosition = { ...underMinimum, debt: 0n };
+  assert.deepEqual(decide({ usdcBalance: 0n, positions: [foreign], thresholds }), {
+    action: "wait",
+    reason: "unrepayable",
+    shortfall: 0n,
+  });
+  // A venue that can be repaid next to it is still handled as usual.
+  assert.equal(decide({ usdcBalance: 0n, positions: [foreign, underMinimum], thresholds }).reason, "underfunded");
+});
+
+test("without a debt figure the repayment is not capped and nothing may be brought", () => {
+  const unknown: VenuePosition = { ...underMinimum, debt: null };
+  assert.equal(repaymentToTarget(unknown, thresholds.targetHealthFactor), 1_300n * USDC);
+  assert.equal(decide({ usdcBalance: 0n, positions: [unknown], thresholds }).reason, "underfunded");
+  assert.equal(debtLeftToFund({ usdcBalance: 0n, positions: [healthy, unknown], thresholds }), null);
+});
+
+test("a balance too small to sweep is still deducted from the shortfall", () => {
+  const dust = MIN_SWEEP_AMOUNT - 1n;
+  const decision = decide({ usdcBalance: dust, positions: [underMinimum], thresholds });
+  assert.deepEqual(decision, { action: "wait", reason: "underfunded", shortfall: 1_300n * USDC - dust });
+});
+
+test("debtLeftToFund is the debt on every venue less the balance already on the account", () => {
+  const positions = [underMinimum, healthy, noDebt];
+  assert.equal(debtLeftToFund({ usdcBalance: 0n, positions, thresholds }), 10_500n * USDC);
+  assert.equal(debtLeftToFund({ usdcBalance: 500n * USDC, positions, thresholds: null }), 10_000n * USDC);
+  assert.equal(debtLeftToFund({ usdcBalance: 10_500n * USDC, positions, thresholds }), 0n);
+  assert.equal(debtLeftToFund({ usdcBalance: 20_000n * USDC, positions, thresholds }), 0n);
+  assert.equal(debtLeftToFund({ usdcBalance: 0n, positions: [], thresholds }), 0n);
 });
 
 test("a simulated drop puts a healthy position under the minimum", () => {
@@ -138,6 +222,7 @@ test("applySimulatedDrop scales the health factor and keeps the debt", () => {
   assert.deepEqual(applySimulatedDrop(healthy, 2_000n), {
     healthFactor: (156n * WAD) / 100n,
     debtUsd: healthy.debtUsd,
+    debt: healthy.debt,
   });
 });
 
