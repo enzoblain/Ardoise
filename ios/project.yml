@@ -36,6 +36,9 @@ targets:
         # signs in on https://ardoise-rust.vercel.app and in this app.
         com.apple.developer.associated-domains:
           - webcredentials:ardoise-rust.vercel.app
+          # Development builds read the file from the site directly instead
+          # of Apple's CDN, which can take hours to see a new file.
+          - webcredentials:ardoise-rust.vercel.app?mode=developer
     info:
       path: Ardoise/Info.plist
       properties:

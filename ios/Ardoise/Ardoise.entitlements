@@ -5,6 +5,7 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>webcredentials:ardoise-rust.vercel.app</string>
+		<string>webcredentials:ardoise-rust.vercel.app?mode=developer</string>
 	</array>
 </dict>
 </plist>
