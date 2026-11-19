@@ -8,6 +8,7 @@
 /** `ArdoiseAccount`. */
 export const accountAbi = [
   {"type": "function", "name": "ARC_DOMAIN", "inputs": [], "outputs": [{"name": "", "type": "uint32", "internalType": "uint32"}], "stateMutability": "pure"},
+  {"type": "function", "name": "acceptedVenues", "inputs": [], "outputs": [{"name": "", "type": "address[]", "internalType": "contract IVenue[]"}], "stateMutability": "view"},
   {"type": "function", "name": "bestVenue", "inputs": [{"name": "amount", "type": "uint256", "internalType": "uint256"}], "outputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}], "stateMutability": "view"},
   {"type": "function", "name": "caps", "inputs": [], "outputs": [{"name": "perPayment", "type": "uint256", "internalType": "uint256"}, {"name": "daily", "type": "uint256", "internalType": "uint256"}, {"name": "spentToday", "type": "uint256", "internalType": "uint256"}], "stateMutability": "view"},
   {"type": "function", "name": "closed", "inputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}], "outputs": [{"name": "", "type": "bool", "internalType": "bool"}], "stateMutability": "view"},
@@ -21,6 +22,7 @@ export const accountAbi = [
   {"type": "function", "name": "pay", "inputs": [{"name": "amount", "type": "uint256", "internalType": "uint256"}, {"name": "destinationDomain", "type": "uint32", "internalType": "uint32"}, {"name": "payee", "type": "bytes32", "internalType": "bytes32"}, {"name": "maxFee", "type": "uint256", "internalType": "uint256"}, {"name": "memo", "type": "string", "internalType": "string"}], "outputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
   {"type": "function", "name": "payVia", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}, {"name": "amount", "type": "uint256", "internalType": "uint256"}, {"name": "destinationDomain", "type": "uint32", "internalType": "uint32"}, {"name": "payee", "type": "bytes32", "internalType": "bytes32"}, {"name": "maxFee", "type": "uint256", "internalType": "uint256"}, {"name": "memo", "type": "string", "internalType": "string"}], "outputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
   {"type": "function", "name": "repay", "inputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}, {"name": "amount", "type": "uint256", "internalType": "uint256"}], "outputs": [{"name": "repaid", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
+  {"type": "function", "name": "revokeVenue", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}], "outputs": [], "stateMutability": "nonpayable"},
   {"type": "function", "name": "setCaps", "inputs": [{"name": "perPayment", "type": "uint256", "internalType": "uint256"}, {"name": "daily", "type": "uint256", "internalType": "uint256"}], "outputs": [], "stateMutability": "nonpayable"},
   {"type": "function", "name": "sweep", "inputs": [], "outputs": [{"name": "repaid", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
   {"type": "function", "name": "tokenMessenger", "inputs": [], "outputs": [{"name": "", "type": "address", "internalType": "contract ITokenMessengerV2"}], "stateMutability": "view"},
@@ -43,8 +45,11 @@ export const accountAbi = [
   {"type": "error", "name": "PaymentRefused", "inputs": [{"name": "requested", "type": "uint256", "internalType": "uint256"}, {"name": "allowed", "type": "uint256", "internalType": "uint256"}]},
   {"type": "error", "name": "Reentrancy", "inputs": []},
   {"type": "error", "name": "TokenCallFailed", "inputs": []},
+  {"type": "error", "name": "TooManyVenues", "inputs": []},
   {"type": "error", "name": "UnknownLine", "inputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}]},
   {"type": "error", "name": "UnknownVenue", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}]},
+  {"type": "error", "name": "VenueAlreadyAccepted", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}]},
+  {"type": "error", "name": "VenueNotAccepted", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}]},
   {"type": "error", "name": "ZeroAmount", "inputs": []},
 ] as const;
 
