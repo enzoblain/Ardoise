@@ -1,23 +1,23 @@
 import { Fraunces } from "next/font/google";
 import { LogoMark } from "@/components/LogoMark";
 import styles from "./Intro.module.css";
+import { AccessButton } from "./LandingGate";
 import { ScrollProgress } from "./ScrollProgress";
-import { SoloVaultCard, VaultRing } from "./VaultRing";
+import { VaultRing } from "./VaultRing";
 
 /** Display typeface of the intro: the title and the chapter headings. */
 const display = Fraunces({ subsets: ["latin"], weight: "300" });
 
-/** Splits a heading into words that light up one after the other on scroll. */
-function Words({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(" ").map((word, i) => (
-        <span key={i} className={styles.word} style={{ "--i": i } as React.CSSProperties}>
-          {word}{" "}
-        </span>
-      ))}
-    </>
-  );
+/** One step of a payment, shown on the second chapter. */
+export interface IntroStep {
+  title: string;
+  text: string;
+}
+
+/** A link to a proof on a block explorer. */
+export interface IntroLink {
+  label: string;
+  href: string;
 }
 
 /** The two corner labels at the top of a chapter. */
@@ -30,19 +30,35 @@ function ChapterLabels({ about, chapter }: { about: string; chapter: string }) {
   );
 }
 
+/** One field of the payment slip; `step` is the payment step that fills it in. */
+function SlipField({ label, value, step }: { label: string; value: string; step: 1 | 2 | 3 }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd className={styles[`fill${step}`]}>{value}</dd>
+    </div>
+  );
+}
+
 /**
- * The four opening slides of the landing page, played like a presentation as
- * the visitor scrolls: the ring of vaults, borrowing against collateral,
- * paying from a phone, and the reserve the keeper repays with. The first
- * three share one pinned stage: the ring gathers into a single vault card,
- * which stays through the borrowing chapter and then settles into the phone
- * as the paying slide opens around it. The last one slides over as a sheet. The phone screens
- * are illustrations with example amounts; only the borrow rate is live.
+ * The opening slides of the landing page, played like a presentation as the
+ * visitor scrolls, on one pinned stage:
  *
- * @param props.rate Live borrow rate, already formatted (for example
- * "3.10%"), or `null` when rates could not be read.
+ * 1. the ring of collateral vaults;
+ * 2. chapter 01, borrowing, which scrolls over the stage;
+ * 3. chapter 02, the three steps of a payment, with a payment slip that is
+ *    filled in as the steps go by;
+ * 4. chapter 03, protection: the colour opens from the phone on the right,
+ *    the slip settles into it, and the button to the main page appears.
+ *
+ * The slip and the phone are illustrations with example amounts; only the
+ * borrow rate is live.
+ *
+ * @param props.rate Live borrow rate, already formatted (for example "3.10%"), or `null`.
+ * @param props.steps The three steps of a payment.
+ * @param props.links Explorer links proving the first mainnet payment.
  */
-export function Intro({ rate }: { rate: string | null }) {
+export function Intro({ rate, steps, links }: { rate: string | null; steps: IntroStep[]; links: IntroLink[] }) {
   return (
     <div className={styles.intro}>
       <ScrollProgress />
@@ -64,14 +80,54 @@ export function Intro({ rate }: { rate: string | null }) {
             </div>
           </div>
 
-          <div className={styles.day}>
+          <div className={styles.steps}>
             <ChapterLabels about="paying" chapter="02" />
-            <p className={`${styles.ghost} ${display.className}`} aria-hidden="true">
-              {rate ?? "USDC"}
-            </p>
-            <h2 className={`${styles.heading} ${styles.headingCenter} ${display.className}`}>
-              <Words text="One payment. One line on your slate." />
-            </h2>
+            <div className={styles.column}>
+              <h2 className={`${styles.heading} ${display.className}`}>One payment, one line on the slate.</h2>
+              <ol className={styles.stepList}>
+                {steps.map((step, i) => (
+                  <li key={step.title} className={styles[`step${i + 1}`]}>
+                    <span className={styles.stepNumber}>0{i + 1}</span>
+                    <div>
+                      <h3>{step.title}</h3>
+                      <p>{step.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              <p className={`${styles.proof} ${styles.step3}`}>
+                <span>Real, on mainnet:</span>
+                {links.map((link) => (
+                  <a key={link.href} href={link.href}>
+                    {link.label} ↗
+                  </a>
+                ))}
+              </p>
+            </div>
+          </div>
+
+          <div className={styles.day}>
+            <ChapterLabels about="protection" chapter="03" />
+            <div className={styles.column}>
+              <h2 className={`${styles.heading} ${display.className}`}>Add liquidity. Our bot covers your exposure.</h2>
+              <p className={styles.lead}>
+                Keep a reserve of USDC next to your position. When the market moves against you, the Ardoise keeper
+                repays your debt with it before a liquidation can happen.
+              </p>
+              <ul className={styles.lines}>
+                <li>A guard refuses any payment that would leave your health factor under 1.25.</li>
+                <li>The bot can only repay your own account.</li>
+                <li>
+                  Other currencies for the reserve <span className={styles.soon}>Soon</span>
+                </li>
+                <li>
+                  Staking the reserve while it waits <span className={styles.soon}>Soon</span>
+                </li>
+              </ul>
+              <div className={styles.accessRow}>
+                <AccessButton />
+              </div>
+            </div>
             <div className={styles.phone}>
               <div className={styles.screen}>
                 <p className={styles.appBar}>
@@ -79,33 +135,31 @@ export function Intro({ rate }: { rate: string | null }) {
                   Ardoise
                 </p>
                 <div className={styles.cardSlot} />
-                <dl className={styles.rows}>
-                  <div>
-                    <dt>Pay</dt>
-                    <dd>24.00 USDC · Base</dd>
-                  </div>
-                  <div>
-                    <dt>Borrowed at</dt>
-                    <dd>{rate ?? "best rate"}</dd>
-                  </div>
-                </dl>
-                <p className={styles.cta}>Pay 24.00 USDC</p>
+                <div className={styles.gauge} aria-hidden="true">
+                  <span />
+                </div>
+                <p className={styles.gaugeNote}>
+                  Margin <strong>2.31</strong> · guard at 1.25 · keeper watching
+                </p>
+                <p className={styles.cta}>Add to reserve</p>
               </div>
-            </div>
-            <div className={styles.footnotes}>
-              <p>
-                <strong>Pick who you pay, on Arc or on Base.</strong> Ardoise borrows the amount against your collateral
-                and delivers it in seconds.
-              </p>
-              <p>
-                Every payment becomes one line you can repay whenever you want. Everything is in place on Arc mainnet.
-              </p>
             </div>
           </div>
 
-          <div className={styles.solo}>
-            <SoloVaultCard rate={rate} />
-          </div>
+          <article className={styles.slip} aria-label="Example payment slip">
+            <p className={styles.slipHead}>
+              <LogoMark size={22} />
+              Payment slip · cirBTC vault
+            </p>
+            <dl className={styles.slipFields}>
+              <SlipField label="Amount" value="24.00 USDC" step={1} />
+              <SlipField label="To" value="0x7c3f…a91e · Base" step={1} />
+              <SlipField label="Borrowed at" value={rate ?? "best rate"} step={2} />
+              <SlipField label="Collateral" value="cirBTC, untouched" step={2} />
+              <SlipField label="Status" value="Delivered · line #1" step={3} />
+            </dl>
+            <p className={styles.slipFoot}>Live on Arc mainnet</p>
+          </article>
         </div>
 
         <div className={styles.chapterOne}>
@@ -121,70 +175,6 @@ export function Intro({ rate }: { rate: string | null }) {
           </p>
         </div>
       </section>
-
-      <section className={`${styles.pinned} ${styles.sheet} ${styles.cover}`} data-progress>
-        <div className={styles.pin}>
-          <ChapterLabels about="protection" chapter="03" />
-          <div className={styles.coverGrid}>
-            <div className={styles.coverCopy}>
-              <h2 className={`${styles.heading} ${display.className}`}>Add liquidity. Our bot covers your exposure.</h2>
-              <p className={styles.lead}>
-                Keep a reserve of USDC next to your position. When the market moves against you, the Ardoise keeper
-                repays your debt with it before a liquidation can happen.
-              </p>
-              <ul className={styles.lines}>
-                <li>The bot can only repay your own account.</li>
-                <li>
-                  Other currencies for the reserve <span className={styles.soon}>Soon</span>
-                </li>
-                <li>
-                  Staking the reserve while it waits <span className={styles.soon}>Soon</span>
-                </li>
-              </ul>
-            </div>
-            <div className={styles.phoneWrap}>
-              <div className={`${styles.phone} ${styles.phoneTilt}`}>
-                <div className={`${styles.screen} ${styles.screenLight}`}>
-                  <p className={styles.screenLabel}>Protection</p>
-                  <div className={styles.gauge} aria-hidden="true">
-                    <span />
-                  </div>
-                  <p className={styles.gaugeNote}>
-                    Margin <strong>2.31</strong> · guard at 1.25
-                  </p>
-                  <dl className={styles.rows}>
-                    <div>
-                      <dt>Reserve</dt>
-                      <dd>120.00 USDC</dd>
-                    </div>
-                    <div>
-                      <dt>Keeper</dt>
-                      <dd className={styles.good}>watching</dd>
-                    </div>
-                    <div>
-                      <dt>Last repayment</dt>
-                      <dd>0.40 USDC</dd>
-                    </div>
-                  </dl>
-                  <p className={styles.cta}>Add to reserve</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-/**
- * Wraps the main page so that it slides over the last intro slide the way
- * the slides slide over one another.
- */
-export function MainSheet({ children }: { children: React.ReactNode }) {
-  return (
-    <div className={`${styles.sheet} ${styles.main}`} data-progress>
-      <div className={styles.mainInner}>{children}</div>
     </div>
   );
 }

@@ -101,20 +101,6 @@ function VaultFace({ vault, rate }: { vault: Vault; rate: string | null }) {
 }
 
 /**
- * The vault in service on its own, outside the ring: the card the intro keeps
- * on screen once the ring has folded away.
- *
- * @param props.rate Live borrow rate, already formatted, or `null`.
- */
-export function SoloVaultCard({ rate }: { rate: string | null }) {
-  return (
-    <div className={styles.solo}>
-      <VaultFace vault={VAULTS[0]} rate={rate} />
-    </div>
-  );
-}
-
-/**
  * The landing page's hero scene: a slowly rotating ring of collateral vault
  * cards, each with a slate on its back. Vaults that are not deployed are
  * marked "Soon", so the page never presents them as usable. Pure CSS; it

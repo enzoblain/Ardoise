@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LogoMark } from "@/components/LogoMark";
-import { Intro, MainSheet } from "@/components/landing/Intro";
+import { Intro } from "@/components/landing/Intro";
+import { LandingGate } from "@/components/landing/LandingGate";
 import { SlateScene } from "@/components/landing/SlateScene";
 import { MAINNET_DEPLOYMENT } from "@/lib/contracts/deployments";
 import { formatBps } from "@/lib/format";
@@ -34,7 +35,7 @@ const STEPS = [
 const BUILT_WITH = ["Arc mainnet", "USDC", "cirBTC", "CCTP", "Gateway", "Aave V4"];
 
 /**
- * Landing page: four opening slides, then what Ardoise does, the live borrow rates on Arc mainnet, how
+ * Landing page: opening slides, then, once the visitor asks for it, what Ardoise does, the live borrow rates on Arc mainnet, how
  * a payment works, how the position is protected, and the way into the app.
  */
 export default async function Landing() {
@@ -55,9 +56,19 @@ export default async function Landing() {
   ];
 
   return (
-    <>
-    <Intro rate={best ? formatBps(best.rateBps) : null} />
-    <MainSheet>
+    <LandingGate
+      intro={
+        <Intro
+          rate={best ? formatBps(best.rateBps) : null}
+          steps={STEPS}
+          links={[
+            { label: "Payment on Arc", href: `${EXPLORER}/tx/${PAY_TX}` },
+            { label: "Arrival on Base", href: `https://basescan.org/tx/${MINT_TX}` },
+            { label: "Contracts", href: `${EXPLORER}/address/${MAINNET_DEPLOYMENT.factory}` },
+          ]}
+        />
+      }
+    >
     <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa]">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Link href="/" className="flex items-center gap-2.5 text-lg font-semibold tracking-tight">
@@ -182,7 +193,6 @@ export default async function Landing() {
         <a href={GITHUB} className="transition-colors hover:text-white">Source on GitHub</a>
       </footer>
     </div>
-    </MainSheet>
-    </>
+    </LandingGate>
   );
 }

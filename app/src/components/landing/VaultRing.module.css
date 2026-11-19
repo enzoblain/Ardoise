@@ -161,14 +161,6 @@
   background: #f7931a;
 }
 
-/* The single card kept on screen by the intro, sized on its own. */
-.solo {
-  --card-w: clamp(150px, 15vw, 230px);
-  position: relative;
-  width: var(--card-w);
-  height: calc(var(--card-w) * 1.42);
-}
-
 @keyframes spin {
   from {
     transform: rotateY(0deg);
