@@ -348,7 +348,9 @@ export class DefenseRelay {
    * is too recent) is retried at the time it names while the alarm is valid;
    * a message already delivered ends the relay. Other failed simulations
    * spend no gas and are retried with a growing delay until the alarm
-   * expires; transactions that revert or are lost are retried up to
+   * expires: that covers `SwapFailed`, the executor's revert when the pool
+   * price is outside the owner's slippage bound, so the alarm is delivered
+   * as soon as the pool is back in line with the oracle; transactions that revert or are lost are retried up to
    * `MAX_FAILED_DELIVERIES` times. A reverted `receiveMessage` leaves the
    * CCTP nonce unused, so the same bytes can be delivered on a later attempt.
    */

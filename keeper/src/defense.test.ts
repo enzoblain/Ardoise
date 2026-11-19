@@ -393,6 +393,19 @@ test("retries a SwapOutOfGas revert like any other failure", async () => {
   assert.equal(state.relaysSent.length, 1);
 });
 
+test("keeps retrying a SwapFailed revert until the pool price is back", async () => {
+  const swapFailed = { errorName: "SwapFailed", args: ["0x4200000000000000000000000000000000000006"] };
+  const state = fake({ relayReverts: [swapFailed, swapFailed, swapFailed] });
+  const { relay, logs, sleeps } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.ok(logs.some((line) => line.includes("failed (SwapFailed), retrying in 5 s")));
+  assert.deepEqual(sleeps, [5_000, 10_000, 20_000]);
+  // Simulations spend no gas and do not count as failed deliveries: one transaction, delivered.
+  assert.equal(state.relaysSent.length, 1);
+  assert.ok(logs.some((line) => line.includes("delivered on Base")));
+});
+
 test("gives up when TooSoon names a time after the alarm expires", async () => {
   const state = fake({ relayReverts: [{ errorName: "TooSoon", args: [OWNER, EXPIRY] }] });
   const { relay, logs } = setUp(state);
