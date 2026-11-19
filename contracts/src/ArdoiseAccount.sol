@@ -321,8 +321,8 @@ contract ArdoiseAccount is IArdoise {
     /// withdrawn before a `sweep()` no longer repays the owner's debt, which is the owner's
     /// choice. There is no "withdraw everything" value: the owner reads the account's USDC
     /// balance, and a `sweep()` landing first makes the call revert rather than send another
-    /// amount than the one signed. Non-reentrant. Reverts with `NotOwner`, `ZeroAmount`,
-    /// `InsufficientBalance` and `TokenCallFailed`.
+    /// amount than the one signed. Non-reentrant. Reverts with `Reentrancy`, `NotOwner`,
+    /// `ZeroAmount`, `InsufficientBalance` and `TokenCallFailed`.
     /// @param amount USDC to send to the owner, at most the account's balance.
     function withdraw(uint256 amount) external nonReentrant onlyOwner {
         if (amount == 0) revert ZeroAmount();
