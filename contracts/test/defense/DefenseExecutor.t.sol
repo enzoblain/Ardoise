@@ -245,7 +245,19 @@ contract DefenseExecutorTest is Test {
         vm.prank(transmitter);
         vm.expectRevert(DefenseExecutor.SwapOutOfGas.selector);
         executor.handleReceiveFinalizedMessage{gas: 1_000_000}(ARC, _sender(alarm), 2000, body);
-        assertEq(weth.balanceOf(owner), 1e18);
+        assertFalse(executor.alarmUsed(1));
+    }
+
+    function test_defense_tooLittleGasBeforeSwapReverts() public {
+        _policyUsdcThenWeth(0, 1e18, 100);
+        _fund(weth, 1e18);
+        router.setQuirks(0, true); // a failing swap would otherwise consume the alarm
+        bytes memory body = _alarm(1 * USDC, 1);
+        vm.prank(transmitter);
+        vm.expectRevert(DefenseExecutor.SwapOutOfGas.selector);
+        // Enough for the checks and the pull, under the floor once the swap is reached.
+        executor.handleReceiveFinalizedMessage{gas: 250_000}(ARC, _sender(alarm), 2000, body);
+        assertFalse(executor.alarmUsed(1));
     }
 
     function test_defense_stalePriceRevertsSoTheMessageCanBeRetried() public {

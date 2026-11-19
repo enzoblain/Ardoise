@@ -64,6 +64,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     uint256 private constant BPS = 10_000;
     /// @notice Highest slippage a policy may allow (10%).
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
+    /// @notice Gas a swap must have available: about twice what a SwapRouter02 single-pool swap
+    /// uses, so no frame inside the swap can run out of gas while the executor keeps going.
+    uint256 public constant MIN_SWAP_GAS = 300_000;
     /// @dev "cctp-forward": Circle's Forwarding Service mints on Arc without a relayer.
     bytes32 private constant FORWARD_HOOK = "cctp-forward";
 
@@ -199,8 +202,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     error TokenCallFailed();
     /// @notice Thrown on reentrancy.
     error Reentrancy();
-    /// @notice Thrown when a swap fails for lack of gas: the relayer sent too little gas, and
-    /// reverting keeps the alarm deliverable instead of consuming it without a defense.
+    /// @notice Thrown when less than `MIN_SWAP_GAS` is left before a swap, or a swap ran out of
+    /// gas: the relayer sent too little gas, and reverting keeps the alarm deliverable instead of
+    /// consuming it without a defense.
     error SwapOutOfGas();
 
     modifier nonReentrant() {
@@ -424,10 +428,12 @@ contract DefenseExecutor is IMessageHandlerV2 {
         _call(token.approve(address(swapRouter), amountIn));
 
         uint256 used = 0;
-        // The swap gets 63/64 of the gas left; if it runs out, under 1/64 remains. Anyone can relay
-        // the message, so a caught out-of-gas swap must revert rather than let a relayer with a
-        // tight gas limit consume the alarm without a defense.
+        // Anyone can relay the message, so a relayer must not be able to pick a gas limit at which
+        // the swap fails for lack of gas while the delivery succeeds and consumes the alarm. The
+        // floor covers the swap and every call inside it; the 63/64 check catches a swap that ran
+        // out of gas anyway (it gets 63/64 of the gas left, so under 1/64 remains).
         uint256 gasBefore = gasleft();
+        if (gasBefore < MIN_SWAP_GAS) revert SwapOutOfGas();
         if (amountIn == maxIn) {
             try swapRouter.exactOutputSingle(
                 ISwapRouter02.ExactOutputSingleParams(asset, address(usdc), s.poolFee, address(this), needed, maxIn, 0)
