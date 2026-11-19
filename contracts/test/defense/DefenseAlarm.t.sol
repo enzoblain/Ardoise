@@ -140,6 +140,15 @@ contract DefenseAlarmTest is Test {
         _deploy(false);
     }
 
+    function test_constructor_acceptsTheLargestVenueList() public {
+        IVenue[] memory most = new IVenue[](alarm.MAX_VENUES());
+        for (uint256 i = 0; i < most.length; ++i) {
+            most[i] = venue;
+        }
+        factory.setVenues(most);
+        assertEq(_deploy(false).venues().length, 8);
+    }
+
     function test_constructor_rejectsThresholdsOutOfOrder() public {
         // A minimum at the liquidation point.
         factory.setGuard(IGuard(address(new LooseGuardMock(1e18, 1.5e18))));
@@ -242,6 +251,55 @@ contract DefenseAlarmTest is Test {
         assertLt(guard.simulatedHealth(venue, owner), 1.25e18);
         _expectHealthy(alarm);
         assertEq(transmitter.count(), 0);
+    }
+
+    function test_raise_productionAlarmNeverCallsTheGuard() public {
+        // The guard's code becomes a single INVALID opcode: any call to it would revert.
+        vm.etch(address(guard), hex"fe");
+        _expectHealthy(alarm);
+        venue.setPosition(owner, 4e18, 3e6); // health factor 1.04
+        (, uint256 amount) = alarm.shortfall(owner);
+        assertEq(amount, 920_000);
+        alarm.raise(owner);
+        assertEq(_lastAmount(), 920_000);
+    }
+
+    /// @dev Whatever the guard owner and the factory admin do after the deployment, a position
+    /// whose real health factor is at or above the pinned minimum cannot be alarmed.
+    function testFuzz_raise_healthyPositionCannotBeAlarmedAfterDeployment(
+        uint256 debt,
+        uint256 collateralUsd,
+        uint256 dropBps,
+        uint256 minHf,
+        uint256 targetHf
+    ) public {
+        debt = bound(debt, 1, 1_000_000_000e6);
+        // Collateral for a health factor of at least 1.25 at the venue's 78% threshold.
+        uint256 floor = debt * 1e12 * 1.25e18 / 0.78e18 + 1;
+        collateralUsd = bound(collateralUsd, floor, floor * 1000);
+        venue.setPosition(owner, collateralUsd, debt);
+        (uint256 healthFactor,,) = venue.health(owner);
+        vm.assume(healthFactor >= 1.25e18);
+
+        dropBps = bound(dropBps, 0, 9_000);
+        minHf = bound(minHf, 1e18 + 1, 1e36);
+        targetHf = bound(targetHf, minHf + 1, 1e37);
+
+        // The guard owner: any thresholds, any simulated drop on the pinned guard.
+        vm.startPrank(admin);
+        guard.setThresholds(minHf, targetHf);
+        guard.setSimulatedDrop(dropBps);
+        // The factory admin: a lying venue first in the list, and a hostile guard.
+        MarginGuard hostile = new MarginGuard(admin, minHf, targetHf);
+        hostile.setSimulatedDrop(9_000);
+        vm.stopPrank();
+        IVenue[] memory list = new IVenue[](2);
+        list[0] = IVenue(address(new LyingVenueMock()));
+        list[1] = venue;
+        factory.setVenues(list);
+        factory.setGuard(hostile);
+
+        _expectHealthy(alarm);
     }
 
     function test_raise_productionAlarmMeasuresRealHealthUnderSimulatedDrop() public {
