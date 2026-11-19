@@ -25,7 +25,7 @@ const PRESETS: { label: string; scenario: Scenario }[] = [
 // The deployed MarginGuard's thresholds, used while no guard is set.
 const DEFAULT_THRESHOLDS: Thresholds = { minHealthFactor: 1.25, targetHealthFactor: 1.5 };
 
-const SPEED_LABEL = { instant: "instant, sweep()", automatic: "automatic, standing order", manual: "by hand" } as const;
+const SPEED_LABEL = { instant: "repaid at once by sweep()", automatic: "drawn by the keeper", manual: "by hand" } as const;
 
 /**
  * "What if bitcoin falls" for the account: pick a scenario, see the health
@@ -142,7 +142,8 @@ export function StressTest({
         <p className="text-xs text-faint">Left out, could not be read: {reserve.errors.join("; ")}.</p>
       )}
       <p className="text-xs text-faint">
-        A simulation computed in your browser from the positions and balances on chain; nothing is sent. Liquidation
+        A simulation computed in your browser, from your position and reserve on chain (simulated on the demo account);
+        nothing is sent. Liquidation
         penalties use Aave V4&apos;s cirBTC parameters on Arc and Morpho&apos;s incentive for an 86% LLTV market.
       </p>
     </div>
@@ -177,14 +178,20 @@ function Verdict({ result, scenario, thresholds }: { result: StressResult; scena
         label="Outcome"
         value={result.survives ? "Survives" : "Liquidated"}
         tone={result.survives ? "good" : "bad"}
-        hint={result.survives ? `HF ${formatHf(result.finalHealthFactor)} after repaying` : "the reserve runs out"}
+        hint={
+          result.survives
+            ? `HF ${formatHf(result.finalHealthFactor)} after the keeper repays`
+            : result.withOwner.survives
+              ? "unless you move your other funds in time"
+              : "the reserve runs out"
+        }
       />
       <Stat label="Without Ardoise" value={`HF ${formatHf(without)}`} tone={without < 1 ? "bad" : undefined} hint={without < 1 ? "liquidated" : without < thresholds.minHealthFactor ? "under the guard minimum" : "no action needed"} />
       <Stat label="Reserve drawn" value={`$${formatUsd(drawnTotal)}`} hint={`at BTC −${Math.round(scenario.btcDrop * 100)}%`} />
       <Stat
         label="Penalty avoided"
         value={result.survives && result.liquidationLossUsd > 0 ? `$${formatUsd(result.liquidationLossUsd)}` : "$0"}
-        hint={result.liquidationLossUsd > 0 ? "liquidation bonus kept" : "no liquidation here"}
+        hint={!result.survives ? "liquidated anyway" : result.liquidationLossUsd > 0 ? "liquidation bonus kept" : "no liquidation here"}
       />
     </dl>
   );
@@ -231,7 +238,7 @@ function HealthChart({ curve, thresholds }: { curve: CurvePoint[]; thresholds: T
   return (
     <figure className="flex flex-col gap-2">
       <figcaption className="flex flex-wrap items-center justify-between gap-2">
-        <span className="eyebrow">Lowest health factor as bitcoin falls</span>
+        <span className="eyebrow">Lowest health factor as bitcoin falls (keeper only)</span>
         <span className="flex gap-3 text-xs text-muted">
           <span className="flex items-center gap-1.5">
             <svg width="16" height="4" aria-hidden><line x1="0" y1="2" x2="16" y2="2" stroke={WITH_COLOR} strokeWidth="2" /></svg>
@@ -349,18 +356,30 @@ function ReserveTable({ result }: { result: StressResult }) {
           </tbody>
         </table>
       </div>
-      <p className="rounded-2xl border border-line bg-sunken px-4 py-3 text-sm">
-        {result.maxBtcDropCovered >= 1 ? (
-          <>Your reserve covers any bitcoin drop, with ether falling in the same proportion as this scenario.</>
-        ) : (
-          <>
-            Your reserve covers a bitcoin drop down to{" "}
-            <span className="font-semibold tabular-nums">−{Math.floor(result.maxBtcDropCovered * 100)}%</span>, with ether
-            falling in the same proportion as this scenario.
-          </>
-        )}
-      </p>
+      <div className="flex flex-col gap-1 rounded-2xl border border-line bg-sunken px-4 py-3 text-sm">
+        <p>
+          On its own, the keeper covers a bitcoin drop {coverage(result.maxBtcDropCovered)}
+          {result.withOwner.maxBtcDropCovered > result.maxBtcDropCovered && (
+            <>; {coverage(result.withOwner.maxBtcDropCovered)} if you also move the rest of your reserve in time</>
+          )}
+          .
+        </p>
+        <p className="text-xs text-faint">
+          The keeper draws only the account&apos;s USDC and the Gateway balance your standing orders cover; ether falls in
+          the same proportion as this scenario.
+        </p>
+      </div>
     </div>
+  );
+}
+
+function coverage(drop: number) {
+  return drop >= 1 ? (
+    <span className="font-semibold">of any size</span>
+  ) : (
+    <>
+      down to <span className="font-semibold tabular-nums">−{Math.floor(drop * 100)}%</span>
+    </>
   );
 }
 

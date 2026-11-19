@@ -48,12 +48,13 @@ describe("stress test", () => {
   });
 
   it("keeps a position out of liquidation that would lose the Aave bonus without Ardoise", () => {
-    // -60%: health factor 0.78 without repayment; Aave liquidates the whole debt at a 7.22% bonus.
+    // -60%: health factor 0.78 without repayment. Aave would repay the whole debt at a 7.22%
+    // bonus, but only 100 USD of collateral is left: it takes 100 / 1.0722 of debt.
     const result = runStress([AAVE], [usdc(50, "automatic")], { btcDrop: 0.6, ethDrop: 0.7 }, GUARD);
     expect(result.curve.at(-1)!.without).toBeCloseTo(0.78, 9);
     expect(result.survives).toBe(true);
     expect(result.finalHealthFactor).toBeCloseTo(1.5, 9);
-    expect(result.liquidationLossUsd).toBeCloseTo(7.22, 6);
+    expect(result.liquidationLossUsd).toBeCloseTo((100 / 1.0722) * 0.0722, 6);
   });
 
   it("finds the largest bitcoin drop the reserve covers", () => {
@@ -64,9 +65,20 @@ describe("stress test", () => {
 
   it("counts ETH at its crisis value, falling with bitcoin", () => {
     const eth: ReserveAsset = { asset: "ETH", chain: "Base", place: "Wallet", valueUsd: 50, speed: "manual" };
-    const stable = runStress([AAVE], [usdc(50, "automatic")], { btcDrop: 0.4, ethDrop: 0.5 }, GUARD).maxBtcDropCovered;
-    const volatile = runStress([AAVE], [eth], { btcDrop: 0.4, ethDrop: 0.5 }, GUARD).maxBtcDropCovered;
+    const stable = runStress([AAVE], [usdc(50, "manual", "Wallet")], { btcDrop: 0.4, ethDrop: 0.5 }, GUARD).withOwner.maxBtcDropCovered;
+    const volatile = runStress([AAVE], [eth], { btcDrop: 0.4, ethDrop: 0.5 }, GUARD).withOwner.maxBtcDropCovered;
     expect(volatile).toBeLessThan(stable);
+  });
+
+  it("lets the keeper draw only the account and the standing orders, not the wallet", () => {
+    const result = runStress([AAVE], [usdc(5, "automatic"), usdc(100, "manual", "Wallet")], { btcDrop: 0.6, ethDrop: 0.7 }, GUARD);
+    // The keeper has 5 USD for the 22 USD that keeps the position out of liquidation.
+    expect(result.survives).toBe(false);
+    expect(result.drawn).toEqual([5, 0]);
+    expect(result.maxBtcDropCovered).toBeCloseTo(1 - 95 / 195, 6);
+    // With the owner's wallet too, it survives.
+    expect(result.withOwner.survives).toBe(true);
+    expect(result.withOwner.maxBtcDropCovered).toBeGreaterThan(result.maxBtcDropCovered);
   });
 
   it("reports a reserve too small to avoid liquidation", () => {
@@ -86,7 +98,10 @@ describe("stress test", () => {
 
   it("charges Morpho's incentive on the whole debt", () => {
     const morpho: StressPosition = { venueName: "Morpho", collateralUsd: 100, debtUsd: 60, healthFactor: 1.4333, liquidation: MORPHO_86 };
-    expect(liquidationLoss(morpho, 0.5)).toBeCloseTo(60 * (1 / 0.958 - 1), 9);
+    expect(liquidationLoss(morpho, 0.3)).toBeCloseTo(0, 9);
+    // -50%: 50 USD of collateral left, so the liquidator repays 50 / 1.0438 of the 60 USD debt.
+    const incentive = 1 / 0.958 - 1;
+    expect(liquidationLoss(morpho, 0.5)).toBeCloseTo((50 / (1 + incentive)) * incentive, 9);
     expect(liquidationLoss(morpho, 0.2)).toBe(0);
   });
 

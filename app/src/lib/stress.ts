@@ -6,9 +6,13 @@
  * Model, in USD, with plain numbers since the results are only displayed:
  * - A venue's health factor is `riskAdjustedCollateral / debt`; a bitcoin
  *   drop `d` scales the collateral, so the health factor becomes `hf * (1 - d)`.
- * - The reserve is drawn in priority order, fastest first, and only in a
- *   crisis: an asset that falls with bitcoin (ETH) counts at its value after
- *   the scenario's ETH drop.
+ * - The keeper can only draw what it is allowed to: USDC already on the
+ *   account (`sweep()`) and the Gateway reserve covered by standing orders.
+ *   Wallet funds and the rest of the Gateway balance need the owner to act,
+ *   so they only count in the "if you also act" figures.
+ * - The reserve is drawn in priority order, fastest first: an asset that
+ *   falls with bitcoin (ETH) counts at its value after the scenario's ETH
+ *   drop.
  * - The guard and keeper bring a position under the minimum back to the
  *   target; it survives as long as every health factor stays at or above 1.
  */
@@ -56,7 +60,10 @@ export interface StressPosition {
   liquidation: LiquidationRule;
 }
 
-/** How quickly a reserve asset can repay. */
+/**
+ * How quickly a reserve asset can repay: `instant` and `automatic` are drawn
+ * by the keeper, `manual` only if the owner moves it.
+ */
 export type ReserveSpeed = "instant" | "automatic" | "manual";
 
 /** One asset the owner holds that can defend the position. */
@@ -111,14 +118,16 @@ export interface StressResult {
   curve: CurvePoint[];
   /** USD drawn from each reserve line, in priority order. */
   drawn: number[];
-  /** Whether every position stays at or above a health factor of 1. */
+  /** Whether every position stays at or above a health factor of 1 with what the keeper can draw. */
   survives: boolean;
   /** Lowest health factor at the end of the scenario, after repayments. */
   finalHealthFactor: number;
   /** Liquidation penalty the user would pay without Ardoise, USD. */
   liquidationLossUsd: number;
-  /** Largest bitcoin drop the reserve covers, with ether falling in the scenario's proportion. */
+  /** Largest bitcoin drop the keeper's part of the reserve covers, with ether falling in the scenario's proportion. */
   maxBtcDropCovered: number;
+  /** The same two answers if the owner also moves their manual reserve in time. */
+  withOwner: { survives: boolean; maxBtcDropCovered: number };
 }
 
 const SPEED_ORDER: Record<ReserveSpeed, number> = { instant: 0, automatic: 1, manual: 2 };
@@ -191,16 +200,17 @@ export function liquidationLoss(position: StressPosition, drop: number): number 
   const hf = healthAfter(position, drop, 0);
   if (hf >= 1) return 0;
   const rule = position.liquidation;
-  if (rule.kind === "morpho") return position.debtUsd * rule.incentive;
+  const collateral = position.collateralUsd * (1 - drop);
+  // The liquidator never takes more than the collateral left.
+  if (rule.kind === "morpho") return Math.min(position.debtUsd, collateral / (1 + rule.incentive)) * rule.incentive;
   const depth = clamp((1 - hf) / (1 - rule.healthFactorForMaxBonus));
   const bonus = rule.maxBonus * (rule.bonusFactor + (1 - rule.bonusFactor) * depth);
   // Repay r with r * (1 + bonus) of collateral taken, until the target is reached.
-  const collateral = position.collateralUsd * (1 - drop);
   const threshold = (position.healthFactor * position.debtUsd) / position.collateralUsd;
   const denominator = rule.targetHealthFactor - (1 + bonus) * threshold;
   const toTarget = (rule.targetHealthFactor * position.debtUsd - collateral * threshold) / denominator;
   const repaid = denominator > 0 && toTarget < position.debtUsd ? toTarget : position.debtUsd;
-  return repaid * bonus;
+  return Math.min(repaid, collateral / (1 + bonus)) * bonus;
 }
 
 /**
@@ -216,8 +226,11 @@ export function runStress(positions: StressPosition[], assets: ReserveAsset[], s
   const withDebt = positions.filter((p) => p.debtUsd > 0);
   const btcDrop = clamp(scenario.btcDrop);
   const ethPerBtc = btcDrop > 0 ? scenario.ethDrop / btcDrop : 0;
-  const budgetAt = (drop: number) =>
-    reserveLines(assets, { btcDrop: drop, ethDrop: clamp(drop * ethPerBtc) }).reduce((sum, a) => sum + a.defenseUsd, 0);
+  // What can repay at a given drop: the keeper's lines, or every line if the owner acts too.
+  const budgetAt = (drop: number, owner = false) =>
+    reserveLines(assets, { btcDrop: drop, ethDrop: clamp(drop * ethPerBtc) })
+      .filter((a) => owner || a.speed !== "manual")
+      .reduce((sum, a) => sum + a.defenseUsd, 0);
 
   const curve: CurvePoint[] = [];
   for (let i = 0; i <= CURVE_STEPS; i++) {
@@ -229,6 +242,7 @@ export function runStress(positions: StressPosition[], assets: ReserveAsset[], s
 
   const reserve = reserveLines(assets, scenario);
   const final = withDebt.length ? defend(withDebt, btcDrop, budgetAt(btcDrop), thresholds) : { lowest: Infinity, spent: 0 };
+  // The keeper's lines come first in priority order, so this never reaches a manual line.
   let toDraw = final.spent;
   const drawn = reserve.map((line) => {
     const take = Math.min(line.defenseUsd, toDraw);
@@ -238,9 +252,9 @@ export function runStress(positions: StressPosition[], assets: ReserveAsset[], s
 
   // The scenario's ETH/BTC proportion, pushed until the reserve no longer
   // keeps every position out of liquidation.
-  const survivesAt = (drop: number) => !withDebt.length || defend(withDebt, drop, budgetAt(drop), thresholds).lowest >= 1;
-  let maxBtcDropCovered = 1;
-  if (!survivesAt(1)) {
+  const maxCovered = (owner: boolean) => {
+    const survivesAt = (drop: number) => !withDebt.length || defend(withDebt, drop, budgetAt(drop, owner), thresholds).lowest >= 1;
+    if (survivesAt(1)) return 1;
     let low = 0;
     let high = 1;
     for (let i = 0; i < 40; i++) {
@@ -248,8 +262,9 @@ export function runStress(positions: StressPosition[], assets: ReserveAsset[], s
       if (survivesAt(mid)) low = mid;
       else high = mid;
     }
-    maxBtcDropCovered = low;
-  }
+    return low;
+  };
+  const withOwnerFinal = withDebt.length ? defend(withDebt, btcDrop, budgetAt(btcDrop, true), thresholds).lowest : Infinity;
 
   return {
     reserve,
@@ -258,7 +273,8 @@ export function runStress(positions: StressPosition[], assets: ReserveAsset[], s
     survives: final.lowest >= 1,
     finalHealthFactor: final.lowest,
     liquidationLossUsd: withDebt.reduce((sum, p) => sum + liquidationLoss(p, btcDrop), 0),
-    maxBtcDropCovered,
+    maxBtcDropCovered: maxCovered(false),
+    withOwner: { survives: withOwnerFinal >= 1, maxBtcDropCovered: maxCovered(true) },
   };
 }
 

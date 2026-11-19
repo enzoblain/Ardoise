@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { parseUnits, type Address, type Hex } from "viem";
 import { formatUsdc } from "@/lib/format";
 import {
+  KEEPER_URL,
   gatewayBalance,
   gatewayTransfer,
   keeperOrders,
@@ -17,11 +18,6 @@ import {
 import type { GatewaySigner } from "@/lib/gatewaySigner";
 import { network, txUrl } from "@/lib/network";
 
-/**
- * The keeper's standing-order intake; public, it holds no secret. The keeper
- * relays orders on Arc mainnet only, so the section is hidden elsewhere.
- */
-const KEEPER_URL = network.name === "mainnet" ? process.env.NEXT_PUBLIC_KEEPER_URL || "" : "";
 const POLL_MS = 3_000;
 
 /**
