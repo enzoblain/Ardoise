@@ -1,0 +1,92 @@
+# Builds the iOS app (ios/) with the runner's stable Xcode and uploads it to
+# TestFlight. App Store Connect refuses builds made with a beta Xcode, so this
+# runs on GitHub's macOS image rather than on a developer machine.
+#
+# Run it by hand from the Actions tab. It needs these repository secrets:
+# - APP_STORE_CONNECT_KEY: the content of an App Store Connect API key (.p8),
+#   with the Admin role so Xcode can create the distribution certificate;
+# - APP_STORE_CONNECT_KEY_ID and APP_STORE_CONNECT_ISSUER_ID: that key's IDs;
+# - CIRCLE_IOS_CLIENT_KEY: the Circle client key made for the bundle ID
+#   com.enzoblain.ardoise (public by design, kept out of the repository).
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set paths and build number
+        run: |
+          echo "ARCHIVE=$RUNNER_TEMP/Ardoise.xcarchive" >> "$GITHUB_ENV"
+          echo "KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+          # Every upload needs a build number App Store Connect has not seen;
+          # 100+ stays clear of the numbers tried from a local Xcode.
+          echo "BUILD_NUMBER=$((100 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
+
+      - name: Show the Xcode in use
+        run: xcodebuild -version
+
+      - name: Write the local config and the API key
+        env:
+          CIRCLE_IOS_CLIENT_KEY: ${{ secrets.CIRCLE_IOS_CLIENT_KEY }}
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+        run: |
+          printf 'CIRCLE_CLIENT_KEY = %s\n' "$CIRCLE_IOS_CLIENT_KEY" > ios/Local.xcconfig
+          mkdir -p "$(dirname "$KEY_PATH")"
+          printf '%s\n' "$APP_STORE_CONNECT_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+      - name: Archive
+        working-directory: ios
+        run: |
+          xcodebuild archive \
+            -project Ardoise.xcodeproj -scheme Ardoise -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+
+      - name: Upload to TestFlight
+        working-directory: ios
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>V89X9X5JFK</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          # Xcode's export copies with Apple's rsync options: keep any other
+          # rsync (Homebrew's) off the PATH.
+          env PATH=/usr/bin:/bin:/usr/sbin:/sbin xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
+          echo "Uploaded build $BUILD_NUMBER of version 1.0"
+
+      - name: Remove the API key and the local config
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc/AuthKey.p8" ios/Local.xcconfig

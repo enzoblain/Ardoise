@@ -45,8 +45,9 @@ targets:
         CFBundleDisplayName: Ardoise
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        # Only HTTPS and the system's own cryptography: exempt from export
-        # documentation, so TestFlight does not ask at each upload.
+        # HTTPS, the system's passkeys, and the hashing and signature code of
+        # the SDK's dependencies (CryptoSwift, secp256k1): all exempt from
+        # export documentation, so TestFlight does not ask at each upload.
         ITSAppUsesNonExemptEncryption: false
         CircleClientKey: $(CIRCLE_CLIENT_KEY)
         UILaunchScreen: {}
