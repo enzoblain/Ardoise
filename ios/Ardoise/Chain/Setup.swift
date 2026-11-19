@@ -25,6 +25,12 @@ struct SetupState: Sendable {
     var funded: Bool { walletCirBtc > 0 || collateral > 0 }
     /// Whether the account holds enough USDC to pay for the activation.
     var hasGas: Bool { gasBalance >= Setup.minGas }
+    /// Whether the account was activated before and only its borrow allowance
+    /// ran out: payments use it up, and it is renewed in one signature.
+    var needsRenewalOnly: Bool {
+        account != nil && takerApproved && giverApproved && collateral > 0 && collateralEnabled
+            && borrowAllowance < perPaymentCap
+    }
     /// Whether the account can pay: everything the web app's setup checks is done.
     var ready: Bool {
         account != nil && takerApproved && giverApproved && borrowAllowance >= perPaymentCap

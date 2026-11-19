@@ -16,20 +16,23 @@ struct ActivateView: View {
     private static let pollInterval: Duration = .seconds(5)
 
     private var setup: SetupState? { model.setup }
+    private var renewal: Bool { setup?.needsRenewalOnly ?? false }
     private var canActivate: Bool {
         guard let setup, let owner = model.wallet?.address else { return false }
         let calls = (try? Setup.calls(state: setup, owner: owner)) ?? []
-        return setup.funded && setup.hasGas && !calls.isEmpty
+        return (renewal || setup.funded) && setup.hasGas && !calls.isEmpty
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Activate your account")
+                    Text(renewal ? "Renew your borrow allowance" : "Activate your account")
                         .font(.largeTitle.weight(.bold))
                         .foregroundStyle(Theme.chalk)
-                    Text("Fund your account, then activate it with one signature: it supplies your cirBTC to Aave V4 as collateral, creates your Ardoise account and lets it borrow up to \(Format.usdc(Setup.borrowCap)) USDC.")
+                    Text(renewal
+                        ? "Your payments have used up what Ardoise may borrow for you on Aave V4. One signature lets it borrow up to \(Format.usdc(Setup.borrowCap)) USDC again."
+                        : "Fund your account, then activate it with one signature: it supplies your cirBTC to Aave V4 as collateral, creates your Ardoise account and lets it borrow up to \(Format.usdc(Setup.borrowCap)) USDC.")
                         .font(.callout)
                         .foregroundStyle(Theme.muted)
                 }
@@ -90,12 +93,14 @@ struct ActivateView: View {
         VStack(alignment: .leading, spacing: 8) {
             Eyebrow(text: "Before you activate").padding(.leading, 4)
             VStack(spacing: 0) {
-                CheckRow(
-                    done: setup?.funded ?? false,
-                    title: "Send cirBTC on Arc",
-                    detail: cirBtcDetail
-                )
-                Divider().overlay(Theme.line)
+                if !renewal {
+                    CheckRow(
+                        done: setup?.funded ?? false,
+                        title: "Send cirBTC on Arc",
+                        detail: cirBtcDetail
+                    )
+                    Divider().overlay(Theme.line)
+                }
                 CheckRow(
                     done: setup?.hasGas ?? false,
                     title: "Send at least \(Format.usdc(Setup.minGas)) USDC for gas",
@@ -105,8 +110,8 @@ struct ActivateView: View {
                 CheckRow(
                     done: false,
                     waiting: !canActivate,
-                    title: "Activate in one signature",
-                    detail: canActivate ? "Everything is in place: tap Activate." : "Available once the steps above are done."
+                    title: renewal ? "Renew in one signature" : "Activate in one signature",
+                    detail: canActivate ? "Everything is in place: tap \(renewal ? "Renew" : "Activate")." : "Available once the steps above are done."
                 )
             }
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20))
@@ -129,7 +134,7 @@ struct ActivateView: View {
         Button {
             activate()
         } label: {
-            Text(activating ? "Confirm with your passkey…" : "Activate")
+            Text(activating ? "Confirm with your passkey…" : renewal ? "Renew" : "Activate")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
