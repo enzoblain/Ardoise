@@ -20,6 +20,7 @@ export const accountAbi = parseAbi(["function sweep() returns (uint256 repaid)"]
 
 export const venueAbi = parseAbi([
   "function health(address user) view returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd)",
+  "function debtOf(address user) view returns (uint256 amount)",
 ]);
 
 export const guardAbi = parseAbi([
@@ -59,6 +60,8 @@ export const defenseRelayAbi = parseAbi([
   "error StalePrice(address feed)",
   // Added by the executor's gas floor (PR #48): a delivery sent with too little gas for a swap.
   "error SwapOutOfGas()",
+  // A swap that failed otherwise, in practice on price: the delivery reverts and can be sent again.
+  "error SwapFailed(address asset)",
   "event DefenseExecuted(address indexed owner, address indexed account, uint64 indexed nonce, uint256 amount, uint256 maxFee)",
   "event AlarmIgnored(address indexed owner, uint64 indexed nonce, uint8 reason)",
 ]);

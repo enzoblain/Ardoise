@@ -37,6 +37,10 @@ The defense alarm reads its factory as an immutable: an alarm deployed against t
 
 The Gateway standing orders recorded in the B3 run were signed for the previous account (`0xdcB201E7…`), and the keeper only submits an order whose recipient is the account it defends. The automatic Gateway repayment therefore needs new standing orders signed for `0x4d298b39…` before it can run again on this factory.
 
+### Not deployed: `withdraw` on the account
+
+`ArdoiseAccount.withdraw(amount)` (owner only, sends the account's idle USDC to the owner; see [`docs/api.md`](../docs/api.md#implementation-notes-ardoiseaccount-ardoisefactory)) is in the source but **on no deployed account**. Accounts are not upgradeable and the factory embeds the account's code, so it takes a new factory (see *How to redeploy*), new accounts and, since the adapters and the defense alarm read their factory as an immutable, new adapters, new borrow allowances or authorizations, and a new alarm and executor pair. Until then, the accounts of both factories on this page behave as before: USDC on them can only repay debt, and the app has no withdrawal button.
+
 ### Previous factory (Aave V4 only)
 
 Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardoise/commit/37d9fe4) (branch `chore/deploy-mainnet`, [PR #14](https://github.com/enzoblain/Ardoise/pull/14)) with [`script/Deploy.s.sol`](script/Deploy.s.sol), in block [31777009](https://explorer.arc.io/block/31777009). Deployer and factory admin: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7).
@@ -134,7 +138,9 @@ Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper 
 (cd keeper && npm install && npm start)
 ```
 
-The keeper runs in the foreground and writes to standard output, one line per event, prefixed with an ISO timestamp and `[keeper]`; redirect it to keep a file, for example `npm start >> ~/ardoise-keeper.log 2>&1` (outside the repository). It logs the factory and the wallet address at start, then only changes: an account found, a decision that changed, a `sweep()` sent with its transaction hash, a failure and its recovery. The key is never logged. It makes one pass every 15 seconds (about ten reads): the public Arc RPC answers 429 when polled too often, so each request is retried with an exponential delay and a pass that still fails doubles the wait before the next one, up to 2 minutes. Use a dedicated endpoint in `ARC_RPC_URL` to run several keepers or other tools from the same address. It stops with Ctrl+C and can be restarted at any time: it keeps no state and rebuilds the account list from `ARDOISE_FACTORY_DEPLOY_BLOCK`.
+The keeper runs in the foreground and writes to standard output, one line per event, prefixed with an ISO timestamp and `[keeper]`; redirect it to keep a file, for example `npm start >> ~/ardoise-keeper.log 2>&1` (outside the repository). It logs the factory and the wallet address at start, then only changes: an account found, a decision that changed, a `sweep()` sent with its transaction hash, a failure and its recovery. The key is never logged. It makes one pass every 15 seconds (seven reads, plus one for the balance and two per venue for each account: twelve for one account on two venues): the public Arc RPC answers 429 when polled too often, so each request is retried with an exponential delay and a pass that still fails doubles the wait before the next one, up to 2 minutes. Use a dedicated endpoint in `ARC_RPC_URL` to run several keepers or other tools from the same address. It stops with Ctrl+C and can be restarted at any time: it keeps no state and rebuilds the account list from `ARDOISE_FACTORY_DEPLOY_BLOCK`.
+
+A running keeper keeps the code it was started with. The cap on Gateway standing orders (the keeper's shortfall capped at the venue's `debtOf`, and no order submitted beyond the owner's remaining debt, see *Gateway standing orders* in [`docs/api.md`](../docs/api.md)) applies only once the keeper is restarted on a commit that includes it; until then the running keeper can still submit an order larger than the debt, and the surplus stays on the account.
 
 ### State
 
@@ -170,12 +176,12 @@ From the keeper's first simulated reading (23:11:40 UTC) to the confirmed `sweep
 The keeper's third defense step, in [`keeper/src/defense.ts`](../keeper/src/defense.ts). It is off while `DEFENSE_ALARM_ADDRESS` is empty. When it is on, the keeper runs, for each account on each pass:
 
 1. `sweep()` when the account holds USDC (B2).
-2. The owner's Gateway standing orders when the position is under the guard's minimum and the account holds nothing to repay with (B4).
-3. When the position is still under the minimum, the account still holds nothing to repay with and Gateway is not covering the shortfall (no transfer on its way or settled in the last minute: no order left, or Gateway refused them, for example for a reserve too low), the defense relay:
+2. The owner's Gateway standing orders when the position is under the guard's minimum and the account holds nothing to repay with (B4). The orders submitted never add up to more than the owner's debt on every venue less the USDC already on the account: an account has no withdrawal, so an order larger than that is skipped and logged (`standing order … skipped: larger than the debt left to repay`).
+3. When the position is still under the minimum, the account still holds nothing to repay with and Gateway is not covering the shortfall (no transfer on its way or settled in the last minute: no order left, every order left larger than the debt left to repay, or Gateway refused them, for example for a reserve too low), the defense relay:
    - simulates `DefenseAlarm.raise(owner)` on Arc. `CoolingDown(nextAllowed)`: nothing is sent until `nextAllowed`. `PositionHealthy`: the balance on the account restores the position, so the keeper calls `sweep()` on the account directly. Any other revert holds `raise` for that owner for 1 minute, doubling up to 1 hour;
    - sends `raise(owner)` with 30% gas headroom (the alarm's own `sweep()` reverts with `SweepOutOfGas` on a tight estimate) and follows that transaction until it has a receipt (the owner stays on hold meanwhile, so a slow `raise` is never sent twice; without a receipt after 5 minutes it is treated as lost and `raise` is held as after a failure), then reads `AlarmRaised` from the receipt;
    - polls Circle Iris, `GET https://iris-api.circle.com/v2/messages/26?transactionHash=<raise tx>`, every 2 s doubling up to 30 s, until the message's `status` is `complete`, and gives up when the alarm expires;
-   - simulates, then sends `receiveMessage(message, attestation)` to the MessageTransmitterV2 on Base (`0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`) with the same key and 50% gas headroom over the estimate, a complement to the executor's gas floor ([PR #48](https://github.com/enzoblain/Ardoise/pull/48): at least 300k gas before a swap plus a 63/64 check, else the delivery reverts with `SwapOutOfGas` instead of skipping the WETH swap and consuming the alarm; that revert is retried like any other failure), follows that transaction until it has a receipt instead of sending it again, and logs the executor's `DefenseExecuted` or `AlarmIgnored`. `TooSoon(owner, nextAllowed)`: delivered again from `nextAllowed` (waiting at least 5 s, so a clock ahead of Base cannot spin) if that is before the alarm's expiry, otherwise given up. `AlarmAlreadyUsed` or a CCTP nonce already used: someone delivered it, nothing left to do. Other failed simulations (no gas spent, for example a stale price): retried after 5 s, doubling up to 1 minute, until the alarm expires. A transaction that reverts or has no receipt after 5 minutes counts as a failed delivery; after 5 of them the alarm is given up;
+   - simulates, then sends `receiveMessage(message, attestation)` to the MessageTransmitterV2 on Base (`0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`) with the same key and 50% gas headroom over the estimate, a complement to the executor's gas floor ([PR #48](https://github.com/enzoblain/Ardoise/pull/48): at least 300k gas before a swap plus a 63/64 check, else the delivery reverts with `SwapOutOfGas` instead of skipping the WETH swap and consuming the alarm; that revert is retried like any other failure), follows that transaction until it has a receipt instead of sending it again, and logs the executor's `DefenseExecuted` or `AlarmIgnored`. `TooSoon(owner, nextAllowed)`: delivered again from `nextAllowed` (waiting at least 5 s, so a clock ahead of Base cannot spin) if that is before the alarm's expiry, otherwise given up. `AlarmAlreadyUsed` or a CCTP nonce already used: someone delivered it, nothing left to do. Other failed simulations (no gas spent, for example a stale price, or `SwapFailed` when the pool price is outside the owner's slippage bound, a revert of the executor's source that the deployed executor does not have yet, see the note under *CCTP-attested defense (D1)*): retried after 5 s, doubling up to 1 minute, until the alarm expires. A transaction that reverts or has no receipt after 5 minutes counts as a failed delivery; after 5 of them the alarm is given up. A revert is not counted when the next simulation fails with `SwapFailed`, `SwapOutOfGas` or `StalePrice`: the pool or the oracle moved between simulation and inclusion, and the alarm is still deliverable;
    - lets the usual `sweep()` of step 1 repay the debt once Circle's forwarder mints the USDC on the account.
 
 The keeper never chooses an amount or a recipient: the alarm measures the shortfall on chain and Circle's message bytes are relayed unchanged. Its wallet only pays gas, in USDC on Arc and in ETH on Base. State is kept in memory per owner: no second `raise` while a relay runs or during the alarm's cooldown, and Base transactions are sent one at a time. The cooldown is also enforced on chain, so a restart cannot raise two alarms for one shortfall; it can only drop the relay of an alarm already raised, which anyone can still deliver by hand from the `raise` transaction until it expires (see *Mainnet proof* below).
@@ -191,6 +197,8 @@ At start, with the relay on, the keeper logs the alarm address and its wallet's 
 ## CCTP-attested defense (D1)
 
 The alarm reads one factory and the executor trusts one alarm, so each factory has its own pair. Set `DEFENSE_ALARM_ADDRESS` for the keeper to the current alarm (it does not read `DEFENSE_EXECUTOR_ADDRESS`). See *CCTP-attested defense* in [`docs/api.md`](../docs/api.md).
+
+**Not in either deployed pair: the `SwapFailed` revert and the minimum slippage.** In the source, a swap that fails for a reason other than gas, in practice a pool price outside the owner's slippage bound, reverts the delivery with `SwapFailed(asset)`, so the alarm stays deliverable until it expires, and `setPolicy` refuses a slippage bound under 10 bps when the policy has an asset to sell. Both executors deployed below, the current [`0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6`](https://basescan.org/address/0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6) and the previous [`0x897B6baF462ae207895f2Cf32A0A4c6D98f15296`](https://basescan.org/address/0x897B6baF462ae207895f2Cf32A0A4c6D98f15296), predate these changes: they catch the failed swap and consume the alarm (`AlarmIgnored`, or a burn of the USDC part only), which lets a relayer cancel a defense by moving the WETH/USDC pool in the delivery transaction. As an order of magnitude, on Base forks of 2026-11-19 that cost 1,400 to 2,100 USD of pool fees for a 1% bound, depending on the pool's liquidity at the time. The fix needs a new `DefenseExecutor` for each factory to protect and, since an alarm's executor is set once and an executor trusts one alarm, a new `DefenseAlarm` with it; owners then set their policy and approvals on the new executor and the keeper's `DEFENSE_ALARM_ADDRESS` changes. This redeployment has not been done.
 
 ### Current: for the factory with the Morpho venue
 
@@ -291,6 +299,39 @@ forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor
 
 A new factory (for example with a Morpho venue) needs a new alarm and a new executor, since the executor trusts one alarm address.
 
+## Privileged roles
+
+For the hackathon, one address holds every privileged role on the contracts above: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7). It is also the owner of both demo accounts and the wallet used in the browser for the demo. It is a browser-wallet key, not a multisig or a cold wallet, and on Arc it carries an EIP-7702 delegation (`cast code` returns `0xef0100` followed by the delegate `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B`, read on 2026-11-19), so signed delegations and user operations are a way to act as this address in addition to its key.
+
+| Contract | Role | Holder | What the role can do |
+|----------|------|--------|----------------------|
+| `ArdoiseFactory` `0xB4476B61…B4a8` (current) and `0xb44DD865…92bD` (previous) | `admin` | project wallet | `setVenues`: replace the venue list every account of that factory borrows from and repays to. `setGuard`: replace the guard, or remove it, which stops payments |
+| `MarginGuard` `0xEBAC5C07…f080` (set on both factories) | `owner` | project wallet | `setThresholds`: change the minimum and target health factors, with no upper bound. `setSimulatedDrop`: make the guard, the keeper and the defense alarm reason as if the collateral had lost up to 90% of its value |
+| `DefenseAlarm` `0x3BABC3f5…5E43` | `deployer` | project wallet | `setExecutor`, once. It was used on 2026-11-19 (table above), so the role has no power left on this alarm |
+| `DefenseExecutor` `0x897B6baF…5296` (Base) | none | | No admin and no owner |
+| `ArdoiseAccount` | `owner` | the wallet that created it | Pay, change its own caps; no project role |
+
+The keeper wallet holds no role (see *Keeper*).
+
+**These roles cannot be moved.** `admin`, `owner` and `deployer` are immutable: none of the deployed contracts has an ownership transfer. Changing the holder means deploying a new factory or a new guard, and users creating new accounts.
+
+**What this allows.** Whoever controls the project wallet can list a contract of their choice as a venue, and an account's public `sweep()` then approves that venue and pays it the USDC sitting on the account; can replace the guard; and can switch on a simulated drop or raise the thresholds, which makes the keeper submit users' Gateway standing orders and lets anyone raise a defense alarm that spends a user's policy on Base, within the caps the user set. In each case the funds exposed are the USDC that reaches an account, not the collateral, which Ardoise cannot withdraw.
+
+**Before real users.** Deploy a new factory and guard with a separate admin and guard owner, each a multisig or a cold wallet that is never used in a browser and holds no demo account. Both deployment scripts take them as addresses (public values, never keys):
+
+| Variable | Used by | Effect |
+|----------|---------|--------|
+| `ARDOISE_FACTORY_ADMIN` | `Deploy.s.sol` | Admin of the new factory instead of the deployer. The deployer cannot call `setVenues` or `setGuard`, so the script deploys the factory and both adapters, checks them, and prints the two `cast send` calls the admin must make. Until then the factory lists no venue and `pay()` reverts |
+| `ARDOISE_FACTORY_ADMIN` | `DeployGuard.s.sol` | Names the factory admin when the sender is not it. The script deploys the guard, leaves the factory on its current guard and prints the `setGuard` call for the admin. Without the variable, a sender that is not the admin is refused before anything is sent, as before |
+| `ARDOISE_GUARD_OWNER` | `DeployGuard.s.sol` | Owner of the new guard, default the factory admin |
+| `ARDOISE_GUARD_OWNER` | `Deploy.s.sol` | Owner that `ARDOISE_GUARD` must have, default the factory admin; a guard owned by another address, or with a simulated drop set, is refused before anything is sent |
+
+Both variables, like `ARDOISE_GUARD` and `ARDOISE_FACTORY_ADDRESS`, are read strictly: an empty value (or one made only of whitespace) means unset, and a value that is not an address (a missing or extra digit, text, an unbalanced quote, a leading space) or the zero address stops the script before anything is sent, instead of falling back to the deployer. Trailing whitespace, one pair of quotes around the value and a missing `0x` are accepted and give the address that was written. The letter case of the address is not checked, so compare the `admin:` and `owner:` lines the script prints with the intended addresses before adding `--broadcast`.
+
+Both scripts end with checks that `factory.admin()` and `guard.owner()` are the intended addresses and that `simulatedDropBps()` is 0. `forge script` runs them in its local simulation, before any transaction is sent: they stop a wrong deployment from being broadcast, they do not re-read the chain afterwards. After mining, read `admin()`, `venues()`, `guard()` and the guard's `owner()` with `cast call`.
+
+When the sender of `DeployGuard.s.sol` is not the admin and the factory already has a guard, `ARDOISE_REPLACE_GUARD=true` is still required, although the script leaves the factory unchanged: the `setGuard` call it prints replaces that guard. For a factory deployed with a separate admin and no guard, also set `ARDOISE_FACTORY_ADDRESS` to that factory, since the script defaults to the first one. `DefenseAlarm` takes its `deployer` from the transaction sender, so steps 1 and 3 of *How to deploy* above must be sent by the same key, and that key keeps no power once `setExecutor` is done.
+
 ## How to deploy the guard
 
 From `contracts/`, simulate first from the admin address (no key needed, nothing is sent), then broadcast. Prefer a Foundry keystore (`cast wallet import`) to signing with a raw key: the repo-root `.env` is also read by the app and the keeper. A `DEPLOYER_PRIVATE_KEY` set in the shell takes precedence over `--account`, so `unset DEPLOYER_PRIVATE_KEY` first.
@@ -303,7 +344,7 @@ forge script script/DeployGuard.s.sol --rpc-url https://rpc.mainnet.arc.io --bro
 
 With the key in the environment instead, run `set -a && source ../.env && set +a` (it sets `DEPLOYER_PRIVATE_KEY`) and broadcast without `--account` and `--sender`.
 
-The script refuses to send anything if the key is not the factory admin's or if a guard is already set (`ARDOISE_REPLACE_GUARD=true` allows replacing it). Thresholds default to 1.25e18 / 1.5e18 and can be overridden with `ARDOISE_MIN_HEALTH_FACTOR` / `ARDOISE_TARGET_HEALTH_FACTOR`. The admin also owns the guard, so it is the admin who turns the demo's simulated price drop on and off with `setSimulatedDrop`.
+The script refuses to send anything if the key is not the factory admin's or if a guard is already set (`ARDOISE_REPLACE_GUARD=true` allows replacing it). Thresholds default to 1.25e18 / 1.5e18 and can be overridden with `ARDOISE_MIN_HEALTH_FACTOR` / `ARDOISE_TARGET_HEALTH_FACTOR`. By default the admin also owns the guard, so it is the admin who turns the demo's simulated price drop on and off with `setSimulatedDrop`; `ARDOISE_GUARD_OWNER` gives the guard to another address, and `ARDOISE_FACTORY_ADMIN` lets a sender that is not the admin deploy the guard and leave `setGuard` to the admin (see *Privileged roles*).
 
 ## How to redeploy
 
@@ -316,6 +357,8 @@ forge script script/Deploy.s.sol --rpc-url https://rpc.mainnet.arc.io --broadcas
 ```
 
 The local simulation works with Arc's native USDC, since the deployment moves no tokens. It costs about 3.9M gas, about 0.10 USDC of Arc gas. A new factory means new accounts, and a new adapter means every user grants a new borrow allowance.
+
+The deployer becomes the factory admin. To give the role to another address, set `ARDOISE_FACTORY_ADMIN` (see *Privileged roles*): the script then stops after deploying the factory and the adapters and prints the `setVenues` and `setGuard` calls the admin has to send. In its simulation, before anything is sent, the script checks `factory.admin()`, each adapter's `factory()` and, when the deployer is the admin, `factory.venues()` and `factory.guard()`. An `ARDOISE_GUARD` is refused unless its owner is `ARDOISE_GUARD_OWNER` (default the factory admin) and its simulated drop is 0.
 
 ### Verifying the sources
 

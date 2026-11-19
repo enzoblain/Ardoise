@@ -16,7 +16,7 @@ import {IVenue} from "./interfaces/IVenue.sol";
 /// @dev Deployed by `ArdoiseFactory`, one per owner. The collateral position stays in the owner's
 /// wallet; the account only borrows within the allowances the owner granted to each venue
 /// adapter, and only holds USDC between a borrow and its delivery or while it waits for
-/// `sweep()`. The guard is read from the factory on every call.
+/// `sweep()` or for the owner's `withdraw()`. The guard is read from the factory on every call.
 ///
 /// Venues need the owner's consent as well as the admin's: the account borrows from, approves
 /// and pays only venues that are both in the factory's list and in its own accepted set. A
@@ -114,7 +114,7 @@ contract ArdoiseAccount is IArdoise {
     /// @notice Thrown by `acceptVenue` when the accepted set already holds
     /// `MAX_ACCEPTED_VENUES` venues.
     error TooManyVenues();
-    /// @notice Thrown when a payment amount is zero.
+    /// @notice Thrown when a payment or withdrawal amount is zero.
     error ZeroAmount();
     /// @notice Thrown when a payment on Arc carries a CCTP fee.
     /// @param maxFee The rejected fee.
@@ -125,7 +125,7 @@ contract ArdoiseAccount is IArdoise {
     error BorrowShortfall(uint256 expected, uint256 received);
     /// @notice Thrown when a token transfer or approval returns false.
     error TokenCallFailed();
-    /// @notice Thrown on a reentrant call to `pay`, `repay` or `sweep`.
+    /// @notice Thrown on a reentrant call to `pay`, `payVia`, `repay`, `sweep` or `withdraw`.
     error Reentrancy();
     /// @notice Thrown by `pay` while the factory has no guard: payments wait for one, repayments
     /// and `sweep` do not.
@@ -427,6 +427,50 @@ contract ArdoiseAccount is IArdoise {
     /// @return True if `repay` would revert with `LineAlreadyRepaid`.
     function closed(uint256 lineId) external view returns (bool) {
         return _line(lineId).closed;
+    }
+
+    // ----- Withdrawal -----
+
+    /// @notice Emitted when the owner takes idle USDC back from the account.
+    /// @param to Recipient, always the owner.
+    /// @param amount USDC sent.
+    event Withdrawn(address indexed to, uint256 amount);
+
+    /// @notice Thrown when a withdrawal asks for more USDC than the account holds.
+    /// @param requested Amount asked.
+    /// @param balance USDC the account holds.
+    error InsufficientBalance(uint256 requested, uint256 balance);
+
+    // The only external call is USDC, inside the non-reentrant lock, after the event.
+    // forge-lint: disable-next-item(reentrancy-no-eth)
+    /// @notice Sends `amount` of the USDC idle on the account to the owner.
+    /// @dev Not part of `IArdoise`, whose interface is frozen; the event and the error are
+    /// declared here for the same reason. Without it, USDC that `sweep()` cannot apply had no way
+    /// out: more USDC than debt (a Gateway standing order or a defense larger than the debt, a
+    /// transfer by mistake), or a venue that refuses repayments, which also kept the owner from
+    /// repaying that venue directly with those funds. It reads neither the guard nor the venues,
+    /// so it works with no guard set and whatever the venues do.
+    ///
+    /// It gives the owner no way around the guard or the caps: a payment transfers or burns the
+    /// whole `amount + maxFee` it borrowed before `pay` returns, so the balance is never the
+    /// proceeds of a borrow the owner chose. The one exception is what a venue sends beyond the
+    /// amount asked: that excess stays on the account, is owed by the owner and was counted by
+    /// neither check. Its size is the venue's doing, not the owner's (the Aave V4 and Morpho
+    /// adapters send exactly what is asked), and until now it could only be swept.
+    ///
+    /// The recipient is always the owner, so the call can only return the owner's own funds; USDC
+    /// withdrawn before a `sweep()` no longer repays the owner's debt, which is the owner's
+    /// choice. There is no "withdraw everything" value: the owner reads the account's USDC
+    /// balance, and a `sweep()` landing first makes the call revert rather than send another
+    /// amount than the one signed. Non-reentrant. Reverts with `Reentrancy`, `NotOwner`,
+    /// `ZeroAmount`, `InsufficientBalance` and `TokenCallFailed`.
+    /// @param amount USDC to send to the owner, at most the account's balance.
+    function withdraw(uint256 amount) external nonReentrant onlyOwner {
+        if (amount == 0) revert ZeroAmount();
+        uint256 balance = usdc.balanceOf(address(this));
+        if (amount > balance) revert InsufficientBalance(amount, balance);
+        emit Withdrawn(owner, amount);
+        _call(usdc.transfer(owner, amount));
     }
 
     // ----- Views -----

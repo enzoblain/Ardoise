@@ -1,0 +1,5 @@
+// Build settings of the iOS app. The Circle client key comes from
+// Local.xcconfig (ignored by git): copy Local.example.xcconfig to create it.
+// Without it the app builds, and sign-in explains that passkeys are not configured.
+CIRCLE_CLIENT_KEY =
+#include? "Local.xcconfig"

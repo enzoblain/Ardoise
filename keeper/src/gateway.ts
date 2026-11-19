@@ -234,20 +234,32 @@ export function rejectReason(
  * together fall short, returns them all: a partial repayment still raises
  * the margin.
  *
+ * The picked orders never add up to more than `maxTotal`. An order has a
+ * fixed amount and an Ardoise account has no withdrawal, so whatever an
+ * order brings beyond the owner's debt would stay on the account for good:
+ * an order that would pass `maxTotal` is left out, even if nothing else
+ * covers the shortfall.
+ *
  * @param orders Usable orders for one account.
  * @param shortfall USDC missing, in base units.
- * @returns The orders to submit; empty when `shortfall` is 0.
+ * @param maxTotal Most USDC the picked orders may bring in total, in base
+ *   units: the owner's remaining debt, less the USDC already on the account.
+ * @returns The orders to submit; empty when `shortfall` is 0 or when every
+ *   order is larger than `maxTotal`.
  */
-export function selectOrders(orders: readonly StandingOrder[], shortfall: bigint): StandingOrder[] {
+export function selectOrders(orders: readonly StandingOrder[], shortfall: bigint, maxTotal: bigint): StandingOrder[] {
   if (shortfall <= 0n) return [];
   const value = (order: StandingOrder) => BigInt(order.burnIntent.spec.value);
-  const ascending = [...orders].sort((a, b) => (value(a) < value(b) ? -1 : value(a) > value(b) ? 1 : 0));
+  const ascending = orders
+    .filter((order) => value(order) <= maxTotal)
+    .sort((a, b) => (value(a) < value(b) ? -1 : value(a) > value(b) ? 1 : 0));
   const single = ascending.find((order) => value(order) >= shortfall);
   if (single !== undefined) return [single];
   const picked: StandingOrder[] = [];
   let covered = 0n;
   for (const order of ascending.reverse()) {
     if (covered >= shortfall) break;
+    if (covered + value(order) > maxTotal) continue;
     picked.push(order);
     covered += value(order);
   }
@@ -427,13 +439,19 @@ export class GatewayFunder {
    * Called on every keeper pass for every account. Follows the transfers
    * already sent for the account; if none is on its way or just arrived,
    * and `shortfall` is positive, submits the orders `selectOrders` picks.
+   * An order larger than `maxDraw` is skipped and logged; when none fits,
+   * nothing is submitted and `isCovering` stays false, which leaves the
+   * shortfall to the keeper's next defense step.
    *
    * @param owner Owner of the account.
    * @param account Ardoise account.
    * @param shortfall USDC missing to bring the account back to the target, as
    *   `decide()` reports it from the balance read at the start of the pass.
+   * @param maxDraw Most USDC to bring to the account, in base units: the
+   *   owner's debt on every venue less the USDC already on the account, as
+   *   `debtLeftToFund()` reports it from the same reads.
    */
-  async fund(owner: Address, account: Address, shortfall: bigint): Promise<void> {
+  async fund(owner: Address, account: Address, shortfall: bigint, maxDraw: bigint): Promise<void> {
     // A transfer that settled during this pass changed the balance after
     // `shortfall` was computed: decide again on the next pass.
     if (this.inFlight.has(account)) {
@@ -463,9 +481,24 @@ export class GatewayFunder {
       if (reason !== null) this.logOnce(`${account}:${spec.salt}`, `standing order ${spec.salt} ignored: ${reason}`);
       return reason === null;
     });
-    const picked = selectOrders(usable, shortfall);
+    for (const order of usable) {
+      const { salt, value } = order.burnIntent.spec;
+      if (BigInt(value) <= maxDraw) continue;
+      // The debt left and the shortfall move on every pass: keeping them out
+      // of this line and of the summary below lets `logOnce` say each once.
+      this.logOnce(
+        `${account}:${salt}`,
+        `standing order ${salt} of ${usdc(BigInt(value))} skipped: larger than the debt left to repay, the surplus could not leave the account`,
+      );
+    }
+    const picked = selectOrders(usable, shortfall, maxDraw);
     if (picked.length === 0) {
-      this.logOnce(account, `${usdc(shortfall)} missing and no standing order available on Gateway`);
+      this.logOnce(
+        account,
+        usable.length === 0
+          ? `${usdc(shortfall)} missing and no standing order available on Gateway`
+          : "every standing order left is larger than the debt left to repay; nothing drawn from Gateway",
+      );
       return;
     }
 

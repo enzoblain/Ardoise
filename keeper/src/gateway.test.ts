@@ -19,6 +19,8 @@ const ACCOUNT: Address = "0x00000000000000000000000000000000000000c1";
 const OTHER: Address = "0x00000000000000000000000000000000000000e1";
 const BASE_USDC: Address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const USDC = 1_000_000n;
+/** Debt left to repay in the tests that are not about the cap: larger than any order they use. */
+const DEBT = 100n * USDC;
 
 const b32 = (address: Address): Hex => pad(address.toLowerCase() as Address, { size: 32 });
 let saltCounter = 0;
@@ -124,11 +126,68 @@ test("picks the smallest order covering the shortfall, else the fewest, else all
   const small = order(2n * USDC);
   const medium = order(5n * USDC);
   const large = order(10n * USDC);
-  assert.deepEqual(selectOrders([small, medium, large], 4n * USDC), [medium]);
-  assert.deepEqual(selectOrders([small, order(100n * USDC)], 1n * USDC), [small]);
-  assert.deepEqual(selectOrders([small, medium, large], 12n * USDC), [large, medium]);
-  assert.deepEqual(selectOrders([small, medium], 50n * USDC), [medium, small]);
-  assert.deepEqual(selectOrders([small], 0n), []);
+  assert.deepEqual(selectOrders([small, medium, large], 4n * USDC, DEBT), [medium]);
+  assert.deepEqual(selectOrders([small, order(100n * USDC)], 1n * USDC, DEBT), [small]);
+  assert.deepEqual(selectOrders([small, medium, large], 12n * USDC, DEBT), [large, medium]);
+  assert.deepEqual(selectOrders([small, medium], 50n * USDC, DEBT), [medium, small]);
+  assert.deepEqual(selectOrders([small], 0n, DEBT), []);
+});
+
+test("never picks an order larger than the debt left, since the surplus could not leave the account", () => {
+  const small = order(2n * USDC);
+  const medium = order(5n * USDC);
+  const large = order(10n * USDC);
+  // 4 USDC missing, 4.5 USDC of debt left: the 5 USDC order would leave 0.5 USDC on the account.
+  assert.deepEqual(selectOrders([small, medium, large], 4n * USDC, 4_500_000n), [small]);
+  // An order of exactly the debt left fits.
+  assert.deepEqual(selectOrders([small, medium, large], 4n * USDC, 5n * USDC), [medium]);
+  assert.deepEqual(selectOrders([medium], 5n * USDC, 5n * USDC), [medium]);
+  // Smaller orders are still chosen when the covering one is too large.
+  assert.deepEqual(selectOrders([small, large], 4n * USDC, 6n * USDC), [small]);
+});
+
+test("picks nothing when every order is larger than the debt left", () => {
+  assert.deepEqual(selectOrders([order(5n * USDC), order(10n * USDC)], 4n * USDC, 4_999_999n), []);
+  assert.deepEqual(selectOrders([order(5n * USDC)], 4n * USDC, 0n), []);
+});
+
+test("several orders never add up to more than the debt left", () => {
+  const two = order(2n * USDC);
+  const three = order(3n * USDC);
+  const four = order(4n * USDC);
+  // 8 USDC missing, 8 USDC of debt left: 4 + 3 fit, the 2 USDC order would pass the debt.
+  assert.deepEqual(selectOrders([two, three, four], 8n * USDC, 8n * USDC), [four, three]);
+  // 6.5 USDC of debt left: 4 + 3 would pass it, so the next order that fits is taken instead.
+  assert.deepEqual(selectOrders([two, three, four], 6_500_000n, 6_500_000n), [four, two]);
+  // The whole set fits exactly.
+  assert.deepEqual(selectOrders([two, three, four], 9n * USDC, 9n * USDC), [four, three, two]);
+});
+
+test("skips an order larger than the debt left, says why, and uses one that fits", async () => {
+  const large = order(10n * USDC);
+  const small = order(2n * USDC);
+  const gateway = fakeGateway();
+  const { instance, logs } = funder(gateway.fetchImpl, [large, small]);
+
+  await instance.fund(OWNER, ACCOUNT, 4n * USDC, 6n * USDC);
+  assert.deepEqual(gateway.submitted, [small]);
+  const skipped = logs.filter((line) => line.includes("skipped: larger than the debt left to repay"));
+  assert.equal(skipped.length, 1);
+  assert.ok(skipped[0].includes(large.burnIntent.spec.salt) && skipped[0].includes("10 USDC"));
+  assert.ok(!logs.some((line) => line.includes(large.signature)), "no signature in the logs");
+});
+
+test("submits nothing and does not cover the account when every order is larger than the debt left", async () => {
+  const gateway = fakeGateway();
+  const { instance, logs } = funder(gateway.fetchImpl, [order(5n * USDC), order(10n * USDC)]);
+
+  // 0.4 USDC missing, 0.9 USDC of debt left once the account's balance is applied.
+  await instance.fund(OWNER, ACCOUNT, 400_000n, 900_000n);
+  await instance.fund(OWNER, ACCOUNT, 400_000n, 900_000n);
+  assert.equal(gateway.submitted.length, 0);
+  assert.equal(logs.filter((line) => line.includes("skipped: larger than the debt left to repay")).length, 2, "once per order");
+  assert.equal(logs.filter((line) => line.includes("every standing order left is larger than the debt left")).length, 1);
+  assert.equal(instance.isCovering(ACCOUNT), false, "the next defense step may act");
 });
 
 test("parses orders and skips malformed entries without dropping the others", () => {
@@ -157,30 +216,30 @@ test("submits orders for a shortfall, waits while they are on their way, then ca
   const gateway = fakeGateway(statuses);
   const { instance, logs } = funder(gateway.fetchImpl, orders);
 
-  await instance.fund(OWNER, ACCOUNT, 8n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 8n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 2);
   assert.ok(logs.some((line) => line.includes("drawing 5 USDC from Gateway, transfer t1")));
 
   // Still on its way: the same shortfall must not draw again.
-  await instance.fund(OWNER, ACCOUNT, 8n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 8n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 2);
 
   // Delivered during this pass: the shortfall was computed before the USDC
   // arrived, so nothing new is drawn on this pass.
   statuses.t1 = "confirmed";
   statuses.t2 = "confirmed";
-  await instance.fund(OWNER, ACCOUNT, 8n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 8n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("delivered on Arc in 0xabc")));
   assert.equal(gateway.submitted.length, 2);
 
   // The next pass decides on the fresh balance and uses the last unused order.
-  await instance.fund(OWNER, ACCOUNT, 3n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 3n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 3);
   assert.equal(new Set(gateway.submitted.map((o) => o.burnIntent.spec.salt)).size, 3);
 
   statuses.t3 = "confirmed";
-  await instance.fund(OWNER, ACCOUNT, 3n * USDC);
-  await instance.fund(OWNER, ACCOUNT, 3n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 3n * USDC, DEBT);
+  await instance.fund(OWNER, ACCOUNT, 3n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("no standing order available")));
 });
 
@@ -190,8 +249,8 @@ test("does nothing without a shortfall and ignores orders for other accounts or 
   const gateway = fakeGateway();
   const { instance, logs } = funder(gateway.fetchImpl, [foreign, wrongDepositor]);
 
-  await instance.fund(OWNER, ACCOUNT, 0n);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 0n, DEBT);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 0);
   assert.ok(logs.some((line) => line.includes("depositor is not the account owner")));
   assert.ok(!logs.some((line) => line.includes(foreign.burnIntent.spec.salt)));
@@ -200,7 +259,7 @@ test("does nothing without a shortfall and ignores orders for other accounts or 
 test("submits nothing in a dry run", async () => {
   const gateway = fakeGateway();
   const { instance, logs } = funder(gateway.fetchImpl, [order(5n * USDC)], true);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 0);
   assert.ok(logs.some((line) => line.includes("dry run")));
 });
@@ -208,22 +267,22 @@ test("submits nothing in a dry run", async () => {
 test("retries an order refused for a lack of balance after a delay, and drops a spent one", async () => {
   const gateway = fakeGateway({}, "Insufficient balance");
   const { instance, logs, clock } = funder(gateway.fetchImpl, [order(5n * USDC)]);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("Insufficient balance") && line.includes("retrying in 1 min")));
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("no standing order available")), "on hold within the delay");
 
   const spent = fakeGateway({}, "Salt has already been used");
   const second = funder(spent.fetchImpl, [order(5n * USDC)]);
-  await second.instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await second.instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   second.clock.now = 10 * 3_600_000;
-  await second.instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await second.instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(second.logs.some((line) => line.includes("already used")));
   assert.ok(second.logs.some((line) => line.includes("no standing order available")));
 
   clock.now = 60_000;
   const before = logs.length;
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.slice(before).some((line) => line.includes("Insufficient balance")), "retried after the delay");
 });
 
@@ -231,7 +290,7 @@ test("does not hang when Gateway never answers", async () => {
   const hanging: Fetch = (_url, init) =>
     new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
   const { instance, logs } = funder(hanging, [order(5n * USDC)]);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("not used") && line.includes("retrying")));
 });
 
@@ -239,24 +298,24 @@ test("holds the account after a submission with no answer, then draws again", as
   const hanging: Fetch = (_url, init) =>
     new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
   const { instance, logs, clock } = funder(hanging, [order(5n * USDC), order(5n * USDC)]);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   const attempts = logs.filter((line) => line.includes("not used")).length;
   clock.now = 60_000;
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(logs.filter((line) => line.includes("not used")).length, attempts, "held: no second order");
   clock.now = 3 * 60_000;
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.filter((line) => line.includes("not used")).length > attempts, "drawn again after the hold");
 });
 
 test("gives up on a transfer that is never delivered", async () => {
   const gateway = fakeGateway();
   const { instance, logs, clock } = funder(gateway.fetchImpl, [order(5n * USDC), order(5n * USDC)]);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   clock.now = 31 * 60_000;
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("not delivered after 30 min")));
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 2);
 });
 
@@ -272,8 +331,8 @@ test("keeps two owners' orders apart even with the same salt", async () => {
   });
   const gateway = fakeGateway();
   const { instance } = funder(gateway.fetchImpl, [mine, theirs]);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
-  await instance.fund(OTHER, OTHER_ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
+  await instance.fund(OTHER, OTHER_ACCOUNT, 5n * USDC, DEBT);
   assert.equal(gateway.submitted.length, 2);
 });
 
@@ -282,19 +341,19 @@ test("reports an account as covered while a transfer is on its way and just afte
   const gateway = fakeGateway(statuses);
   const { instance, clock } = funder(gateway.fetchImpl, [order(5n * USDC)]);
   assert.equal(instance.isCovering(ACCOUNT), false);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(instance.isCovering(ACCOUNT), true, "transfer on its way");
   statuses.t1 = "confirmed";
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(instance.isCovering(ACCOUNT), true, "settled during this pass");
   clock.now = 60_000;
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(instance.isCovering(ACCOUNT), false, "no order left: the next defense step may act");
 });
 
 test("does not cover an account whose only order Gateway refuses for a lack of balance", async () => {
   const gateway = fakeGateway({}, "Insufficient balance");
   const { instance } = funder(gateway.fetchImpl, [order(5n * USDC)]);
-  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.equal(instance.isCovering(ACCOUNT), false);
 });

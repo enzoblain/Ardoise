@@ -8,6 +8,7 @@ import {DeployGuard} from "../script/DeployGuard.s.sol";
 import {ArdoiseFactory} from "../src/ArdoiseFactory.sol";
 import {ITokenMessengerV2} from "../src/cctp/ITokenMessengerV2.sol";
 import {MarginGuard} from "../src/guard/MarginGuard.sol";
+import {IGuard} from "../src/interfaces/IGuard.sol";
 import {MockTokenMessenger} from "./mocks/ArdoiseMocks.sol";
 import {MockToken} from "./venues/mocks/MockAaveV4.sol";
 
@@ -35,7 +36,7 @@ contract DeployGuardTest is Test {
     }
 
     function _deploy(bool replace) internal returns (MarginGuard) {
-        return script.deploy(factory, ADMIN_KEY, admin, 1.25e18, 1.5e18, replace);
+        return script.deploy(factory, ADMIN_KEY, admin, admin, admin, 1.25e18, 1.5e18, replace);
     }
 
     function test_deploysTheGuardAndSetsItOnTheFactory() public {
@@ -48,13 +49,44 @@ contract DeployGuardTest is Test {
     }
 
     function test_broadcastsFromTheSenderWithoutAKey() public {
-        MarginGuard guard = script.deploy(factory, 0, admin, 1.25e18, 1.5e18, false);
+        MarginGuard guard = script.deploy(factory, 0, admin, admin, admin, 1.25e18, 1.5e18, false);
         assertEq(address(factory.guard()), address(guard));
     }
 
     function test_refusesAnAddressThatIsNotTheFactoryAdmin() public {
         vm.expectRevert(bytes("sender is not the factory admin"));
-        script.deploy(factory, 0xB0B, vm.addr(0xB0B), 1.25e18, 1.5e18, false);
+        script.deploy(factory, 0xB0B, vm.addr(0xB0B), vm.addr(0xB0B), vm.addr(0xB0B), 1.25e18, 1.5e18, false);
+    }
+
+    function test_givesTheGuardToASeparateOwner() public {
+        address guardOwner = makeAddr("guard owner");
+        MarginGuard guard = script.deploy(factory, ADMIN_KEY, admin, admin, guardOwner, 1.25e18, 1.5e18, false);
+        assertEq(address(factory.guard()), address(guard));
+        assertEq(guard.owner(), guardOwner);
+    }
+
+    function test_leavesSetGuardToASeparateAdmin() public {
+        address guardOwner = makeAddr("guard owner");
+        MarginGuard guard = script.deploy(factory, 0xB0B, vm.addr(0xB0B), admin, guardOwner, 1.25e18, 1.5e18, false);
+        assertEq(address(factory.guard()), address(0), "only the admin can set the guard");
+        assertEq(guard.owner(), guardOwner);
+        assertEq(guard.simulatedDropBps(), 0);
+
+        // The call the script prints, sent by the admin, completes the deployment.
+        vm.prank(admin);
+        factory.setGuard(IGuard(address(guard)));
+        assertEq(address(factory.guard()), address(guard));
+    }
+
+    function test_refusesANamedAdminThatIsNotTheFactoryAdmin() public {
+        vm.expectRevert(bytes("ARDOISE_FACTORY_ADMIN is not the factory admin"));
+        script.deploy(factory, 0xB0B, vm.addr(0xB0B), makeAddr("not the admin"), admin, 1.25e18, 1.5e18, false);
+    }
+
+    function test_separateAdminStillNeedsTheReplaceFlag() public {
+        _deploy(false);
+        vm.expectRevert(bytes("a guard is already set; set ARDOISE_REPLACE_GUARD=true to replace it"));
+        script.deploy(factory, 0xB0B, vm.addr(0xB0B), admin, admin, 1.25e18, 1.5e18, false);
     }
 
     function test_refusesToReplaceAGuardUnlessAsked() public {
@@ -74,6 +106,6 @@ contract DeployGuardTest is Test {
 
     function test_rejectsInvalidThresholds() public {
         vm.expectRevert(abi.encodeWithSelector(MarginGuard.InvalidThresholds.selector, 1.5e18, 1.25e18));
-        script.deploy(factory, ADMIN_KEY, admin, 1.5e18, 1.25e18, false);
+        script.deploy(factory, ADMIN_KEY, admin, admin, admin, 1.5e18, 1.25e18, false);
     }
 }
