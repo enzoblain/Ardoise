@@ -43,15 +43,15 @@ interface IDefenseAlarm {
     /// @notice Thrown by the constructor when the alarm TTL is zero or longer than the cooldown:
     /// two alarms for the same owner could then both be executed for one shortfall.
     error InvalidTiming(uint64 cooldownPeriod, uint64 alarmTtl);
-    /// @notice Thrown by `raise` when too little gas is left before the account's sweep, or the
-    /// sweep ran out of gas: retry with more gas.
+    /// @notice Thrown by `raise` when the account's sweep ran out of gas: retry with more gas.
     error SweepOutOfGas();
     /// @notice Thrown by the constructor when an address is zero.
     error ZeroAddress();
 
     /// @notice Raises an alarm for `owner` if their position is under the guard's minimum.
     /// @dev Permissionless. Calls the account's public `sweep()` first, so USDC already on the
-    /// account is applied before the shortfall is measured. If that sweep alone restores the
+    /// account is applied before the shortfall is measured; whatever is still on the account after
+    /// it is deducted from the amount requested. If that sweep alone restores the
     /// position, `raise` reverts with `PositionHealthy` and the sweep is rolled back with it: a
     /// relayer should then call `sweep()` on the account directly. Reverts with `ExecutorNotSet`,
     /// `NoAccount`, `GuardNotSet`, `CoolingDown`, `PositionHealthy` or `SweepOutOfGas`. Emits

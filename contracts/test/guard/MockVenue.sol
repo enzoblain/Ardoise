@@ -52,8 +52,11 @@ contract MockVenue is IVenue {
     }
 
     /// @inheritdoc IVenue
-    function asset() external pure returns (address) {
-        return address(0);
+    address public asset;
+
+    /// @notice Sets the asset `asset()` returns (zero by default).
+    function setAsset(address asset_) external {
+        asset = asset_;
     }
 
     /// @inheritdoc IVenue
@@ -67,11 +70,7 @@ contract MockVenue is IVenue {
     }
 
     /// @inheritdoc IVenue
-    function health(address user)
-        external
-        view
-        returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd)
-    {
+    function health(address user) external view returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd) {
         collateralUsd = _collateralUsd[user];
         debtUsd = _debt[user] * ASSET_TO_WAD;
         healthFactor = debtUsd == 0 ? type(uint256).max : healthAfter(user, 0);

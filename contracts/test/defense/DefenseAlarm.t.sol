@@ -11,6 +11,7 @@ import {IArdoiseFactory} from "../../src/interfaces/IArdoiseFactory.sol";
 import {IGuard} from "../../src/interfaces/IGuard.sol";
 import {IVenue} from "../../src/interfaces/IVenue.sol";
 import {MockVenue} from "../guard/MockVenue.sol";
+import {MockToken} from "../venues/mocks/MockAaveV4.sol";
 import {
     DefenseFactoryMock,
     MessageTransmitterMock,
@@ -30,6 +31,7 @@ contract DefenseAlarmTest is Test {
     MessageTransmitterMock internal transmitter;
     MarginGuard internal guard;
     MockVenue internal venue;
+    MockToken internal usdc;
     DefenseAlarm internal alarm;
 
     address internal admin = makeAddr("admin");
@@ -43,6 +45,8 @@ contract DefenseAlarmTest is Test {
         transmitter = new MessageTransmitterMock();
         guard = new MarginGuard(admin, 1.25e18, 1.5e18);
         venue = new MockVenue(0.78e18);
+        usdc = new MockToken(6);
+        venue.setAsset(address(usdc));
         IVenue[] memory list = new IVenue[](1);
         list[0] = venue;
         factory.setVenues(list);
@@ -185,14 +189,33 @@ contract DefenseAlarmTest is Test {
         assertEq(transmitter.count(), 1);
     }
 
-    function test_raise_revertsUnderTheSweepGasFloor() public {
+    function test_raise_deductsUsdcLeftOnTheAccount() public {
+        // A sweep that did not repay (skipped, starved of gas or refused by the venue) leaves the
+        // USDC on the account: the alarm must not ask Base for it again.
         SweepingAccountMock swept = new SweepingAccountMock();
+        swept.setBroken(true);
         factory.setAccount(owner, address(swept));
         venue.setPosition(owner, 4e18, 3e6);
-        // Enough for a cheap sweep and the message, under the floor once the sweep is reached.
-        vm.expectRevert(IDefenseAlarm.SweepOutOfGas.selector);
-        alarm.raise{gas: 450_000}(owner);
-        assertEq(swept.sweeps(), 0);
+        (, uint256 full) = alarm.shortfall(owner);
+        usdc.mint(address(swept), 0.2e6);
+        (, uint256 reduced) = alarm.shortfall(owner);
+        assertEq(reduced, full - 0.2e6);
+
+        alarm.raise(owner);
+        (,,,, bytes memory body) = transmitter.last();
+        (,, uint256 amount,,) = abi.decode(body, (address, address, uint256, uint64, uint64));
+        assertEq(amount, full - 0.2e6);
+    }
+
+    function test_raise_revertsWhenUsdcOnTheAccountCoversTheShortfall() public {
+        SweepingAccountMock swept = new SweepingAccountMock();
+        swept.setBroken(true);
+        factory.setAccount(owner, address(swept));
+        venue.setPosition(owner, 4e18, 3e6);
+        (, uint256 full) = alarm.shortfall(owner);
+        usdc.mint(address(swept), full);
+        vm.expectRevert(abi.encodeWithSelector(IDefenseAlarm.PositionHealthy.selector, owner));
+        alarm.raise(owner);
     }
 
     function test_raise_revertsWhenSweepIsStarvedOfGas() public {
