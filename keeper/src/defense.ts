@@ -1,6 +1,7 @@
 import {
   BaseError,
   ContractFunctionRevertedError,
+  TransactionReceiptNotFoundError,
   formatUnits,
   isHex,
   parseEventLogs,
@@ -10,6 +11,7 @@ import {
   type Hash,
   type Hex,
   type PublicClient,
+  type TransactionReceipt,
   type Transport,
   type WalletClient,
 } from "viem";
@@ -52,11 +54,16 @@ const MAX_POLL_DELAY_MS = 30_000;
 /** Longest wait for one Iris request. */
 const IRIS_TIMEOUT_MS = 10_000;
 
-/** Failed deliveries on Base tried again before the alarm is given up on. */
-const MAX_RELAY_ATTEMPTS = 5;
+/**
+ * `receiveMessage` transactions that reverted or were lost before the alarm
+ * is given up on. Failed simulations spend no gas and do not count: they are
+ * retried until the alarm expires.
+ */
+const MAX_FAILED_DELIVERIES = 5;
 
-/** First wait after a failed delivery; doubles on every further failure. */
+/** First wait after a failed delivery attempt; doubles up to `MAX_RELAY_RETRY_MS`. */
 const FIRST_RELAY_RETRY_MS = 5_000;
+const MAX_RELAY_RETRY_MS = 60_000;
 
 /** First wait after a failed `raise` (not a cooldown); doubles up to `MAX_RAISE_RETRY_MS`. */
 const FIRST_RAISE_RETRY_MS = 60_000;
@@ -70,11 +77,20 @@ const MAX_RAISE_RETRY_MS = 3_600_000;
 const RAISE_GAS_HEADROOM_PERCENT = 130n;
 
 /**
- * Wait for a transaction receipt inside the background relay. Arc and Base
- * both include a transaction within seconds; past this, the transaction is
- * treated as failed and its outcome is read again by the next attempt.
+ * Margin added to the gas estimate of `receiveMessage`. The executor runs
+ * each swap inside `try/catch`, so `eth_estimateGas` can settle on a limit
+ * where the swap runs out of gas and is skipped while the call succeeds;
+ * sent with that limit, the delivery would consume the alarm without
+ * selling the owner's WETH.
  */
-const RECEIPT_TIMEOUT_MS = 120_000;
+const RELAY_GAS_HEADROOM_PERCENT = 150n;
+
+/**
+ * Age after which a sent transaction without receipt (`raise` or
+ * `receiveMessage`) is treated as lost. Until then the relay keeps following
+ * the same hash instead of sending again, and the owner stays on hold.
+ */
+const PENDING_DEADLINE_MS = 300_000;
 
 /** Seconds added to a `TooSoon` time before retrying, so that Base's next block is past it. */
 const TOO_SOON_MARGIN_S = 5;
@@ -114,8 +130,6 @@ export interface DefenseRelayOptions {
   now?: () => number;
   /** Waits between polls and retries, replaceable in tests. */
   sleep?: (ms: number) => Promise<void>;
-  /** Overrides `RECEIPT_TIMEOUT_MS`, for tests. */
-  receiptTimeoutMs?: number;
 }
 
 /** An alarm read from its `AlarmRaised` event. */
@@ -265,10 +279,13 @@ export class DefenseRelay {
   /** Background part: the `raise` receipt, Circle's attestation, then delivery on Base. */
   private async relay(owner: Address, hash: Hash): Promise<void> {
     const { arcClient, alarm, log } = this.options;
-    const receipt = await arcClient.waitForTransactionReceipt({
-      hash,
-      timeout: this.options.receiptTimeoutMs ?? RECEIPT_TIMEOUT_MS,
-    });
+    // The owner stays on hold (`state.relay` is set) while the hash is followed,
+    // so a slow `raise` is never sent a second time.
+    const receipt = await this.followReceipt(arcClient, owner, hash);
+    if (receipt === null) {
+      this.recordRaiseFailure(owner, `raise() ${hash} has no receipt after 5 min, treating it as lost`);
+      return;
+    }
     if (receipt.status !== "success") {
       this.recordRaiseFailure(owner, `raise() reverted in ${hash}`);
       return;
@@ -321,41 +338,46 @@ export class DefenseRelay {
   }
 
   /**
-   * Delivers the attested message on Base, simulating each attempt first.
-   * A `TooSoon` revert (the owner's last burn is too recent) is retried at
-   * the time it names while the alarm is valid; a message already delivered
-   * ends the relay; other failures are retried a few times with a growing
-   * delay. A reverted `receiveMessage` leaves the CCTP nonce unused, so the
-   * same bytes can be delivered on a later attempt.
+   * Delivers the attested message on Base, simulating each attempt first and
+   * sending it with gas headroom. A `TooSoon` revert (the owner's last burn
+   * is too recent) is retried at the time it names while the alarm is valid;
+   * a message already delivered ends the relay. Other failed simulations
+   * spend no gas and are retried with a growing delay until the alarm
+   * expires; transactions that revert or are lost are retried up to
+   * `MAX_FAILED_DELIVERIES` times. A reverted `receiveMessage` leaves the
+   * CCTP nonce unused, so the same bytes can be delivered on a later attempt.
    */
   private async deliver(alarm: Alarm, attested: AttestedMessage): Promise<void> {
     const { baseClient, baseWallet, log } = this.options;
     // `defend` only raises with both wallets set; this keeps the types honest.
     if (baseWallet === null) return;
     const prefix = `owner ${alarm.owner}: defense alarm #${alarm.nonce}`;
-    let failures = 0;
+    const call = {
+      address: this.transmitter,
+      abi: defenseRelayAbi,
+      functionName: "receiveMessage",
+      args: [attested.message, attested.attestation],
+      account: baseWallet.account,
+    } as const;
+    let failedDeliveries = 0;
+    let delay = FIRST_RELAY_RETRY_MS;
+    const retryLater = async (what: string) => {
+      log(`${prefix}: delivery on Base failed (${what}), retrying in ${Math.round(delay / 1000)} s`);
+      await this.sleep(delay);
+      delay = Math.min(delay * 2, MAX_RELAY_RETRY_MS);
+    };
     for (;;) {
       if (this.seconds() >= alarm.expiry) {
         log(`${prefix} expired before it could be delivered on Base, giving up`);
         return;
       }
+      let hash: Hash;
       try {
-        const { request } = await baseClient.simulateContract({
-          address: this.transmitter,
-          abi: defenseRelayAbi,
-          functionName: "receiveMessage",
-          args: [attested.message, attested.attestation],
-          account: baseWallet.account,
-        });
-        const hash = await this.onBase(() => baseWallet.writeContract(request));
-        log(`${prefix}: receiveMessage() sent on Base in ${hash}`);
-        const receipt = await baseClient.waitForTransactionReceipt({
-          hash,
-          timeout: this.options.receiptTimeoutMs ?? RECEIPT_TIMEOUT_MS,
-        });
-        if (receipt.status !== "success") throw new Error(`receiveMessage() reverted in ${hash}`);
-        log(`${prefix} delivered on Base in ${hash}: ${outcomeOf(receipt.logs, alarm.nonce)}`);
-        return;
+        const { request } = await baseClient.simulateContract(call);
+        const gas = await baseClient.estimateContractGas(call);
+        hash = await this.onBase(() =>
+          baseWallet.writeContract({ ...request, gas: (gas * RELAY_GAS_HEADROOM_PERCENT) / 100n }),
+        );
       } catch (error) {
         const reverted = revertOf(error);
         if (reverted?.errorName === "AlarmAlreadyUsed" || (reverted?.errorName === "Error" && /nonce already used/i.test(String(reverted.args[0])))) {
@@ -372,16 +394,53 @@ export class DefenseRelay {
           await this.sleep(Math.max(0, Number(nextAllowed) * 1000 - this.now()));
           continue;
         }
-        failures += 1;
-        const what = reverted?.errorName ?? errorMessage(error);
-        if (failures >= MAX_RELAY_ATTEMPTS) {
-          log(`${prefix}: delivery on Base failed ${failures} times (${what}), giving up`);
-          return;
-        }
-        const delay = FIRST_RELAY_RETRY_MS * 2 ** (failures - 1);
-        log(`${prefix}: delivery on Base failed (${what}), retrying in ${Math.round(delay / 1000)} s`);
-        await this.sleep(delay);
+        // Nothing was mined: no gas spent, so keep trying while the alarm is valid.
+        await retryLater(reverted?.errorName ?? errorMessage(error));
+        continue;
       }
+
+      log(`${prefix}: receiveMessage() sent on Base in ${hash}`);
+      // Following the same hash, instead of simulating again, keeps a slow
+      // transaction from being sent twice.
+      const receipt = await this.followReceipt(baseClient, alarm.owner, hash);
+      if (receipt?.status === "success") {
+        log(`${prefix} delivered on Base in ${hash}: ${outcomeOf(receipt.logs, alarm.nonce)}`);
+        return;
+      }
+      failedDeliveries += 1;
+      const what = receipt === null ? `no receipt for ${hash} after 5 min` : `receiveMessage() reverted in ${hash}`;
+      if (failedDeliveries >= MAX_FAILED_DELIVERIES) {
+        log(`${prefix}: delivery on Base failed ${failedDeliveries} times (${what}), giving up`);
+        return;
+      }
+      await retryLater(what);
+    }
+  }
+
+  /**
+   * Follows a sent transaction until it has a receipt, polling with a
+   * growing delay; RPC errors are retried the same way.
+   *
+   * @returns The receipt, or `null` after `PENDING_DEADLINE_MS` without one.
+   */
+  private async followReceipt(
+    client: PublicClient<Transport, Chain>,
+    owner: Address,
+    hash: Hash,
+  ): Promise<TransactionReceipt | null> {
+    const deadline = this.now() + PENDING_DEADLINE_MS;
+    let delay = FIRST_POLL_DELAY_MS;
+    for (;;) {
+      try {
+        return await client.getTransactionReceipt({ hash });
+      } catch (error) {
+        if (!(error instanceof TransactionReceiptNotFoundError)) {
+          this.logOnce(owner, "receipt", `reading the receipt of ${hash} failed, retrying: ${errorMessage(error)}`);
+        }
+      }
+      if (this.now() >= deadline) return null;
+      await this.sleep(delay);
+      delay = Math.min(delay * 2, MAX_POLL_DELAY_MS);
     }
   }
 

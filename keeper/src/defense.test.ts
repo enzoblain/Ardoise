@@ -56,6 +56,11 @@ interface Fake {
   relaysSent: { message: Hex; attestation: Hex }[];
   /** Status of the Base receipt. */
   relayReceipt: "success" | "reverted";
+  /** Receipt queries answered "not found" before the receipt shows, on each chain. */
+  arcReceiptMissing: number;
+  baseReceiptMissing: number;
+  /** Gas limit of each `receiveMessage` sent. */
+  relayGas: bigint[];
 }
 
 function fake(overrides: Partial<Fake> = {}): Fake {
@@ -68,6 +73,9 @@ function fake(overrides: Partial<Fake> = {}): Fake {
     raisesSent: 0,
     relaysSent: [],
     relayReceipt: "success",
+    arcReceiptMissing: 0,
+    baseReceiptMissing: 0,
+    relayGas: [],
     ...overrides,
   };
 }
@@ -152,6 +160,10 @@ function setUp(state: Fake, options: { wallet?: boolean } = { wallet: true }) {
             case "eth_getTransactionByHash":
               return null;
             case "eth_getTransactionReceipt":
+              if (state.arcReceiptMissing > 0) {
+                state.arcReceiptMissing -= 1;
+                return null;
+              }
               return receipt(RAISE_TX, "success", [
                 log(
                   ALARM,
@@ -188,7 +200,13 @@ function setUp(state: Fake, options: { wallet?: boolean } = { wallet: true }) {
             }
             case "eth_getTransactionByHash":
               return null;
+            case "eth_estimateGas":
+              return numberToHex(200_000n);
             case "eth_getTransactionReceipt":
+              if (state.baseReceiptMissing > 0) {
+                state.baseReceiptMissing -= 1;
+                return null;
+              }
               return receipt(RELAY_TX, state.relayReceipt, [
                 log(
                   "0x00000000000000000000000000000000000000e1",
@@ -221,8 +239,9 @@ function setUp(state: Fake, options: { wallet?: boolean } = { wallet: true }) {
 
   const baseWallet = {
     account: { address: KEEPER, type: "json-rpc" },
-    writeContract: async (request: { address: Address; functionName: string; args: readonly [Hex, Hex] }) => {
+    writeContract: async (request: { address: Address; functionName: string; args: readonly [Hex, Hex]; gas: bigint }) => {
       assert.equal(request.address, MESSAGE_TRANSMITTER_V2);
+      state.relayGas.push(request.gas);
       assert.equal(request.functionName, "receiveMessage");
       state.relaysSent.push({ message: request.args[0], attestation: request.args[1] });
       return RELAY_TX;
@@ -249,7 +268,6 @@ function setUp(state: Fake, options: { wallet?: boolean } = { wallet: true }) {
       sleeps.push(ms);
       clock.now += ms;
     },
-    receiptTimeoutMs: 1_000,
   });
   return { relay, logs, clock, sleeps };
 }
@@ -395,6 +413,64 @@ test("retries a failed delivery with a growing delay, then gives up", async () =
   await second.relay.idle();
   assert.equal(failing.relaysSent.length, 5);
   assert.ok(second.logs.some((line) => line.includes("failed 5 times") && line.includes("giving up")));
+});
+
+test("sends receiveMessage with gas headroom over the estimate", async () => {
+  const state = fake();
+  const { relay } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  // 200,000 estimated, +50%: a swap skipped for lack of gas would consume the alarm.
+  assert.deepEqual(state.relayGas, [300_000n]);
+});
+
+test("keeps following a slow raise, holding the owner, and relays it once mined", async () => {
+  const state = fake({ arcReceiptMissing: 4 });
+  const { relay, logs } = setUp(state);
+  assert.equal(await relay.defend(OWNER), "raised");
+  assert.equal(await relay.defend(OWNER), "waiting", "on hold while the raise is pending");
+  await relay.idle();
+  assert.equal(state.raiseSimulations, 1);
+  assert.equal(state.raisesSent, 1);
+  assert.ok(logs.some((line) => line.includes("alarm #7 raised")));
+  assert.equal(state.relaysSent.length, 1);
+});
+
+test("treats a raise without receipt after the deadline as lost and holds the owner", async () => {
+  const state = fake({ arcReceiptMissing: Number.POSITIVE_INFINITY });
+  const { relay, logs } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.ok(logs.some((line) => line.includes("no receipt after 5 min, treating it as lost")));
+  assert.equal(await relay.defend(OWNER), "waiting", "held after the loss");
+  assert.equal(state.raisesSent, 1);
+  assert.equal(state.relaysSent.length, 0);
+});
+
+test("follows a slow receiveMessage instead of sending it again", async () => {
+  const state = fake({ baseReceiptMissing: 4 });
+  const { relay, logs } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.equal(state.relaysSent.length, 1);
+  assert.ok(logs.some((line) => line.includes("delivered on Base")));
+});
+
+test("retries failed simulations on Base until the alarm expires, without a cap", async () => {
+  const stale = { errorName: "StalePrice", args: [ALARM] };
+  const state = fake({ relayReverts: Array.from({ length: 8 }, () => stale) });
+  const { relay, sleeps } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.equal(state.relaysSent.length, 1, "delivered after 8 failed simulations");
+  assert.deepEqual(sleeps, [5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000, 60_000]);
+
+  const never = fake({ relayReverts: Array.from({ length: 1_000 }, () => stale) });
+  const second = setUp(never);
+  await second.relay.defend(OWNER);
+  await second.relay.idle();
+  assert.equal(never.relaysSent.length, 0);
+  assert.ok(second.logs.some((line) => line.includes("expired before it could be delivered on Base")));
 });
 
 test("reads Iris answers", async () => {
