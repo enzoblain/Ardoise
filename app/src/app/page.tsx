@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LogoMark } from "@/components/LogoMark";
 import { Intro } from "@/components/landing/Intro";
+import { IosDownload } from "@/components/landing/IosDownload";
 import { LandingGate } from "@/components/landing/LandingGate";
 import { SlateScene } from "@/components/landing/SlateScene";
 import { MAINNET_DEPLOYMENT } from "@/lib/contracts/deployments";
@@ -130,6 +131,7 @@ export default async function Landing() {
               </Link>
             </div>
             <p className="text-xs text-[#6b6b6b]">No wallet needed to try it: the app opens on a demo account.</p>
+            <IosDownload />
           </div>
           <div className="flex justify-center py-6 md:py-0">
             <SlateScene />
