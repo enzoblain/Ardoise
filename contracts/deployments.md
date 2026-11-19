@@ -29,7 +29,9 @@ Checked after mining: `factory.venues()` returns both adapters in that order and
 
 **`payVia` on mainnet.** With Aave V4 at 3.11% and Morpho at 4.04%, `bestVenue(0.10 USDC)` returns the Aave V4 adapter. Two payments of 0.10 USDC on Arc to the owner, one per venue: `payVia(AaveV4Adapter, …)` opened line #1 [`0xd644175e…`](https://explorer.arc.io/tx/0xd644175e6ff3de535a4db46248ffbdd8dbf0eec4ac88aaaf0f26dddcffe7e1aa) (Aave V4 health factor 3.009 → 2.586), `payVia(MorphoAdapter, …)` opened line #2 [`0x22c73905…`](https://explorer.arc.io/tx/0x22c7390583ce2d2d66c9a594775bdc9af4e5c654c2840e4fcd1daf5af682ca14) on the venue that is not the cheapest (Morpho debt 0.100001 USDC, health factor 13.47).
 
-The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so the defense is deployed against this factory.
+The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so the defense must be deployed against this factory.
+
+The Gateway standing orders recorded in the B3 run were signed for the previous account (`0xdcB201E7…`), and the keeper only submits an order whose recipient is the account it defends. The automatic Gateway repayment therefore needs new standing orders signed for `0x4d298b39…` before it can run again on this factory.
 
 ### Previous factory (Aave V4 only)
 
@@ -199,7 +201,7 @@ From `contracts/`, with the factory admin's key in the environment (the alarm on
 ```sh
 set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
 # 1. Arc: the alarm, for the current factory (never hard-coded: pass it)
-DEFENSE_FACTORY=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD \
+DEFENSE_FACTORY=0xB4476B617B750B9f48786c60930bc499343BB4a8 \
   forge script script/DeployDefense.s.sol:DeployDefenseAlarm --rpc-url https://rpc.mainnet.arc.io --broadcast
 # 2. Base: the executor, trusting that alarm
 DEFENSE_ALARM_ADDRESS=<alarm> \
@@ -210,7 +212,7 @@ DEFENSE_ALARM_ADDRESS=<alarm> DEFENSE_EXECUTOR_ADDRESS=<executor> \
 # Sources (Sourcify supports both chains)
 forge verify-contract <alarm> src/defense/DefenseAlarm.sol:DefenseAlarm --chain-id 5042 --verifier sourcify \
   --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64)" \
-    0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900)
+    0xB4476B617B750B9f48786c60930bc499343BB4a8 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900)
 forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor --chain-id 8453 --verifier sourcify \
   --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256,uint256),(address,address,uint24)[])" \
     "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500,2400)" \
