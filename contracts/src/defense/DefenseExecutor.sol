@@ -199,6 +199,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     error TokenCallFailed();
     /// @notice Thrown on reentrancy.
     error Reentrancy();
+    /// @notice Thrown when a swap fails for lack of gas: the relayer sent too little gas, and
+    /// reverting keeps the alarm deliverable instead of consuming it without a defense.
+    error SwapOutOfGas();
 
     modifier nonReentrant() {
         if (_locked != 1) revert Reentrancy();
@@ -421,6 +424,10 @@ contract DefenseExecutor is IMessageHandlerV2 {
         _call(token.approve(address(swapRouter), amountIn));
 
         uint256 used = 0;
+        // The swap gets 63/64 of the gas left; if it runs out, under 1/64 remains. Anyone can relay
+        // the message, so a caught out-of-gas swap must revert rather than let a relayer with a
+        // tight gas limit consume the alarm without a defense.
+        uint256 gasBefore = gasleft();
         if (amountIn == maxIn) {
             try swapRouter.exactOutputSingle(
                 ISwapRouter02.ExactOutputSingleParams(asset, address(usdc), s.poolFee, address(this), needed, maxIn, 0)
@@ -429,7 +436,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
             ) {
                 used = spentIn;
                 usdcOut = needed;
-            } catch {}
+            } catch {
+                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+            }
         } else {
             uint256 minOut = amountIn * price * 1e6 * (BPS - p.maxSlippageBps) / (unit * priceUnit * BPS);
             try swapRouter.exactInputSingle(
@@ -441,7 +450,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
             ) {
                 used = amountIn;
                 usdcOut = out;
-            } catch {}
+            } catch {
+                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+            }
         }
         _call(token.approve(address(swapRouter), 0));
 

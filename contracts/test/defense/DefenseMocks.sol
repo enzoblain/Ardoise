@@ -92,10 +92,17 @@ contract SwapRouterMock {
     uint256 public usdcPerUnit;
     uint256 public slippageBps;
     bool public broken;
+    bool public hungry;
+    uint256 private _sink;
 
     constructor(MockToken usdc_, uint256 usdcPerUnit_) {
         usdc = usdc_;
         usdcPerUnit = usdcPerUnit_;
+    }
+
+    /// @notice When true, every swap burns all the gas it is given, like a swap run out of gas.
+    function setHungry(bool hungry_) external {
+        hungry = hungry_;
     }
 
     /// @notice Sets the execution price penalty and the failure switch.
@@ -126,6 +133,7 @@ contract SwapRouterMock {
 
     /// @notice Swaps exactly `amountIn`.
     function exactInputSingle(ExactInputSingleParams calldata p) external returns (uint256 out) {
+        _burnGasIfHungry();
         require(!broken, "router broken");
         out = _out(p.tokenIn, p.amountIn);
         require(out >= p.amountOutMinimum, "Too little received");
@@ -135,6 +143,7 @@ contract SwapRouterMock {
 
     /// @notice Swaps for exactly `amountOut`.
     function exactOutputSingle(ExactOutputSingleParams calldata p) external returns (uint256 amountIn) {
+        _burnGasIfHungry();
         require(!broken, "router broken");
         uint256 unit = 10 ** MockToken(p.tokenIn).decimals();
         amountIn = (p.amountOut * unit * 10_000 + usdcPerUnit * (10_000 - slippageBps) - 1)
@@ -142,6 +151,13 @@ contract SwapRouterMock {
         require(amountIn <= p.amountInMaximum, "Too much requested");
         MockToken(p.tokenIn).transferFrom(msg.sender, address(this), amountIn);
         usdc.mint(p.recipient, p.amountOut);
+    }
+
+    function _burnGasIfHungry() internal {
+        if (!hungry) return;
+        for (uint256 i = 1;; ++i) {
+            _sink = i;
+        }
     }
 
     function _out(address tokenIn, uint256 amountIn) internal view returns (uint256) {
