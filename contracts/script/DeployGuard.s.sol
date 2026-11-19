@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
 
+import {EnvAddress} from "./EnvAddress.sol";
 import {ArdoiseFactory} from "../src/ArdoiseFactory.sol";
 import {MarginGuard} from "../src/guard/MarginGuard.sol";
 import {IGuard} from "../src/interfaces/IGuard.sol";
@@ -23,9 +24,13 @@ import {IGuard} from "../src/interfaces/IGuard.sol";
 /// - `ARDOISE_GUARD_OWNER`: the guard's owner, default the factory admin;
 /// - `ARDOISE_MIN_HEALTH_FACTOR`, `ARDOISE_TARGET_HEALTH_FACTOR`: thresholds in WAD, default
 ///   1.25e18 and 1.5e18 (roadmap B1);
-/// - `ARDOISE_REPLACE_GUARD=true`: allow replacing a guard that is already set.
-/// Usage and checks are in contracts/deployments.md.
-contract DeployGuard is Script {
+/// - `ARDOISE_REPLACE_GUARD=true`: allow replacing a guard that is already set. Also required
+///   when the sender is not the admin and the factory has a guard, since the printed `setGuard`
+///   call replaces it.
+/// The address settings are read strictly (`EnvAddress`): a value that is not an address stops the
+/// script instead of falling back to the default. Usage and checks are in
+/// contracts/deployments.md.
+contract DeployGuard is EnvAddress {
     uint256 internal constant ARC_CHAIN_ID = 5042;
     address internal constant MAINNET_FACTORY = 0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD;
 
@@ -34,13 +39,13 @@ contract DeployGuard is Script {
     function run() external returns (MarginGuard guard) {
         uint256 key = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));
         address sender = key == 0 ? msg.sender : vm.addr(key);
-        address admin = vm.envOr("ARDOISE_FACTORY_ADMIN", sender);
+        address admin = envAddressOr("ARDOISE_FACTORY_ADMIN", sender);
         return deploy(
-            ArdoiseFactory(vm.envOr("ARDOISE_FACTORY_ADDRESS", MAINNET_FACTORY)),
+            ArdoiseFactory(envAddressOr("ARDOISE_FACTORY_ADDRESS", MAINNET_FACTORY)),
             key,
             sender,
             admin,
-            vm.envOr("ARDOISE_GUARD_OWNER", admin),
+            envAddressOr("ARDOISE_GUARD_OWNER", admin),
             vm.envOr("ARDOISE_MIN_HEALTH_FACTOR", uint256(1.25e18)),
             vm.envOr("ARDOISE_TARGET_HEALTH_FACTOR", uint256(1.5e18)),
             vm.envOr("ARDOISE_REPLACE_GUARD", false)
@@ -48,8 +53,10 @@ contract DeployGuard is Script {
     }
 
     /// @notice Deploys the guard, sets it on `factory` when `sender` is the factory admin, then
-    /// checks the result on chain.
-    /// @dev Reverts before sending anything if the chain is not Arc mainnet, `admin` is not the
+    /// checks the simulated result.
+    /// @dev `forge script` runs this in a local simulation before it sends anything, so the final
+    /// checks stop a wrong deployment from being sent; they do not re-read the chain after mining.
+    /// Reverts before sending anything if the chain is not Arc mainnet, `admin` is not the
     /// factory admin, or a guard is set and `replace` is false. When `sender` is not `admin`,
     /// `setGuard` is not sent: the call the admin must make is printed instead.
     /// @param factory Factory to set the guard on.

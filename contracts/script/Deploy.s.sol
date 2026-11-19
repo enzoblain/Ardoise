@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
+import {EnvAddress} from "./EnvAddress.sol";
 import {ArdoiseFactory} from "../src/ArdoiseFactory.sol";
 import {ITokenMessengerV2} from "../src/cctp/ITokenMessengerV2.sol";
 import {MarginGuard} from "../src/guard/MarginGuard.sol";
@@ -33,8 +34,10 @@ import {IAaveV4GiverPositionManager, IAaveV4Spoke, IAaveV4TakerPositionManager} 
 /// - `ARDOISE_GUARD`: an already deployed guard to set on the new factory (the guard does not
 ///   depend on the factory), default none;
 /// - `ARDOISE_GUARD_OWNER`: the owner `ARDOISE_GUARD` must have, default the factory admin.
-/// Usage and verification commands are in contracts/deployments.md.
-contract Deploy is Script {
+/// The address settings are read strictly (`EnvAddress`): a value that is not an address stops the
+/// script instead of falling back to the default. Usage and verification commands are in
+/// contracts/deployments.md.
+contract Deploy is EnvAddress {
     uint256 internal constant ARC_CHAIN_ID = 5042;
     address internal constant USDC = 0x3600000000000000000000000000000000000000;
     address internal constant TOKEN_MESSENGER_V2 = 0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d;
@@ -53,14 +56,14 @@ contract Deploy is Script {
     /// @return morpho The deployed Morpho adapter.
     function run() external returns (ArdoiseFactory factory, AaveV4Adapter adapter, MorphoAdapter morpho) {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address admin = vm.envOr("ARDOISE_FACTORY_ADMIN", vm.addr(deployerKey));
+        address admin = envAddressOr("ARDOISE_FACTORY_ADMIN", vm.addr(deployerKey));
         uint256 finality = vm.envOr("ARDOISE_MIN_FINALITY_THRESHOLD", uint256(2000));
         require(finality <= type(uint32).max, "finality threshold too large");
         return deploy(
             deployerKey,
             admin,
-            vm.envOr("ARDOISE_GUARD", address(0)),
-            vm.envOr("ARDOISE_GUARD_OWNER", admin),
+            envAddressOr("ARDOISE_GUARD", address(0)),
+            envAddressOr("ARDOISE_GUARD_OWNER", admin),
             vm.envOr("ARDOISE_PER_PAYMENT_CAP", uint256(10e6)),
             vm.envOr("ARDOISE_DAILY_CAP", uint256(20e6)),
             // forge-lint: disable-next-line(unsafe-typecast)
@@ -69,8 +72,11 @@ contract Deploy is Script {
     }
 
     /// @notice Deploys the factory and both adapters, registers the venues and the guard when the
-    /// deployer is the admin, then checks the result on chain.
-    /// @dev Reverts before sending anything if the chain is not Arc mainnet or if `guard` is not
+    /// deployer is the admin, then checks the simulated result.
+    /// @dev `forge script` runs this in a local simulation before it sends anything, so the final
+    /// checks stop a wrong deployment from being sent; they do not re-read the chain after mining
+    /// (the read-only checks for that are in contracts/deployments.md).
+    /// Reverts before sending anything if the chain is not Arc mainnet or if `guard` is not
     /// a guard owned by `guardOwner` with its simulation off. When `admin` is not the deployer,
     /// `setVenues` and `setGuard` are not sent: the calls the admin must make are printed instead.
     /// @param deployerKey Key that sends the transactions.
@@ -169,6 +175,11 @@ contract Deploy is Script {
             );
         } else {
             console.log("  then setGuard(<guard>), once a guard is deployed with script/DeployGuard.s.sol");
+            console.log(
+                string.concat(
+                    "  (run it with ARDOISE_FACTORY_ADDRESS=", vm.toString(factory), ": its default is another factory)"
+                )
+            );
         }
     }
 }
