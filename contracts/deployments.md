@@ -130,6 +130,29 @@ Simulated price-drop demo (B3), with the repayment funded from the owner's Gatew
 
 From the keeper's first simulated reading (23:11:40 UTC) to the confirmed `sweep()` (23:11:57 UTC): 17 seconds. After the run: debt 0.865389 USDC, simulated health factor 1.590 (above the 1.5 target, so the keeper stopped), real health factor 3.533 once the simulation was cleared. The Gateway reserve went from 0.824729 to 0.399422 USDC: 0.40 USDC drawn plus a 0.025307 USDC Gateway fee. It no longer covers the second standing order (0.40 USDC plus the fee); deposit about 0.1 USDC on Base before running the demo again.
 
+### Defense relay (D2)
+
+The keeper's third defense step, in [`keeper/src/defense.ts`](../keeper/src/defense.ts). It is off while `DEFENSE_ALARM_ADDRESS` is empty. When it is on, the keeper runs, for each account on each pass:
+
+1. `sweep()` when the account holds USDC (B2).
+2. The owner's Gateway standing orders when the position is under the guard's minimum and the account holds nothing to repay with (B4).
+3. When the position is still under the minimum, the account still holds nothing to repay with and Gateway is not covering the shortfall (no transfer on its way or settled in the last minute: no order left, or Gateway refused them, for example for a reserve too low), the defense relay:
+   - simulates `DefenseAlarm.raise(owner)` on Arc. `CoolingDown(nextAllowed)`: nothing is sent until `nextAllowed`. `PositionHealthy`: the balance on the account restores the position, so the keeper calls `sweep()` on the account directly. Any other revert holds `raise` for that owner for 1 minute, doubling up to 1 hour;
+   - sends `raise(owner)` with 30% gas headroom (the alarm's own `sweep()` reverts with `SweepOutOfGas` on a tight estimate) and reads `AlarmRaised` from the receipt;
+   - polls Circle Iris, `GET https://iris-api.circle.com/v2/messages/26?transactionHash=<raise tx>`, every 2 s doubling up to 30 s, until the message's `status` is `complete`, and gives up when the alarm expires;
+   - simulates, then sends `receiveMessage(message, attestation)` to the MessageTransmitterV2 on Base (`0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`) with the same key, and logs the executor's `DefenseExecuted` or `AlarmIgnored`. `TooSoon(owner, nextAllowed)`: delivered again from `nextAllowed` if that is before the alarm's expiry, otherwise given up. `AlarmAlreadyUsed` or a CCTP nonce already used: someone delivered it, nothing left to do. Other failures: retried after 5, 10, 20 and 40 s, then given up;
+   - lets the usual `sweep()` of step 1 repay the debt once Circle's forwarder mints the USDC on the account.
+
+The keeper never chooses an amount or a recipient: the alarm measures the shortfall on chain and Circle's message bytes are relayed unchanged. Its wallet only pays gas, in USDC on Arc and in ETH on Base. State is kept in memory per owner: no second `raise` while a relay runs or during the alarm's cooldown, and Base transactions are sent one at a time. The cooldown is also enforced on chain, so a restart cannot raise two alarms for one shortfall; it can only drop the relay of an alarm already raised, which anyone can still deliver by hand from the `raise` transaction until it expires (see *Mainnet proof* below).
+
+| Variable | Use |
+|----------|-----|
+| `DEFENSE_ALARM_ADDRESS` | `DefenseAlarm` on Arc; empty keeps the relay off |
+| `BASE_RPC_URL` | Base endpoint for `receiveMessage`; empty uses the public Base RPC |
+| `KEEPER_PRIVATE_KEY` | Same key on both chains; the wallet needs a little ETH on Base. Empty: dry run, the keeper logs the alarm it would raise and sends nothing |
+
+At start, with the relay on, the keeper logs the alarm address and its wallet's address and ETH balance on Base. Status: built and covered by tests (`keeper/src/defense.test.ts`); not yet run against the mainnet contracts, which are not deployed.
+
 ## CCTP-attested defense (D1)
 
 > [!WARNING]
