@@ -149,3 +149,55 @@ contract SwapRouterMock {
         return amountIn * usdcPerUnit * (10_000 - slippageBps) / (unit * 10_000);
     }
 }
+
+/// @notice Account double whose public `sweep()` applies a balance to the owner's debt on a
+/// `MockVenue`, like the real account would.
+contract SweepingAccountMock {
+    /// @notice Number of `sweep()` calls.
+    uint256 public sweeps;
+    /// @notice When true, `sweep()` reverts.
+    bool public broken;
+    address internal venue;
+    address internal owner;
+    uint256 internal collateralUsd;
+    uint256 internal debtAfterSweep;
+
+    /// @notice Sets what the next sweep does to the owner's position.
+    function setSweepEffect(address venue_, address owner_, uint256 collateralUsd_, uint256 debtAfterSweep_) external {
+        venue = venue_;
+        owner = owner_;
+        collateralUsd = collateralUsd_;
+        debtAfterSweep = debtAfterSweep_;
+    }
+
+    /// @notice Makes `sweep()` revert.
+    function setBroken(bool broken_) external {
+        broken = broken_;
+    }
+
+    /// @notice Applies the configured repayment.
+    function sweep() external returns (uint256) {
+        require(!broken, "sweep broken");
+        ++sweeps;
+        if (venue != address(0)) {
+            (bool ok,) = venue.call(
+                abi.encodeWithSignature("setPosition(address,uint256,uint256)", owner, collateralUsd, debtAfterSweep)
+            );
+            require(ok, "setPosition failed");
+        }
+        return 0;
+    }
+}
+
+/// @notice Venue whose reads all revert, to check that the alarm skips it.
+contract RevertingVenueMock {
+    /// @notice Always reverts.
+    function health(address) external pure returns (uint256, uint256, uint256) {
+        revert("venue down");
+    }
+
+    /// @notice Always reverts.
+    function debtOf(address) external pure returns (uint256) {
+        revert("venue down");
+    }
+}

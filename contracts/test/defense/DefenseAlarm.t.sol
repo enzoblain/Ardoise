@@ -11,14 +11,14 @@ import {IArdoiseFactory} from "../../src/interfaces/IArdoiseFactory.sol";
 import {IGuard} from "../../src/interfaces/IGuard.sol";
 import {IVenue} from "../../src/interfaces/IVenue.sol";
 import {MockVenue} from "../guard/MockVenue.sol";
-import {DefenseFactoryMock, MessageTransmitterMock} from "./DefenseMocks.sol";
+import {DefenseFactoryMock, MessageTransmitterMock, RevertingVenueMock, SweepingAccountMock} from "./DefenseMocks.sol";
 
 /// @notice Unit tests of `DefenseAlarm` with the real `MarginGuard`, a mock venue and a mock
 /// MessageTransmitter.
 contract DefenseAlarmTest is Test {
     uint32 internal constant BASE = 6;
-    uint64 internal constant COOLDOWN = 10 minutes;
-    uint64 internal constant TTL = 1 hours;
+    uint64 internal constant COOLDOWN = 30 minutes;
+    uint64 internal constant TTL = 10 minutes;
 
     DefenseFactoryMock internal factory;
     MessageTransmitterMock internal transmitter;
@@ -141,6 +141,53 @@ contract DefenseAlarmTest is Test {
         factory.setGuard(IGuard(address(0)));
         vm.expectRevert(IDefenseAlarm.GuardNotSet.selector);
         alarm.raise(owner);
+    }
+
+    function test_constructor_rejectsTtlLongerThanCooldown() public {
+        vm.expectRevert(abi.encodeWithSelector(IDefenseAlarm.InvalidTiming.selector, uint64(600), uint64(601)));
+        new DefenseAlarm(IArdoiseFactory(address(factory)), IMessageTransmitterV2(address(transmitter)), BASE, 600, 601);
+        vm.expectRevert(abi.encodeWithSelector(IDefenseAlarm.InvalidTiming.selector, uint64(600), uint64(0)));
+        new DefenseAlarm(IArdoiseFactory(address(factory)), IMessageTransmitterV2(address(transmitter)), BASE, 600, 0);
+    }
+
+    function test_raise_sweepsAccountBeforeMeasuring() public {
+        SweepingAccountMock swept = new SweepingAccountMock();
+        factory.setAccount(owner, address(swept));
+        venue.setPosition(owner, 4e18, 3e6); // health factor 1.04
+        // USDC already on the account brings the debt to $2.2: health factor 1.418 >= 1.25, so the
+        // position is healthy once swept and no alarm is sent.
+        swept.setSweepEffect(address(venue), owner, 4e18, 2.2e6);
+        vm.expectRevert(abi.encodeWithSelector(IDefenseAlarm.PositionHealthy.selector, owner));
+        alarm.raise(owner);
+
+        // With less on the account, only what is still missing is requested.
+        swept.setSweepEffect(address(venue), owner, 4e18, 2.6e6);
+        alarm.raise(owner);
+        assertEq(swept.sweeps(), 1);
+        (,,,, bytes memory body) = transmitter.last();
+        (,, uint256 amount,,) = abi.decode(body, (address, address, uint256, uint64, uint64));
+        // $2.6 of debt at health factor 1.2 needs 2.6 x (1.5 - 1.2) / 1.5 = 0.52 USDC.
+        assertEq(amount, 520_000);
+    }
+
+    function test_raise_proceedsWhenSweepReverts() public {
+        SweepingAccountMock swept = new SweepingAccountMock();
+        swept.setBroken(true);
+        factory.setAccount(owner, address(swept));
+        venue.setPosition(owner, 4e18, 3e6);
+        alarm.raise(owner);
+        assertEq(transmitter.count(), 1);
+    }
+
+    function test_shortfall_skipsVenueThatReverts() public {
+        IVenue[] memory list = new IVenue[](2);
+        list[0] = IVenue(address(new RevertingVenueMock()));
+        list[1] = venue;
+        factory.setVenues(list);
+        venue.setPosition(owner, 4e18, 3e6);
+        (IVenue chosen, uint256 amount) = alarm.shortfall(owner);
+        assertEq(address(chosen), address(venue));
+        assertGt(amount, 0);
     }
 
     function test_cooldown_isZeroBeforeFirstAlarm() public view {
