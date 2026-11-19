@@ -235,8 +235,7 @@ contract DefenseEndToEndTest is Test {
 
     // A relayer who moves the pool and delivers in one transaction must not cancel the defense.
     function test_deliveryWithThePoolOffTheOracleRevertsAndCanBeRetried() public {
-        vm.prank(admin);
-        guard.setSimulatedDrop(3_000);
+        _collateralFalls();
         (, uint256 amountNeeded) = alarm.shortfall(owner);
         uint256 raisedAt = vm.getBlockTimestamp();
         uint64 nonce = alarm.raise(owner);
