@@ -17,6 +17,7 @@ import type { DefenseOutcome } from "./defense.js";
 import {
   MIN_SWEEP_AMOUNT,
   applySimulatedDrop,
+  debtLeftToFund,
   decide,
   type Decision,
   type Thresholds,
@@ -87,7 +88,7 @@ export interface KeeperOptions {
    * (B4), or `undefined` when no standing orders are configured.
    */
   gateway?: {
-    fund(owner: Address, account: Address, shortfall: bigint): Promise<void>;
+    fund(owner: Address, account: Address, shortfall: bigint, maxDraw: bigint): Promise<void>;
     /** Whether Gateway is still taking care of the account's shortfall. */
     isCovering(account: Address): boolean;
   };
@@ -271,18 +272,27 @@ export class Keeper {
       }),
       Promise.all(
         venues.map(async (venue): Promise<VenuePosition> => {
-          const [positionHealth, , debtUsd] = await publicClient.readContract({
-            address: venue,
-            abi: venueAbi,
-            functionName: "health",
-            args: [watched.owner],
-          });
-          return { healthFactor: positionHealth, debtUsd };
+          const [[positionHealth, , debtUsd], debt] = await Promise.all([
+            publicClient.readContract({
+              address: venue,
+              abi: venueAbi,
+              functionName: "health",
+              args: [watched.owner],
+            }),
+            publicClient.readContract({
+              address: venue,
+              abi: venueAbi,
+              functionName: "debtOf",
+              args: [watched.owner],
+            }),
+          ]);
+          return { healthFactor: positionHealth, debtUsd, debt };
         }),
       ),
     ]);
 
-    const decision = decide({ usdcBalance, positions, thresholds });
+    const state = { usdcBalance, positions, thresholds };
+    const decision = decide(state);
     const dropBps = thresholds?.simulatedDropBps ?? 0n;
     const lowest = positions
       .map((position) => applySimulatedDrop(position, dropBps).healthFactor)
@@ -303,13 +313,16 @@ export class Keeper {
     // a later pass like any other balance.
     if (this.options.gateway !== undefined) {
       try {
-        await this.options.gateway.fund(watched.owner, watched.account, decision.shortfall);
+        // Capped at the debt left once the balance is applied: an account has
+        // no withdrawal, so USDC brought beyond the debt would stay on it.
+        await this.options.gateway.fund(watched.owner, watched.account, decision.shortfall, debtLeftToFund(state));
       } catch (error) {
         this.logOnce(watched.account, "gateway", `Gateway funding failed: ${errorMessage(error)}`);
       }
     }
     // Third step, only once the account has nothing to repay with and Gateway
-    // cannot cover the shortfall (no order left, reserve too low).
+    // cannot cover the shortfall (no order left, every order larger than the
+    // debt left, reserve too low).
     if (
       this.options.defense !== undefined &&
       decision.reason === "underfunded" &&

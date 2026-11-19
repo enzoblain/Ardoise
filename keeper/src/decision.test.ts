@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   MIN_SWEEP_AMOUNT,
   applySimulatedDrop,
+  debtLeftToFund,
   decide,
   repaymentToTarget,
   type Thresholds,
@@ -25,7 +26,7 @@ const thresholds: Thresholds = {
 /** Position with 7,800 USD of risk-adjusted collateral and `debt` USDC of debt. */
 function position(debt: bigint): VenuePosition {
   const debtUsd = debt * WAD;
-  return { healthFactor: debtUsd === 0n ? MAX_UINT256 : (7_800n * WAD * WAD) / debtUsd, debtUsd };
+  return { healthFactor: debtUsd === 0n ? MAX_UINT256 : (7_800n * WAD * WAD) / debtUsd, debtUsd, debt: debt * USDC };
 }
 
 const noDebt = position(0n);
@@ -110,8 +111,44 @@ test("repaymentToTarget rounds up to the next USDC base unit", () => {
   // One third of a base unit over the target debt must still cost one unit.
   const debtUsd = 5_200n * WAD + USDC_UNIT_THIRD;
   const healthFactor = (7_800n * WAD * WAD) / debtUsd;
-  const repayment = repaymentToTarget({ healthFactor, debtUsd }, thresholds.targetHealthFactor);
+  const repayment = repaymentToTarget({ healthFactor, debtUsd, debt: 5_200n * USDC + 1n }, thresholds.targetHealthFactor);
   assert.equal(repayment, 1n);
+});
+
+test("repaymentToTarget is capped at the USDC debt of the venue", () => {
+  // The venue reports 6,500 USD of debt, of which only 800 USDC is USDC (the
+  // rest borrowed in another asset): 1,300 USDC could never be applied.
+  const mixed: VenuePosition = { ...underMinimum, debt: 800n * USDC };
+  assert.equal(repaymentToTarget(mixed, thresholds.targetHealthFactor), 800n * USDC);
+  // A target far above the position asks for almost the whole debt, never more.
+  assert.equal(repaymentToTarget(underMinimum, 10n ** 12n * WAD), 6_500n * USDC);
+  // A debt of exactly the repayment is not cut.
+  assert.equal(repaymentToTarget({ ...underMinimum, debt: 1_300n * USDC }, thresholds.targetHealthFactor), 1_300n * USDC);
+});
+
+test("the shortfall never exceeds the USDC debt of the venues under the minimum", () => {
+  const mixed: VenuePosition = { ...underMinimum, debt: 800n * USDC };
+  assert.deepEqual(decide({ usdcBalance: 0n, positions: [mixed], thresholds }), {
+    action: "wait",
+    reason: "underfunded",
+    shortfall: 800n * USDC,
+  });
+  assert.equal(decide({ usdcBalance: 300n * USDC, positions: [mixed], thresholds }).shortfall, 500n * USDC);
+});
+
+test("a balance too small to sweep is still deducted from the shortfall", () => {
+  const dust = MIN_SWEEP_AMOUNT - 1n;
+  const decision = decide({ usdcBalance: dust, positions: [underMinimum], thresholds });
+  assert.deepEqual(decision, { action: "wait", reason: "underfunded", shortfall: 1_300n * USDC - dust });
+});
+
+test("debtLeftToFund is the debt on every venue less the balance already on the account", () => {
+  const positions = [underMinimum, healthy, noDebt];
+  assert.equal(debtLeftToFund({ usdcBalance: 0n, positions, thresholds }), 10_500n * USDC);
+  assert.equal(debtLeftToFund({ usdcBalance: 500n * USDC, positions, thresholds: null }), 10_000n * USDC);
+  assert.equal(debtLeftToFund({ usdcBalance: 10_500n * USDC, positions, thresholds }), 0n);
+  assert.equal(debtLeftToFund({ usdcBalance: 20_000n * USDC, positions, thresholds }), 0n);
+  assert.equal(debtLeftToFund({ usdcBalance: 0n, positions: [], thresholds }), 0n);
 });
 
 test("a simulated drop puts a healthy position under the minimum", () => {
@@ -138,6 +175,7 @@ test("applySimulatedDrop scales the health factor and keeps the debt", () => {
   assert.deepEqual(applySimulatedDrop(healthy, 2_000n), {
     healthFactor: (156n * WAD) / 100n,
     debtUsd: healthy.debtUsd,
+    debt: healthy.debt,
   });
 });
 

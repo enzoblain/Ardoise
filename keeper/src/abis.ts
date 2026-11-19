@@ -20,6 +20,7 @@ export const accountAbi = parseAbi(["function sweep() returns (uint256 repaid)"]
 
 export const venueAbi = parseAbi([
   "function health(address user) view returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd)",
+  "function debtOf(address user) view returns (uint256 amount)",
 ]);
 
 export const guardAbi = parseAbi([

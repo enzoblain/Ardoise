@@ -8,6 +8,8 @@ import {
   encodeEventTopics,
   encodeFunctionResult,
   numberToHex,
+  pad,
+  zeroAddress,
   zeroHash,
   type Account,
   type Address,
@@ -21,6 +23,7 @@ import { arc } from "viem/chains";
 
 import { accountAbi, erc20Abi, factoryAbi, guardAbi, venueAbi } from "./abis.js";
 import { USDC_ADDRESS } from "./config.js";
+import { GATEWAY_MAINNET, GatewayFunder, type StandingOrder } from "./gateway.js";
 import { Keeper, type KeeperOptions } from "./keeper.js";
 
 const WAD = 10n ** 18n;
@@ -107,7 +110,11 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
     case VENUE:
     case SECOND_VENUE: {
       // Both positions hold 7,800 USD of risk-adjusted collateral.
-      const debtUsd = (to.toLowerCase() === VENUE ? chain.debt : chain.secondVenueDebt!) * WAD;
+      const debt = to.toLowerCase() === VENUE ? chain.debt : chain.secondVenueDebt!;
+      if (decodeFunctionData({ abi: venueAbi, data }).functionName === "debtOf") {
+        return encodeFunctionResult({ abi: venueAbi, functionName: "debtOf", result: debt * USDC });
+      }
+      const debtUsd = debt * WAD;
       const health = debtUsd === 0n ? 2n ** 256n - 1n : (7_800n * WAD * WAD) / debtUsd;
       return encodeFunctionResult({ abi: venueAbi, functionName: "health", result: [health, 10_000n * WAD, debtUsd] });
     }
@@ -455,6 +462,68 @@ test("asks Gateway for the shortfall of an account under the minimum with nothin
   assert.equal(account.toLowerCase(), ACCOUNT);
   // 6,500 of debt at HF 1.2 back to 1.5: 6,500 - 7,800 / 1.5 = 1,300 USDC.
   assert.equal(shortfall, 1_300n * USDC);
+});
+
+test("caps what Gateway may bring at the debt on every venue, less the balance already on the account", async () => {
+  // 0.05 USDC on the account is too little to sweep now, but it repays with the next sweep.
+  const chain = fakeChain({ debt: 6_500n, secondVenueDebt: 1_000n, balance: 50_000n });
+  const calls: [bigint, bigint][] = [];
+  const { keeper } = setUp(chain, {
+    gateway: { fund: async (_owner, _account, shortfall, maxDraw) => void calls.push([shortfall, maxDraw]), isCovering: () => false },
+  });
+  await keeper.tick();
+  assert.deepEqual(calls, [[1_300n * USDC - 50_000n, 7_500n * USDC - 50_000n]]);
+});
+
+test("leaves the shortfall to the defense alarm when every standing order is larger than the debt left", async () => {
+  // 4,000 USDC of debt at HF 1.95, judged at 1.17 under a -40% drop: 880 USDC missing.
+  const chain = fakeChain({ debt: 4_000n, balance: 0n, simulatedDropBps: 4_000n });
+  const submitted: string[] = [];
+  const gatewayLogs: string[] = [];
+  const address32 = (address: Address): Hex => pad(address, { size: 32 });
+  // The owner's only order brings 5,000 USDC: 1,000 USDC of it could never leave the account.
+  const tooLarge: StandingOrder = {
+    burnIntent: {
+      maxBlockHeight: "62265703",
+      maxFee: "30000",
+      spec: {
+        version: 1,
+        sourceDomain: 6,
+        destinationDomain: GATEWAY_MAINNET.arcDomain,
+        sourceContract: address32(GATEWAY_MAINNET.walletContract),
+        destinationContract: address32(GATEWAY_MAINNET.minterContract),
+        sourceToken: address32(GATEWAY_MAINNET.sourceUsdc[6]),
+        destinationToken: address32(GATEWAY_MAINNET.arcUsdc),
+        sourceDepositor: address32(OWNER),
+        destinationRecipient: address32(ACCOUNT),
+        sourceSigner: address32(OWNER),
+        destinationCaller: address32(zeroAddress),
+        value: (5_000n * USDC).toString(),
+        salt: pad("0x01", { size: 32 }),
+        hookData: "0x",
+      },
+    },
+    signature: "0x1234",
+  };
+  const gateway = new GatewayFunder({
+    network: GATEWAY_MAINNET,
+    loadOrders: async () => [tooLarge],
+    log: (message) => gatewayLogs.push(message),
+    dryRun: false,
+    fetch: async (url) => {
+      submitted.push(url);
+      return { ok: true, status: 201, json: async () => ({ transferId: "t1" }) };
+    },
+  });
+  const defended: Address[] = [];
+  const { keeper } = setUp(chain, {
+    gateway,
+    defense: { defend: async (owner) => (defended.push(owner), "raised") },
+  });
+  await keeper.tick();
+  assert.deepEqual(submitted, [], "nothing sent to Gateway");
+  assert.ok(gatewayLogs.some((line) => line.includes("skipped: larger than the debt left to repay")));
+  assert.deepEqual(defended.map((owner) => owner.toLowerCase()), [OWNER]);
 });
 
 test("still calls Gateway with no shortfall, so transfers on their way are followed", async () => {
