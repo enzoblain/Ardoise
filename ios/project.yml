@@ -43,6 +43,12 @@ targets:
       path: Ardoise/Info.plist
       properties:
         CFBundleDisplayName: Ardoise
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # HTTPS, the system's passkeys, and the hashing and signature code of
+        # the SDK's dependencies (CryptoSwift, secp256k1): all exempt from
+        # export documentation, so TestFlight does not ask at each upload.
+        ITSAppUsesNonExemptEncryption: false
         CircleClientKey: $(CIRCLE_CLIENT_KEY)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
@@ -50,6 +56,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.enzoblain.ardoise
+        MARKETING_VERSION: "1.0"
+        # iPhone only: the screens are designed for it, and App Store Connect
+        # requires every orientation from an app that also runs on iPad.
+        TARGETED_DEVICE_FAMILY: "1"
+        # Raise it for every TestFlight upload: App Store Connect refuses a build number it already has.
+        CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
   ArdoiseTests:
