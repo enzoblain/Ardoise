@@ -57,6 +57,8 @@ export const defenseRelayAbi = parseAbi([
   "error UnexpectedSender(uint32 sourceDomain, bytes32 sender)",
   "error UnfinalizedMessage(uint32 finalityThresholdExecuted)",
   "error StalePrice(address feed)",
+  // Added by the executor's gas floor (PR #48): a delivery sent with too little gas for a swap.
+  "error SwapOutOfGas()",
   "event DefenseExecuted(address indexed owner, address indexed account, uint64 indexed nonce, uint256 amount, uint256 maxFee)",
   "event AlarmIgnored(address indexed owner, uint64 indexed nonce, uint8 reason)",
 ]);

@@ -374,6 +374,25 @@ test("relays again at the time a TooSoon revert names while the alarm is valid",
   assert.equal(state.relaysSent.length, 1);
 });
 
+test("waits at least 5 s after TooSoon when the local clock is already past nextAllowed", async () => {
+  const state = fake({ relayReverts: [{ errorName: "TooSoon", args: [OWNER, START - 60n] }] });
+  const { relay, sleeps } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.deepEqual(sleeps, [5_000]);
+  assert.equal(state.relaysSent.length, 1);
+});
+
+test("retries a SwapOutOfGas revert like any other failure", async () => {
+  const state = fake({ relayReverts: [{ errorName: "SwapOutOfGas", args: [] }] });
+  const { relay, logs, sleeps } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.ok(logs.some((line) => line.includes("failed (SwapOutOfGas), retrying in 5 s")));
+  assert.deepEqual(sleeps, [5_000]);
+  assert.equal(state.relaysSent.length, 1);
+});
+
 test("gives up when TooSoon names a time after the alarm expires", async () => {
   const state = fake({ relayReverts: [{ errorName: "TooSoon", args: [OWNER, EXPIRY] }] });
   const { relay, logs } = setUp(state);

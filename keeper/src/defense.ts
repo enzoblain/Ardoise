@@ -77,11 +77,13 @@ const MAX_RAISE_RETRY_MS = 3_600_000;
 const RAISE_GAS_HEADROOM_PERCENT = 130n;
 
 /**
- * Margin added to the gas estimate of `receiveMessage`. The executor runs
- * each swap inside `try/catch`, so `eth_estimateGas` can settle on a limit
- * where the swap runs out of gas and is skipped while the call succeeds;
- * sent with that limit, the delivery would consume the alarm without
- * selling the owner's WETH.
+ * Margin added to the gas estimate of `receiveMessage`, a complement to the
+ * executor's own gas floor (PR #48: at least `MIN_SWAP_GAS`, 300k, before a
+ * swap, plus a 63/64 check, else it reverts with `SwapOutOfGas`). Without
+ * that floor, the swaps' `try/catch` lets `eth_estimateGas` settle on a limit
+ * where the WETH swap is skipped and the alarm consumed; with it, a short
+ * limit reverts instead, and the headroom keeps deliveries off that revert.
+ * A `SwapOutOfGas` revert is retried like any other failure.
  */
 const RELAY_GAS_HEADROOM_PERCENT = 150n;
 
@@ -94,6 +96,9 @@ const PENDING_DEADLINE_MS = 300_000;
 
 /** Seconds added to a `TooSoon` time before retrying, so that Base's next block is past it. */
 const TOO_SOON_MARGIN_S = 5;
+
+/** Shortest wait after a `TooSoon` revert, whatever the local clock says. */
+const MIN_TOO_SOON_WAIT_MS = 5_000;
 
 /** What `defend` did for an owner on this pass. */
 export type DefenseOutcome =
@@ -391,7 +396,8 @@ export class DefenseRelay {
             return;
           }
           log(`${prefix}: the owner's last defense is too recent, delivering again at ${isoTime(nextAllowed)}`);
-          await this.sleep(Math.max(0, Number(nextAllowed) * 1000 - this.now()));
+          // A floor, so a keeper clock ahead of Base's blocks cannot spin on simulations.
+          await this.sleep(Math.max(MIN_TOO_SOON_WAIT_MS, Number(nextAllowed) * 1000 - this.now()));
           continue;
         }
         // Nothing was mined: no gas spent, so keep trying while the alarm is valid.
