@@ -7,6 +7,7 @@ import type { Deployment } from "@/lib/contracts/deployments";
 import { formatUsdc } from "@/lib/format";
 import { network, txUrl } from "@/lib/network";
 import { activationCalls, missingSteps, readSetup, runStep, type SetupState, type SetupStep } from "@/lib/setup";
+import { CopyButton } from "@/components/CopyButton";
 import { sendFromPasskey, switchChain, type ConnectedWallet, type PasskeyWallet } from "@/lib/wallet";
 
 // Allowance given to the shared adapter: three days at the default daily cap
@@ -205,10 +206,19 @@ function PasskeySetup({
         supplies the cirBTC to your own Aave V4 position, enables it as collateral, creates your Ardoise account and
         allows it to borrow up to {formatUsdc(BORROW_CAP)} USDC.
       </p>
+      <div className="flex flex-col gap-2 rounded-2xl border border-accent/40 bg-sunken p-4">
+        <span className="eyebrow">
+          Your smart account · send cirBTC{network.name === "mainnet" ? " and USDC" : ""} here, on {network.arc.label}
+        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-sm break-all text-foreground">{wallet.address}</span>
+          <CopyButton text={wallet.address} label="smart account address" />
+        </div>
+        <span className="text-xs text-faint">
+          Same address on {network.base.label}, where the Protection panel keeps your Gateway reserve.
+        </span>
+      </div>
       <ol className="flex flex-col divide-y divide-line border-y border-line">
-        <Item done label="Smart account">
-          <span className="font-mono break-all">{wallet.address}</span>
-        </Item>
         <Item done={funded} label="cirBTC on the account">
           {state.collateral > 0n && <span>{formatUnits(state.collateral, 8)} cirBTC supplied on Aave V4. </span>}
           {state.walletCirBtc > 0n && <span>{formatUnits(state.walletCirBtc, 8)} cirBTC ready to supply. </span>}
