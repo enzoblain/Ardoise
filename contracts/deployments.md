@@ -289,6 +289,39 @@ forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor
 
 A new factory (for example with a Morpho venue) needs a new alarm and a new executor, since the executor trusts one alarm address.
 
+## Privileged roles
+
+For the hackathon, one address holds every privileged role on the contracts above: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7). It is also the owner of both demo accounts and the wallet used in the browser for the demo. It is a browser-wallet key, not a multisig or a cold wallet, and on Arc it carries an EIP-7702 delegation (`cast code` returns `0xef0100` followed by the delegate `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B`, read on 2026-11-19), so signed delegations and user operations are a way to act as this address in addition to its key.
+
+| Contract | Role | Holder | What the role can do |
+|----------|------|--------|----------------------|
+| `ArdoiseFactory` `0xB4476B61…B4a8` (current) and `0xb44DD865…92bD` (previous) | `admin` | project wallet | `setVenues`: replace the venue list every account of that factory borrows from and repays to. `setGuard`: replace the guard, or remove it, which stops payments |
+| `MarginGuard` `0xEBAC5C07…f080` (set on both factories) | `owner` | project wallet | `setThresholds`: change the minimum and target health factors, with no upper bound. `setSimulatedDrop`: make the guard, the keeper and the defense alarm reason as if the collateral had lost up to 90% of its value |
+| `DefenseAlarm` `0x3BABC3f5…5E43` | `deployer` | project wallet | `setExecutor`, once. It was used on 2026-11-19 (table above), so the role has no power left on this alarm |
+| `DefenseExecutor` `0x897B6baF…5296` (Base) | none | | No admin and no owner |
+| `ArdoiseAccount` | `owner` | the wallet that created it | Pay, change its own caps; no project role |
+
+The keeper wallet holds no role (see *Keeper*).
+
+**These roles cannot be moved.** `admin`, `owner` and `deployer` are immutable: none of the deployed contracts has an ownership transfer. Changing the holder means deploying a new factory or a new guard, and users creating new accounts.
+
+**What this allows.** Whoever controls the project wallet can list a contract of their choice as a venue, and an account's public `sweep()` then approves that venue and pays it the USDC sitting on the account; can replace the guard; and can switch on a simulated drop or raise the thresholds, which makes the keeper submit users' Gateway standing orders and lets anyone raise a defense alarm that spends a user's policy on Base, within the caps the user set. In each case the funds exposed are the USDC that reaches an account, not the collateral, which Ardoise cannot withdraw.
+
+**Before real users.** Deploy a new factory and guard with a separate admin and guard owner, each a multisig or a cold wallet that is never used in a browser and holds no demo account. Both deployment scripts take them as addresses (public values, never keys):
+
+| Variable | Used by | Effect |
+|----------|---------|--------|
+| `ARDOISE_FACTORY_ADMIN` | `Deploy.s.sol` | Admin of the new factory instead of the deployer. The deployer cannot call `setVenues` or `setGuard`, so the script deploys the factory and both adapters, checks them, and prints the two `cast send` calls the admin must make. Until then the factory lists no venue and `pay()` reverts |
+| `ARDOISE_FACTORY_ADMIN` | `DeployGuard.s.sol` | Names the factory admin when the sender is not it. The script deploys the guard, leaves the factory on its current guard and prints the `setGuard` call for the admin. Without the variable, a sender that is not the admin is refused before anything is sent, as before |
+| `ARDOISE_GUARD_OWNER` | `DeployGuard.s.sol` | Owner of the new guard, default the factory admin |
+| `ARDOISE_GUARD_OWNER` | `Deploy.s.sol` | Owner that `ARDOISE_GUARD` must have, default the factory admin; a guard owned by another address, or with a simulated drop set, is refused before anything is sent |
+
+Both variables, like `ARDOISE_GUARD` and `ARDOISE_FACTORY_ADDRESS`, are read strictly: an empty value (or one made only of whitespace) means unset, and a value that is not an address (a missing or extra digit, text, an unbalanced quote, a leading space) or the zero address stops the script before anything is sent, instead of falling back to the deployer. Trailing whitespace, one pair of quotes around the value and a missing `0x` are accepted and give the address that was written. The letter case of the address is not checked, so compare the `admin:` and `owner:` lines the script prints with the intended addresses before adding `--broadcast`.
+
+Both scripts end with checks that `factory.admin()` and `guard.owner()` are the intended addresses and that `simulatedDropBps()` is 0. `forge script` runs them in its local simulation, before any transaction is sent: they stop a wrong deployment from being broadcast, they do not re-read the chain afterwards. After mining, read `admin()`, `venues()`, `guard()` and the guard's `owner()` with `cast call`.
+
+When the sender of `DeployGuard.s.sol` is not the admin and the factory already has a guard, `ARDOISE_REPLACE_GUARD=true` is still required, although the script leaves the factory unchanged: the `setGuard` call it prints replaces that guard. For a factory deployed with a separate admin and no guard, also set `ARDOISE_FACTORY_ADDRESS` to that factory, since the script defaults to the first one. `DefenseAlarm` takes its `deployer` from the transaction sender, so steps 1 and 3 of *How to deploy* above must be sent by the same key, and that key keeps no power once `setExecutor` is done.
+
 ## How to deploy the guard
 
 From `contracts/`, simulate first from the admin address (no key needed, nothing is sent), then broadcast. Prefer a Foundry keystore (`cast wallet import`) to signing with a raw key: the repo-root `.env` is also read by the app and the keeper. A `DEPLOYER_PRIVATE_KEY` set in the shell takes precedence over `--account`, so `unset DEPLOYER_PRIVATE_KEY` first.
@@ -301,7 +334,7 @@ forge script script/DeployGuard.s.sol --rpc-url https://rpc.mainnet.arc.io --bro
 
 With the key in the environment instead, run `set -a && source ../.env && set +a` (it sets `DEPLOYER_PRIVATE_KEY`) and broadcast without `--account` and `--sender`.
 
-The script refuses to send anything if the key is not the factory admin's or if a guard is already set (`ARDOISE_REPLACE_GUARD=true` allows replacing it). Thresholds default to 1.25e18 / 1.5e18 and can be overridden with `ARDOISE_MIN_HEALTH_FACTOR` / `ARDOISE_TARGET_HEALTH_FACTOR`. The admin also owns the guard, so it is the admin who turns the demo's simulated price drop on and off with `setSimulatedDrop`.
+The script refuses to send anything if the key is not the factory admin's or if a guard is already set (`ARDOISE_REPLACE_GUARD=true` allows replacing it). Thresholds default to 1.25e18 / 1.5e18 and can be overridden with `ARDOISE_MIN_HEALTH_FACTOR` / `ARDOISE_TARGET_HEALTH_FACTOR`. By default the admin also owns the guard, so it is the admin who turns the demo's simulated price drop on and off with `setSimulatedDrop`; `ARDOISE_GUARD_OWNER` gives the guard to another address, and `ARDOISE_FACTORY_ADMIN` lets a sender that is not the admin deploy the guard and leave `setGuard` to the admin (see *Privileged roles*).
 
 ## How to redeploy
 
@@ -314,6 +347,8 @@ forge script script/Deploy.s.sol --rpc-url https://rpc.mainnet.arc.io --broadcas
 ```
 
 The local simulation works with Arc's native USDC, since the deployment moves no tokens. It costs about 3.9M gas, about 0.10 USDC of Arc gas. A new factory means new accounts, and a new adapter means every user grants a new borrow allowance.
+
+The deployer becomes the factory admin. To give the role to another address, set `ARDOISE_FACTORY_ADMIN` (see *Privileged roles*): the script then stops after deploying the factory and the adapters and prints the `setVenues` and `setGuard` calls the admin has to send. In its simulation, before anything is sent, the script checks `factory.admin()`, each adapter's `factory()` and, when the deployer is the admin, `factory.venues()` and `factory.guard()`. An `ARDOISE_GUARD` is refused unless its owner is `ARDOISE_GUARD_OWNER` (default the factory admin) and its simulated drop is 0.
 
 ### Verifying the sources
 
