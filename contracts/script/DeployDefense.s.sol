@@ -23,7 +23,7 @@ abstract contract DefenseAddresses is Script {
 /// @dev Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_FACTORY` (required: the factory
 /// address, never hard-coded so the alarm follows a redeployed factory), `DEFENSE_COOLDOWN`
 /// (seconds between two alarms per owner, default 1800), `DEFENSE_ALARM_TTL` (seconds an alarm
-/// stays valid on Base, default 600; the alarm refuses a TTL longer than the cooldown). Funds still
+/// stays valid on Base, default 900; the alarm refuses a TTL longer than the cooldown). Funds still
 /// on their way back from Base are protected by the executor's `minDefenseInterval`. Commands
 /// are in contracts/deployments.md.
 contract DeployDefenseAlarm is DefenseAddresses {
@@ -34,7 +34,7 @@ contract DeployDefenseAlarm is DefenseAddresses {
         uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
         IArdoiseFactory factory = IArdoiseFactory(vm.envAddress("DEFENSE_FACTORY"));
         uint256 cooldown = vm.envOr("DEFENSE_COOLDOWN", uint256(1800));
-        uint256 ttl = vm.envOr("DEFENSE_ALARM_TTL", uint256(600));
+        uint256 ttl = vm.envOr("DEFENSE_ALARM_TTL", uint256(900));
         require(cooldown <= type(uint64).max && ttl <= type(uint64).max, "timing too large");
         vm.startBroadcast(key);
         alarm = new DefenseAlarm(
@@ -57,8 +57,9 @@ contract DeployDefenseAlarm is DefenseAddresses {
 /// @dev Environment: `DEPLOYER_PRIVATE_KEY` (required), `DEFENSE_ALARM_ADDRESS` (required),
 /// `DEFENSE_BURN_FINALITY` (1000 fast, default; 2000 standard), `DEFENSE_MAX_PRICE_AGE`
 /// (seconds, default 1500: the feed's heartbeat on Base is 1200 s), `DEFENSE_MIN_INTERVAL`
-/// (seconds between two burns for the same owner, default 3600: longer than a standard-finality
-/// burn from Base, 13 to 19 minutes, takes to be minted on Arc).
+/// (seconds between two burns for the same owner, 900 to 86400, default 2400: longer than a
+/// standard-finality burn from Base, 13 to 19 minutes, takes to be minted on Arc, and short enough
+/// that the alarm raised after the next cooldown can be relayed within its TTL).
 contract DeployDefenseExecutor is DefenseAddresses {
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
@@ -75,7 +76,7 @@ contract DeployDefenseExecutor is DefenseAddresses {
         uint256 finality = vm.envOr("DEFENSE_BURN_FINALITY", uint256(1000));
         require(finality == 1000 || finality == 2000, "finality must be 1000 or 2000");
         uint256 maxPriceAge = vm.envOr("DEFENSE_MAX_PRICE_AGE", uint256(1500));
-        uint256 minInterval = vm.envOr("DEFENSE_MIN_INTERVAL", uint256(3600));
+        uint256 minInterval = vm.envOr("DEFENSE_MIN_INTERVAL", uint256(2400));
         DefenseExecutor.SwapAssetConfig[] memory assets = new DefenseExecutor.SwapAssetConfig[](1);
         assets[0] = DefenseExecutor.SwapAssetConfig(WETH, IAggregatorV3(ETH_USD_FEED), WETH_USDC_POOL_FEE);
         vm.startBroadcast(key);
