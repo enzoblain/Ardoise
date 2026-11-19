@@ -58,8 +58,9 @@ contract DeployDefenseAlarm is DefenseAddresses {
 /// `DEFENSE_BURN_FINALITY` (1000 fast, default; 2000 standard), `DEFENSE_MAX_PRICE_AGE`
 /// (seconds, default 1500: the feed's heartbeat on Base is 1200 s), `DEFENSE_MIN_INTERVAL`
 /// (seconds between two burns for the same owner, 900 to 86400, default 2400: longer than a
-/// standard-finality burn from Base, 13 to 19 minutes, takes to be minted on Arc, and short enough
-/// that the alarm raised after the next cooldown can be relayed within its TTL).
+/// standard-finality burn from Base, 13 to 19 minutes, takes to be minted on Arc. The alarm raised
+/// after the next cooldown can be relayed within its TTL when the previous one was relayed within
+/// 300 s of being raised; otherwise the one after it is the first that can run).
 contract DeployDefenseExecutor is DefenseAddresses {
     address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address internal constant WETH = 0x4200000000000000000000000000000000000006;
