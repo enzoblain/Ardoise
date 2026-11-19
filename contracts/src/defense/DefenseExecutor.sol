@@ -64,6 +64,13 @@ contract DefenseExecutor is IMessageHandlerV2 {
     uint256 private constant BPS = 10_000;
     /// @notice Highest slippage a policy may allow (10%).
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
+    /// @notice Lowest slippage a policy may set for an asset it sells, as a multiple of the fee of
+    /// the asset's pool. The pool fee comes out of the swap's output, so a bound under it fails on
+    /// a pool exactly at the oracle price, and a failed swap reverts the whole delivery: such a
+    /// policy would never be defended. Twice the fee (10 bps on the 0.05% WETH/USDC pool) leaves
+    /// as much again for price impact and for the pool sitting slightly off the oracle; it only
+    /// rules out bounds that cannot work, 50 to 100 bps remain the sensible setting.
+    uint256 public constant MIN_SLIPPAGE_POOL_FEES = 2;
     /// @notice Gas that must be left before a swap: about three times what a SwapRouter02
     /// single-pool swap on the WETH/USDC pool uses (about 95k measured on a Base fork), so a
     /// relayer cannot pick a gas limit at which a swap of defense size runs out of gas.
@@ -190,6 +197,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     error AlarmAlreadyUsed(uint64 nonce);
     /// @notice Thrown by `setPolicy` for an invalid policy.
     error InvalidPolicy();
+    /// @notice Thrown by `setPolicy` when `maxSlippageBps` is under `minSlippageBps(asset)` for an
+    /// asset the policy sells: every swap of it, and so every delivery needing it, would revert.
+    error SlippageBelowPoolFee(address asset, uint256 minSlippageBps);
     /// @notice Thrown when an alarm arrives within `minDefenseInterval` of the owner's last burn;
     /// the message can be relayed again from `nextAllowed` until the alarm expires.
     error TooSoon(address owner, uint256 nextAllowed);
@@ -254,12 +264,15 @@ contract DefenseExecutor is IMessageHandlerV2 {
     // forge-lint: disable-next-item(require-revert-in-loop)
     /// @notice Sets the caller's policy. The caller must also approve this contract for each asset.
     /// @dev Reverts with `InvalidPolicy` for empty or mismatched lists, a duplicate or unsupported
-    /// asset, a zero period or a slippage above `MAX_SLIPPAGE_BPS`. Resets nothing already spent
-    /// in the current period. Emits `PolicySet`.
+    /// asset, a zero period or a slippage above `MAX_SLIPPAGE_BPS`, and with
+    /// `SlippageBelowPoolFee` for a slippage under `minSlippageBps` of an asset it sells (a policy
+    /// of USDC alone may set any slippage, it never swaps). Resets nothing already spent in the
+    /// current period. Emits `PolicySet`.
     /// @param assets Assets in the order they are used; USDC or assets in `swapAssets`.
     /// @param caps Maximum taken per period for each asset, in the asset's units.
     /// @param period Length of a cap period, in seconds.
-    /// @param maxSlippageBps Largest shortfall of a swap against the Chainlink price.
+    /// @param maxSlippageBps Largest shortfall of a swap against the Chainlink price, pool fee
+    /// included.
     /// @param maxFee Largest CCTP fee (protocol + forwarder) the owner accepts per defense, in USDC.
     function setPolicy(
         address[] calldata assets,
@@ -272,8 +285,10 @@ contract DefenseExecutor is IMessageHandlerV2 {
             revert InvalidPolicy();
         }
         for (uint256 i = 0; i < assets.length; ++i) {
-            if (assets[i] != address(usdc) && address(swapAssets[assets[i]].feed) == address(0)) {
-                revert InvalidPolicy();
+            if (assets[i] != address(usdc)) {
+                if (address(swapAssets[assets[i]].feed) == address(0)) revert InvalidPolicy();
+                uint256 minBps = minSlippageBps(assets[i]);
+                if (maxSlippageBps < minBps) revert SlippageBelowPoolFee(assets[i], minBps);
             }
             for (uint256 j = 0; j < i; ++j) {
                 if (assets[j] == assets[i]) revert InvalidPolicy();
@@ -287,6 +302,15 @@ contract DefenseExecutor is IMessageHandlerV2 {
     function clearPolicy() external {
         delete _policies[msg.sender];
         emit PolicyCleared(msg.sender);
+    }
+
+    /// @notice Lowest `maxSlippageBps` a policy selling `asset` may set: `MIN_SLIPPAGE_POOL_FEES`
+    /// times the fee of the asset's pool, rounded up to a basis point.
+    /// @param asset A swap asset.
+    /// @return The minimum, in basis points (0 for an asset that is not sold).
+    function minSlippageBps(address asset) public view returns (uint256) {
+        // Uniswap V3 fees are in hundredths of a basis point.
+        return _ceilDiv(uint256(swapAssets[asset].poolFee) * MIN_SLIPPAGE_POOL_FEES, 100);
     }
 
     /// @notice The policy of `owner` (empty lists when none).
