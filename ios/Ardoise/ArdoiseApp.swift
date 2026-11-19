@@ -22,7 +22,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Theme.background.ignoresSafeArea()
+            ScreenBackground()
             switch model.phase {
             case .signedOut:
                 SignInView()

@@ -25,6 +25,7 @@
 		61E4107FBBFE3352CA7842DC /* StatementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 480B400E520315C8AD1A0B95 /* StatementView.swift */; };
 		6E903F25B57308B4D10A519C /* Deployment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0DD876C02290FE570AC9B /* Deployment.swift */; };
 		7AADCFDFA39CE7651317039E /* PayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7227450A8DC8CFA49925F381 /* PayView.swift */; };
+		9F218048CE6FE5BC5BC0E113 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 103ED03D5A23B01BAAD3AD61 /* Glass.swift */; };
 		DDAF59789A03F5ED66734726 /* ArdoiseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A608032DEB12EE97AF5D30 /* ArdoiseApp.swift */; };
 		EFFE28B1B24E15B7527ECA5A /* ArdoiseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAC59E3140F6EFB3948DF96 /* ArdoiseTests.swift */; };
 /* End PBXBuildFile section */
@@ -40,6 +41,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		103ED03D5A23B01BAAD3AD61 /* Glass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Glass.swift; sourceTree = "<group>"; };
 		17F3A87C2E89C03D8972C351 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		3092CFD8526C7BF08A895F27 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		3346327899A42C23D78B20D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -110,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				6490E68F9479B64D13C7DCE1 /* ActivateView.swift */,
+				103ED03D5A23B01BAAD3AD61 /* Glass.swift */,
 				7CF9191C783E30E78505236A /* HomeView.swift */,
 				7227450A8DC8CFA49925F381 /* PayView.swift */,
 				E987C745C4BE4253DD7E9423 /* SignInView.swift */,
@@ -298,6 +301,7 @@
 				6E903F25B57308B4D10A519C /* Deployment.swift in Sources */,
 				4ADE3DD84800F6ECEE63DE69 /* Fees.swift in Sources */,
 				5B66BF8118122208B286F1D7 /* Format.swift in Sources */,
+				9F218048CE6FE5BC5BC0E113 /* Glass.swift in Sources */,
 				02A039F5A8246EE72992B62E /* HomeView.swift in Sources */,
 				43CC99182A10024B616D498F /* PasskeyWallet.swift in Sources */,
 				7AADCFDFA39CE7651317039E /* PayView.swift in Sources */,

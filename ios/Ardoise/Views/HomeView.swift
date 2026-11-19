@@ -70,6 +70,7 @@ struct AccountView: View {
             }
             .padding(16)
         }
+        .background(ScreenBackground())
         .refreshable { await model.refresh() }
         .navigationTitle("Account")
     }
