@@ -288,7 +288,20 @@ export class Keeper {
                 functionName: "debtOf",
                 args: [watched.owner],
               })
-              .catch(() => null),
+              .then(
+                (amount) => {
+                  this.logRecovery(watched.account, `debt:${venue}`, `the debt on venue ${venue} can be read again`);
+                  return amount;
+                },
+                (error) => {
+                  this.logOnce(
+                    watched.account,
+                    `debt:${venue}`,
+                    `the debt on venue ${venue} cannot be read (${errorMessage(error)}): nothing is drawn from Gateway until it can`,
+                  );
+                  return null;
+                },
+              ),
           ]);
           return { healthFactor: positionHealth, debtUsd, debt };
         }),
@@ -311,9 +324,10 @@ export class Keeper {
     }
     // The state is read and logged even for an account on hold, so that a
     // margin warning is never hidden by an earlier failed attempt.
-    // A sweep decided on a balance under the usual minimum restores a
-    // position under the guard's minimum: it is sent whatever its size.
-    const minRepaid = usdcBalance >= MIN_SWEEP_AMOUNT ? MIN_SWEEP_AMOUNT : 1n;
+    // A sweep that restores a position under the guard's minimum is sent
+    // whatever its size: the balance, or the debt it repays, can be under
+    // the usual minimum.
+    const minRepaid = decision.reason === "restore-margin" && decision.shortfall === 0n ? 1n : MIN_SWEEP_AMOUNT;
     if (decision.action === "sweep" && mayAttempt) await this.sweep(watched.account, minRepaid);
     // Called on every pass, shortfall or not, so transfers already on their
     // way are followed. USDC it brings lands on the account and is swept on
@@ -325,11 +339,6 @@ export class Keeper {
         // Without a debt figure nothing is drawn, but the call is still made
         // so that transfers on their way are followed.
         const maxDraw = debtLeftToFund(state);
-        if (maxDraw === null) {
-          this.logOnce(watched.account, "debt", "the debt on a venue cannot be read: nothing is drawn from Gateway until it can");
-        } else {
-          this.logRecovery(watched.account, "debt", "the debt on every venue can be read again");
-        }
         await this.options.gateway.fund(watched.owner, watched.account, maxDraw === null ? 0n : decision.shortfall, maxDraw ?? 0n);
       } catch (error) {
         this.logOnce(watched.account, "gateway", `Gateway funding failed: ${errorMessage(error)}`);

@@ -552,6 +552,25 @@ test("sweeps a balance under the usual minimum when it is all a position under t
   assert.equal(defended.length, 0);
 });
 
+test("sweeps a debt under the usual minimum when the balance restores a position under the minimum", async () => {
+  // 0.09 USDC of debt at HF 1.20 with 0.10 USDC on the account: sweep() can only repay the 0.09 USDC.
+  const position = { healthFactor: (12n * WAD) / 10n, debtUsd: (9n * WAD) / 100n, debtOf: 90_000n };
+  const chain = fakeChain({ position, balance: 100_000n, sweepRepays: 90_000n });
+  const { keeper } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.equal(chain.sent, 1);
+});
+
+test("does not send a sweep under the usual minimum for a position that is not under the guard's minimum", async () => {
+  // Same debt at HF 1.95: the 0.09 USDC repayment is not worth its gas.
+  const position = { healthFactor: (195n * WAD) / 100n, debtUsd: (9n * WAD) / 100n, debtOf: 90_000n };
+  const chain = fakeChain({ position, balance: 100_000n, sweepRepays: 90_000n });
+  const { keeper, logs } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.equal(chain.sent, 0);
+  assert.ok(logs.some((line) => line.includes("would repay only 0.09 USDC, not sent")));
+});
+
 test("draws from Gateway when a balance under the usual minimum does not restore the position", async () => {
   const position = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debtOf: 300_000n };
   const chain = fakeChain({ position, balance: 50_000n });
@@ -588,13 +607,16 @@ test("still sweeps and raises the alarm, but draws nothing from Gateway, when a 
   await keeper.tick();
   await keeper.tick();
   assert.deepEqual(calls, [[0n, 0n], [0n, 0n], [0n, 0n]], "Gateway is only asked to follow its transfers");
-  assert.equal(logs.filter((line) => line.includes("nothing is drawn from Gateway until it can")).length, 1);
+  const unread = logs.filter((line) => line.includes("nothing is drawn from Gateway until it can"));
+  assert.equal(unread.length, 1);
+  assert.ok(unread[0].toLowerCase().includes(`the debt on venue ${VENUE} cannot be read (`), "names the venue and the error");
+  assert.ok(!unread[0].includes("\n"), "one line: no request details");
   assert.equal(defended.length, 2, "the defense step runs on both underfunded passes");
 
   chain.debtOfFails = false;
   await keeper.tick();
   assert.deepEqual(calls[3], [1_300n * USDC, 6_500n * USDC]);
-  assert.ok(logs.some((line) => line.includes("the debt on every venue can be read again")));
+  assert.ok(logs.some((line) => line.toLowerCase().includes(`the debt on venue ${VENUE} can be read again`)));
 });
 
 test("warns about a position under the minimum that has no USDC debt, and does nothing", async () => {

@@ -156,8 +156,12 @@ export function debtLeftToFund(state: AccountState): bigint | null {
  * A balance under `MIN_SWEEP_AMOUNT` is swept all the same when it is enough
  * to bring every position under the minimum back to the target: nothing else
  * would ever apply it, and the position would stay under the minimum. This
- * cannot be used to drain the keeper wallet with dust, since after that
- * sweep the position is no longer under the minimum.
+ * cannot be used to drain the keeper wallet with dust: `sweep()` serves the
+ * lowest health factor first, and the venue it repays is no longer under
+ * the minimum afterwards. With several venues under the minimum the sweep
+ * can give the whole balance to the first, so another may stay under it:
+ * the next pass then reports its shortfall, and dust can trigger at most one
+ * such sweep per venue.
  *
  * @param state What the keeper read about the account.
  * @returns `sweep` when a transaction is worth sending, otherwise `wait` with
