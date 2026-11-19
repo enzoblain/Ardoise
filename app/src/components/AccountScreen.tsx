@@ -14,6 +14,7 @@ import { AccountSetup } from "@/components/AccountSetup";
 import { PayScreen } from "@/components/PayScreen";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
 import { Statement } from "@/components/Statement";
+import { StressTest } from "@/components/StressTest";
 
 /**
  * The account's views, sharing one account client: the pay screen and,
@@ -119,6 +120,16 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
                 <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
               </div>
             )}
+            <section className="card" aria-label="Stress test">
+              <StressTest
+                key={live ? "live-stress" : "demo-stress"}
+                account={account}
+                venues={venues}
+                owner={live ? wallet?.address : undefined}
+                accountAddress={live ? accountAddress : undefined}
+                version={payments}
+              />
+            </section>
           </div>
         </div>
       )}
