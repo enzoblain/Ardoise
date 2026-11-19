@@ -36,6 +36,7 @@ Ardoise turns a cirBTC position on Arc into a payment account:
 - **See the rates and your margin before you pay.** The pay screen compares the live USDC borrow rates of Aave V4 and Morpho on Arc and shows how much margin the position keeps before and after the payment.
 - **One line per payment.** The statement lists every payment as a debt line: amount, venue, rate, payee, memo and interest so far, built from the account's on-chain events. Each cross-chain payment has a tracking page that follows it until it lands on the payee's chain.
 - **Protected from liquidation.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (both run on Arc mainnet: a one-click repayment from Base swept 5 s after it landed, and an automatic repayment 17 s after a simulated price drop; see [`contracts/deployments.md`](contracts/deployments.md#state)).
+- **Stress test before it happens.** Pick a scenario (for example bitcoin −40% and ether −50%) and see the health factor with and without Ardoise as bitcoin falls, the reserve drawn in order, whether the position survives and the liquidation penalty it avoids, from Aave V4's on-chain cirBTC parameters. A breakdown lists the reserve asset by asset: USDC on the account, the Gateway reserve, USDC and ETH in the wallet on Base, with ETH counted at its crisis value. It ends with the bitcoin drop the reserve covers. Everything is computed in the browser from on-chain reads ([`app/src/lib/stress.ts`](app/src/lib/stress.ts), [`app/src/lib/reserve.ts`](app/src/lib/reserve.ts)).
 
 Without a wallet, anyone can try the whole flow on a demo account simulated in the browser, with live rates from Arc mainnet and real Circle fee quotes. Connecting a wallet on Arc mainnet activates a real account. Instead of a browser wallet, a user can sign in with a passkey (Face ID, Touch ID, a security key): it owns a Circle smart account, which is activated and pays with one passkey signature each, with no seed phrase and no extension.
 
@@ -185,7 +186,7 @@ set -a && source .env && set +a
 
 ```
 contracts/   Solidity contracts (Foundry): account, factory, Aave V4 adapter, margin guard, deployment scripts and records (deployments.md)
-app/         Next.js + viem front end: landing page (`/`, 3D slate hero, live rates), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, payment tracking page
+app/         Next.js + viem front end: landing page (`/`, 3D slate hero, live rates), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, stress test, payment tracking page
 keeper/      Node keeper: repays debt with sweep() and Gateway standing orders, and receives standing orders from the app
 docs/        Contract interfaces and payment flow (api.md), hackathon roadmap (roadmap.md), README screenshot (images/)
 assets/logo/ Logo files (SVG: mark, full logo, wordmark, app icon, favicon, white and black versions) and brand-showcase.html, the brand reference page
