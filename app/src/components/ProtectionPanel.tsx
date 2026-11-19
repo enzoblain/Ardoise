@@ -22,8 +22,6 @@ import { network, txUrl } from "@/lib/network";
  * relays orders on Arc mainnet only, so the section is hidden elsewhere.
  */
 const KEEPER_URL = network.name === "mainnet" ? process.env.NEXT_PUBLIC_KEEPER_URL || "" : "";
-/** Standing orders are signed with twice the estimated fee cap (see `signOrder`). */
-const STANDING_FEE_HEADROOM = 2n;
 const POLL_MS = 3_000;
 
 /**
@@ -99,7 +97,7 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
       const value = parseUnits(orderValueText, 6);
       const signed: StandingOrder[] = [];
       for (let i = 0; i < orderCount; i++) {
-        signed.push(await signOrder(signer, orderSpec(owner, account, value), STANDING_FEE_HEADROOM));
+        signed.push(await signOrder(signer, orderSpec(owner, account, value)));
       }
       const results = await sendToKeeper(KEEPER_URL, signed);
       const accepted = results.filter((r) => r.status === "accepted").length;
@@ -115,7 +113,21 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
     step("repay", async () => {
       setDelivered(false);
       const value = parseUnits(repayText, 6);
-      const transferId = await submitToGateway(await signOrder(signer, orderSpec(owner, account, value)));
+      const order = await signOrder(signer, orderSpec(owner, account, value));
+      // Gateway takes its fee on top of the amount; checking the amount plus
+      // the fee cap against a fresh reading of the reserve (a deposit is
+      // credited minutes after the panel loaded) gives a clear message where
+      // Gateway would answer "insufficient balance".
+      const maxFee = BigInt(order.burnIntent.maxFee);
+      const reserve = await gatewayBalance(owner);
+      setBalance(reserve);
+      if (value + maxFee > reserve) {
+        const most = reserve > maxFee ? reserve - maxFee : 0n;
+        throw new Error(
+          `The reserve holds ${formatUsdc(reserve)} USDC and Gateway's fee cap (${formatUsdc(maxFee)} USDC) comes on top: repay at most ${formatUsdc(most)} USDC.`,
+        );
+      }
+      const transferId = await submitToGateway(order);
       setMessage({ text: `${formatUsdc(value)} USDC on its way from ${network.base.label}…` });
       for (let i = 0; i < 100 && mounted.current; i++) {
         const status = await gatewayTransfer(transferId);
