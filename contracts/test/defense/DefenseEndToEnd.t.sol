@@ -59,6 +59,9 @@ contract CctpBridgeMock {
     }
 
     /// @notice Delivers message `index` to its recipient, as the destination transmitter would.
+    /// @dev Passes the requested finality as the executed one; Circle may attest higher, which
+    /// does not matter for the alarm (2000 requested, 2000 attested). Used nonces are not tracked,
+    /// so a reverted delivery can be retried, as on mainnet.
     function relay(uint256 index) external returns (bool) {
         Message storage m = messages[index];
         IMessageHandlerV2 recipient = IMessageHandlerV2(address(uint160(uint256(m.recipient))));
@@ -168,8 +171,10 @@ contract DefenseEndToEndTest is Test {
         vm.prank(makeAddr("anyone"));
         uint64 nonce = alarm.raise(owner);
 
-        // What the alarm sent: from the alarm, to the executor on Base, finalized.
-        (bytes32 sender, uint32 domain, bytes32 recipient, uint32 finality,) = bridge.messages(0);
+        // What the alarm sent: from the alarm, to the executor on Base, finalized, and byte for byte
+        // the documented body, expiry included.
+        (bytes32 sender, uint32 domain, bytes32 recipient, uint32 finality, bytes memory body) = bridge.messages(0);
+        assertEq(body, abi.encode(owner, account, amountNeeded, nonce, uint64(vm.getBlockTimestamp() + 900)));
         assertEq(sender, bytes32(uint256(uint160(address(alarm)))));
         assertEq(domain, BASE);
         assertEq(recipient, bytes32(uint256(uint160(address(executor)))));
@@ -188,6 +193,7 @@ contract DefenseEndToEndTest is Test {
             address burnToken,,
             uint256 maxFee,
             uint32 burnFinality,
+            bytes memory hookData
         ) = messenger.last();
         assertEq(burnDomain, ARC);
         assertEq(mintRecipient, bytes32(uint256(uint160(account))));
@@ -195,10 +201,14 @@ contract DefenseEndToEndTest is Test {
         assertEq(burned, amountNeeded + MAX_FEE);
         assertEq(maxFee, MAX_FEE);
         assertEq(burnFinality, 1000);
+        assertEq(hookData, abi.encodePacked(bytes32("cctp-forward")));
         assertTrue(executor.alarmUsed(nonce));
         // 0.2 USDC from the USDC cap, the rest bought with WETH.
         assertEq(usdcBase.balanceOf(owner), 0.8e6);
-        assertLt(weth.balanceOf(owner), 0.01e18);
+        // 0.374 USDC bought with WETH at 1777 USDC/WETH (the mock's exact-output rounding is up).
+        uint256 usdcFromWeth = amountNeeded + MAX_FEE - 0.2e6;
+        uint256 wethSpent = (usdcFromWeth * 1e18 + 1777e6 - 1) / 1777e6;
+        assertEq(weth.balanceOf(owner), 0.01e18 - wethSpent);
 
         // Once minted on Arc (at worst `burned - maxFee`) and swept, the target is reached.
         uint256 minted = burned - maxFee;
@@ -206,6 +216,8 @@ contract DefenseEndToEndTest is Test {
         assertApproxEqAbs(guard.simulatedHealth(venue, owner), 1.5e18, 10);
     }
 
+    // On mainnet the transmitter itself rejects a second `receiveMessage` of the same message
+    // ("Nonce already used") before the executor runs; this checks the executor's own backstop.
     function test_replayedDeliveryIsRefused() public {
         vm.prank(admin);
         guard.setSimulatedDrop(3_000);
@@ -230,6 +242,9 @@ contract DefenseEndToEndTest is Test {
         );
         bridge.relay(1);
         assertEq(messenger.burnCount(), 0);
+        // The genuine alarm still goes through, exactly once.
+        assertTrue(bridge.relay(0));
+        assertEq(messenger.burnCount(), 1);
     }
 
     function test_secondAlarmAfterCooldownWaitsForTheInterval() public {
