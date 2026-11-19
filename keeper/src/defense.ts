@@ -61,6 +61,14 @@ const IRIS_TIMEOUT_MS = 10_000;
  */
 const MAX_FAILED_DELIVERIES = 5;
 
+/**
+ * Executor reverts that depend on the block a delivery lands in (pool price,
+ * gas left, oracle age), not on the message: a transaction that reverted on
+ * chain is put down to one of them, and not counted as a failed delivery,
+ * when the next simulation fails with it.
+ */
+const TRANSIENT_REVERTS: ReadonlySet<string> = new Set(["SwapFailed", "SwapOutOfGas", "StalePrice"]);
+
 /** First wait after a failed delivery attempt; doubles up to `MAX_RELAY_RETRY_MS`. */
 const FIRST_RELAY_RETRY_MS = 5_000;
 const MAX_RELAY_RETRY_MS = 60_000;
@@ -350,9 +358,13 @@ export class DefenseRelay {
    * spend no gas and are retried with a growing delay until the alarm
    * expires: that covers `SwapFailed`, the executor's revert when the pool
    * price is outside the owner's slippage bound, so the alarm is delivered
-   * as soon as the pool is back in line with the oracle; transactions that revert or are lost are retried up to
-   * `MAX_FAILED_DELIVERIES` times. A reverted `receiveMessage` leaves the
-   * CCTP nonce unused, so the same bytes can be delivered on a later attempt.
+   * as soon as the pool is back in line with the oracle. Transactions that
+   * revert or are lost are retried up to `MAX_FAILED_DELIVERIES` times,
+   * except a revert that the next simulation explains with one of
+   * `TRANSIENT_REVERTS` (the pool moved between simulation and inclusion):
+   * giving up on those would drop an alarm that is still deliverable. A
+   * reverted `receiveMessage` leaves the CCTP nonce unused, so the same
+   * bytes can be delivered on a later attempt.
    */
   private async deliver(alarm: Alarm, attested: AttestedMessage): Promise<void> {
     const { baseClient, baseWallet, log } = this.options;
@@ -367,7 +379,15 @@ export class DefenseRelay {
       account: baseWallet.account,
     } as const;
     let failedDeliveries = 0;
+    /** The last transaction reverted on chain and no simulation has run since. */
+    let revertedLast = false;
+    let lastFailure = "";
     let delay = FIRST_RELAY_RETRY_MS;
+    const givenUp = () => {
+      if (failedDeliveries < MAX_FAILED_DELIVERIES) return false;
+      log(`${prefix}: delivery on Base failed ${failedDeliveries} times (${lastFailure}), giving up`);
+      return true;
+    };
     const retryLater = async (what: string) => {
       log(`${prefix}: delivery on Base failed (${what}), retrying in ${Math.round(delay / 1000)} s`);
       await this.sleep(delay);
@@ -381,6 +401,9 @@ export class DefenseRelay {
       let hash: Hash;
       try {
         const { request } = await baseClient.simulateContract(call);
+        // The delivery would pass now: the last revert stays counted.
+        revertedLast = false;
+        if (givenUp()) return;
         const gas = await baseClient.estimateContractGas(call);
         hash = await this.onBase(() =>
           baseWallet.writeContract({ ...request, gas: (gas * RELAY_GAS_HEADROOM_PERCENT) / 100n }),
@@ -402,6 +425,9 @@ export class DefenseRelay {
           await this.sleep(Math.max(MIN_TOO_SOON_WAIT_MS, Number(nextAllowed) * 1000 - this.now()));
           continue;
         }
+        if (revertedLast && reverted !== null && TRANSIENT_REVERTS.has(reverted.errorName)) failedDeliveries -= 1;
+        revertedLast = false;
+        if (givenUp()) return;
         // Nothing was mined: no gas spent, so keep trying while the alarm is valid.
         await retryLater(reverted?.errorName ?? errorMessage(error));
         continue;
@@ -416,12 +442,11 @@ export class DefenseRelay {
         return;
       }
       failedDeliveries += 1;
-      const what = receipt === null ? `no receipt for ${hash} after 5 min` : `receiveMessage() reverted in ${hash}`;
-      if (failedDeliveries >= MAX_FAILED_DELIVERIES) {
-        log(`${prefix}: delivery on Base failed ${failedDeliveries} times (${what}), giving up`);
-        return;
-      }
-      await retryLater(what);
+      revertedLast = receipt !== null;
+      lastFailure = receipt === null ? `no receipt for ${hash} after 5 min` : `receiveMessage() reverted in ${hash}`;
+      // After a revert, the next simulation decides whether it counts.
+      if (!revertedLast && givenUp()) return;
+      await retryLater(lastFailure);
     }
   }
 
