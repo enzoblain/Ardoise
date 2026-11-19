@@ -27,6 +27,8 @@ struct PayView: View {
     @State private var reviewing = false
     @State private var sending = false
     @State private var sentTx: String?
+    /// A payment sent whose transaction could not be read: its user operation.
+    @State private var unconfirmed: String?
     @State private var toast: Toast?
     /// Bumped after a payment to quote again on the new position.
     @State private var quoteVersion = 0
@@ -46,6 +48,7 @@ struct PayView: View {
                 venues
                 plan
                 if let sentTx { sentCard(sentTx) }
+                if let unconfirmed { unconfirmedCard(unconfirmed) }
             }
             .padding(16)
         }
@@ -54,7 +57,10 @@ struct PayView: View {
         .safeAreaInset(edge: .bottom) { reviewBar }
         .navigationTitle("Send money")
         .toast($toast)
-        .sheet(isPresented: $reviewing) {
+        .sheet(isPresented: $reviewing, onDismiss: {
+            // An expired quote is replaced as soon as its sheet closes.
+            if quote == nil && !sending { quoteVersion += 1 }
+        }) {
             if let quote, let option = chosenOption {
                 ReviewSheet(quote: quote, option: option, payee: payee, chain: chain, memo: memo) {
                     reviewing = false
@@ -115,7 +121,9 @@ struct PayView: View {
                 if payee.isEmpty {
                     // PasteButton reads the clipboard without the system's "Allow Paste" prompt.
                     PasteButton(payloadType: String.self) { strings in
-                        payee = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let pasted = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        // The callback may run off the main thread.
+                        Task { @MainActor in payee = pasted }
                     }
                     .labelStyle(.titleOnly)
                     .buttonBorderShape(.capsule)
@@ -203,6 +211,28 @@ struct PayView: View {
         .glassSurface(cornerRadius: 22, tint: Theme.accent.opacity(0.12))
     }
 
+    /// Stays on screen, unlike a notification: the user needs it to check
+    /// the statement before paying again.
+    private func unconfirmedCard(_ userOpHash: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Payment not confirmed yet", systemImage: "clock.badge.questionmark")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.chalk)
+            Text("User operation \(Format.short(userOpHash)). Check the statement before paying again.")
+                .font(.footnote)
+                .foregroundStyle(Theme.muted)
+            Button("Done, compare the venues again") {
+                unconfirmed = nil
+                quoteVersion += 1
+            }
+            .font(.footnote.weight(.semibold))
+            .secondaryButton()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSurface(cornerRadius: 22, tint: Theme.danger.opacity(0.12))
+    }
+
     // MARK: Review
 
     private var reviewBar: some View {
@@ -253,6 +283,8 @@ struct PayView: View {
     private func requote() async {
         quote = nil
         quoteFailed = false
+        // Reset here too: the quote this one replaced no longer resets it.
+        quoting = false
         guard let amount, amount > 0, let wallet = model.wallet, let account = model.account else { return }
         quoting = true
         // A cancelled quote leaves `quoting` to the newer one that replaced it.
@@ -280,6 +312,11 @@ struct PayView: View {
               let quote, let venue = chosen, let wallet = model.wallet, let account = model.account else { return }
         sending = true
         sentTx = nil
+        unconfirmed = nil
+        // What was sent, for the confirmation: the form may change meanwhile.
+        let sentPayee = payee
+        let sentMemo = memo
+        let sentChain = chain
         Task {
             defer { sending = false }
             do {
@@ -287,21 +324,22 @@ struct PayView: View {
                 // from the form, which may have changed since it was made.
                 let data = try model.service.payViaData(
                     venue: venue, amount: quote.amount, domain: quote.domain,
-                    payee: payee, maxFee: quote.maxFee, memo: memo
+                    payee: sentPayee, maxFee: quote.maxFee, memo: sentMemo
                 )
                 let tx = try await wallet.send(to: account, data: data)
                 sentTx = tx
-                toast = .success("Sent \(Format.usdc(quote.amount)) USDC", detail: "To \(Format.short(payee)) on \(chain.rawValue).")
+                toast = .success("Sent \(Format.usdc(quote.amount)) USDC", detail: "To \(Format.short(sentPayee)) on \(sentChain.rawValue).")
                 // The quote is spent: a new payment needs a new quote.
                 self.quote = nil
-                payee = ""
-                memo = ""
+                // Clear only what was sent, never what the user typed since.
+                if payee == sentPayee { payee = "" }
+                if memo == sentMemo { memo = "" }
                 await model.refresh()
                 quoteVersion += 1
             } catch WalletError.unconfirmed(let userOpHash) {
                 // It may well have gone through: never offer the same payment again.
                 self.quote = nil
-                toast = .error("Payment not confirmed yet", detail: WalletError.unconfirmed(userOpHash).errorDescription)
+                unconfirmed = userOpHash
             } catch {
                 toast = .error("Payment failed", error)
             }
