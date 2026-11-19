@@ -216,7 +216,7 @@ contract ArdoiseAccount is IArdoise {
     }
 
     /// @inheritdoc IArdoise
-    /// @dev Reverts with `UnknownVenue` before any other check when `venue` is not in the
+    /// @dev Reverts with `UnknownVenue` before the payment checks (after the owner check) when `venue` is not in the
     /// factory's list, so the owner can never borrow through an adapter the admin did not add.
     function payVia(
         IVenue venue,

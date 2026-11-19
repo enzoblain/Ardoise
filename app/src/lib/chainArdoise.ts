@@ -121,7 +121,8 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     return { healthFactor: simulated, collateralUsd: (collateralUsd * (BPS - dropBps)) / BPS, debtUsd };
   }
 
-  // One venue's figures for `borrow`; a venue that cannot answer shows as unusable.
+  // One venue's figures for `borrow`. A failed read is reported as such, never
+  // as a guard refusal.
   async function venueOption(venue: Venue, borrow: bigint, guard: Address | null, dropBps: bigint): Promise<VenueOption> {
     const liquidityOk = venue.available >= borrow;
     try {
@@ -132,15 +133,19 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       ]);
       const healthAfter = guard === null || dropBps === 0n ? rawAfter : (rawAfter * (BPS - dropBps)) / BPS;
       return { venue, liquidityOk, allowed, healthBefore, healthAfter };
-    } catch {
-      return { venue, liquidityOk, allowed: 0n };
+    } catch (error) {
+      return { venue, liquidityOk, allowed: guard === null ? null : 0n, readError: (error as Error).message.split("\n")[0] };
     }
   }
 
   async function quote(request: PaymentRequest): Promise<PaymentQuote> {
     const borrow = request.amount + request.maxFee;
-    const guard = await guardAddress();
     const borrowable = venues.filter((v) => v.borrowable !== false);
+    // payVia checks the venue before anything else.
+    if (request.venueId !== undefined && !borrowable.some((v) => v.id === request.venueId)) {
+      return { borrow, minHealthFactor: null, options: [], error: { code: "UnknownVenue" } };
+    }
+    const guard = await guardAddress();
     const [dropBps, minHealthFactor] = await Promise.all([
       simulatedDropBps(guard),
       guard === null ? Promise.resolve(null) : read<bigint>(guard, guardAbi, "minHealthFactor"),
@@ -149,7 +154,7 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       Promise.all(borrowable.map((v) => venueOption(v, borrow, guard, dropBps))),
       read<Address>(account, accountAbi, "bestVenue", [borrow]).then(venueByAddress, () => undefined),
     ]);
-    const chosen = request.venueId === undefined ? recommended : venueById(request.venueId);
+    const chosen = request.venueId === undefined ? recommended : borrowable.find((v) => v.id === request.venueId);
     const option = chosen && options.find((o) => o.venue.id === chosen.id);
     const base: PaymentQuote = {
       borrow,
@@ -175,6 +180,8 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
 
     if (!chosen) return { ...base, error: { code: "NoVenueAvailable" } };
     if (!option) return { ...base, error: { code: "UnknownVenue" } };
+    // The chosen venue could not be read: that is a read failure, not a refusal.
+    if (option.readError !== undefined) throw new Error(`Could not read ${option.venue.name}: ${option.readError}`);
     if (!option.liquidityOk) return { ...base, error: { code: "NoVenueAvailable" } };
     if (guard === null) return { ...base, error: { code: "GuardNotSet" } };
     if (option.allowed !== null && option.allowed < borrow) {
@@ -194,6 +201,12 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     return base;
   }
 
+  function venueAddress(id: string): Address {
+    const venue = venues.find((v) => v.id === id && v.borrowable !== false);
+    if (!venue) throw new PaymentFailed({ code: "UnknownVenue" });
+    return venue.address;
+  }
+
   // `payVia` on the chosen venue, or `pay()` when the request names none.
   function payCall(request: PaymentRequest) {
     const args = payArgs(request);
@@ -203,7 +216,7 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
           address: account,
           abi: accountAbi,
           functionName: "payVia",
-          args: [venueById(request.venueId).address, ...args],
+          args: [venueAddress(request.venueId), ...args],
         } as const);
   }
 

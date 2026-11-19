@@ -91,6 +91,7 @@ export function RateComparison({
 }
 
 function GuardStatus({ option, borrow }: { option: VenueOption; borrow: bigint }) {
+  if (option.readError !== undefined) return <div className="text-xs text-faint">Could not read this venue right now</div>;
   if (!option.liquidityOk) return <div className="text-xs text-danger">Not enough liquidity for this payment</div>;
   if (option.allowed === null) return <div className="text-xs text-faint">No guard set yet</div>;
   if (venueUsable(option, borrow)) return <div className="text-xs text-chalk">Guard OK for this payment</div>;

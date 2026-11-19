@@ -99,6 +99,11 @@ export interface VenueOption {
   liquidityOk: boolean;
   /** `IGuard.checkMargin(owner, venue, borrow)`; `null` without a guard. */
   allowed: bigint | null;
+  /**
+   * Why this venue's figures could not be read (an RPC failure, a reverted
+   * read), if they could not. Never a refusal: the guard was not heard.
+   */
+  readError?: string;
   /** `health(venue)` before the payment. */
   healthBefore?: Health;
   /** Health factor on this venue after borrowing the full amount. */
@@ -114,7 +119,7 @@ export interface VenueOption {
  * @returns True when the venue can take the payment.
  */
 export function venueUsable(option: VenueOption, borrow: bigint): boolean {
-  return option.liquidityOk && (option.allowed === null || option.allowed >= borrow);
+  return option.readError === undefined && option.liquidityOk && (option.allowed === null || option.allowed >= borrow);
 }
 
 /** What `pay()` / `payVia()` would do, computed before sending it. */

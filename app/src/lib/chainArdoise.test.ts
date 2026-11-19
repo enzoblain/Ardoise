@@ -35,6 +35,8 @@ interface FakeArc {
   allowed: bigint | null;
   /** Guard answer per venue address, overriding `allowed`. */
   allowedOn: Record<Address, bigint>;
+  /** Venue whose `healthAfter` read fails, as a rate-limited RPC would. */
+  failingVenue?: Address;
   /** Function names passed to `simulateContract`. */
   simulated: string[];
   simulateError?: Error;
@@ -79,7 +81,8 @@ type SmartAccount = NonNullable<Parameters<typeof createChainArdoise>[0]["smartA
 
 function client(arc: FakeArc, options: { smartAccount?: SmartAccount; eventsUrl?: string; venues?: Venue[] } = {}) {
   const publicClient = {
-    async readContract({ functionName, args }: { functionName: string; args: readonly unknown[] }) {
+    async readContract({ address, functionName, args }: { address: Address; functionName: string; args: readonly unknown[] }) {
+      if (address === arc.failingVenue) throw new Error("rate limit exceeded");
       switch (functionName) {
         case "guard":
           return arc.guard;
@@ -250,6 +253,24 @@ describe("on-chain Ardoise client", () => {
     const quote = await account.quote(request(1_000_000n, { venueId: "morpho" }));
     expect(quote.error).toEqual({ code: "NoVenueAvailable" });
     expect(quote.options.find((o) => o.venue.id === "morpho")?.liquidityOk).toBe(false);
+  });
+
+  it("reports a venue the account cannot borrow from as UnknownVenue, before reading the chain", async () => {
+    const { account } = client(fakeArc(), { venues: [AAVE, MORPHO] });
+    const quote = await account.quote(request(1_000_000n, { venueId: "nowhere" }));
+    expect(quote.error).toEqual({ code: "UnknownVenue" });
+    await expect(account.pay(request(1_000_000n, { venueId: "nowhere" }))).rejects.toBeInstanceOf(PaymentFailed);
+  });
+
+  it("shows a failed venue read as a read error, never as a guard refusal", async () => {
+    const { account } = client(fakeArc({ failingVenue: MORPHO_ADAPTER }), { venues: [AAVE, MORPHO] });
+    // The recommended venue still quotes; Morpho is marked unread, not refused.
+    const quote = await account.quote(request(1_000_000n));
+    expect(quote.error).toBeUndefined();
+    const morpho = quote.options.find((o) => o.venue.id === "morpho")!;
+    expect(morpho.readError).toBe("rate limit exceeded");
+    // Chosen, the unread venue is a read error for the screen, not PaymentRefused.
+    await expect(account.quote(request(1_000_000n, { venueId: "morpho" }))).rejects.toThrow("Could not read Morpho");
   });
 
   it("pays through payVia on the chosen venue", async () => {
