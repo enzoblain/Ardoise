@@ -64,13 +64,13 @@ Deployed on 2026-11-19 from the `feat/morpho-venue` branch ([PR #39](https://git
 | `setVenues([AaveV4Adapter, MorphoAdapter])` | [`0x44bd18ba…`](https://explorer.arc.io/tx/0x44bd18ba4a63d6e5e40a6ca63dd22563f2eb7eb4e0bd1e68f0c41903c0a637e7) |
 | `setGuard(MarginGuard)` | [`0xb705a9ae…`](https://explorer.arc.io/tx/0xb705a9aeda83d35a55519029672efcf40136d8350b0dbaa8a9731f228a0cad13) |
 
-Checked after mining: `factory.venues()` returns both adapters in that order and `factory.guard()` returns the guard. `MorphoAdapter(factory, morpho, marketId)` was verified with constructor arguments `(0xB4476B61…B4a8, 0x34CD04070dD72b14E241112F6d83812Df5Af7fCD, 0xc2db905f174e5defcce01d321b09f15f78856a36a21b90cc7e1abbc29225815d)`. The broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadcast/Deploy.s.sol/5042/run-latest.json).
+Checked after mining: `factory.venues()` returns both adapters in that order and `factory.guard()` returns the guard. `MorphoAdapter(factory, morpho, marketId)` was verified with constructor arguments `(0xB4476B61…B4a8, 0x34CD04070dD72b14E241112F6d83812Df5Af7fCD, 0xc2db905f174e5defcce01d321b09f15f78856a36a21b90cc7e1abbc29225815d)`. The broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json` at `4a3d1cb`](https://github.com/enzoblain/Ardoise/blob/4a3d1cb/contracts/broadcast/Deploy.s.sol/5042/run-latest.json).
 
 **Demo wallet on this factory.** The project wallet's account is [`0x4d298b39F3676B07335206E7b7F042D51e787a49`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49). Its Aave V4 position (cirBTC collateral, earlier debt) is the same one the previous account borrowed against: the position belongs to the owner, not to the account. Setup on 2026-11-19: `createAccount()` [`0x6ed86354…`](https://explorer.arc.io/tx/0x6ed863546fd9069646476d1f30878b05e6f1337bb0816d764f5894b88195365f); `approveBorrow(MainSpoke, 0, AaveV4Adapter, 60 USDC)` [`0x74c9bf1e…`](https://explorer.arc.io/tx/0x74c9bf1ef5bfc875121b32597a190b7578b751f52f1752d8de4d82654b0c7816); 2,500 sats of cirBTC withdrawn from Aave V4 [`0x36c8b626…`](https://explorer.arc.io/tx/0x36c8b6264a33385a0e5ff54822a319c84938901d7ffe0903dcf872f26628233b), approved [`0xb8e89faf…`](https://explorer.arc.io/tx/0xb8e89faf330a20d41bd0eccfe201d3f03c74abc4f34c0d3f4d2104a3c64d5535) and supplied as collateral on Morpho [`0x0c56da58…`](https://explorer.arc.io/tx/0x0c56da5808227e97e33f1720293714269148d327ab38b9807d52d856e98c25e2); `Morpho.setAuthorization(MorphoAdapter, true)` [`0xa37ebe5b…`](https://explorer.arc.io/tx/0xa37ebe5b6883fe699904dd90ef0921ef995e366d2342e3e266e10d49a8948c8f).
 
 **`payVia` on mainnet.** With Aave V4 at 3.11% and Morpho at 4.04%, `bestVenue(0.10 USDC)` returns the Aave V4 adapter. Two payments of 0.10 USDC on Arc to the owner, one per venue: `payVia(AaveV4Adapter, …)` opened line #1 [`0xd644175e…`](https://explorer.arc.io/tx/0xd644175e6ff3de535a4db46248ffbdd8dbf0eec4ac88aaaf0f26dddcffe7e1aa) (Aave V4 health factor 3.009 → 2.586), `payVia(MorphoAdapter, …)` opened line #2 [`0x22c73905…`](https://explorer.arc.io/tx/0x22c7390583ce2d2d66c9a594775bdc9af4e5c654c2840e4fcd1daf5af682ca14) on the venue that is not the cheapest (Morpho debt 0.100001 USDC, health factor 13.47).
 
-The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so a separate pair was deployed for this factory (see *CCTP-attested defense*, *Current*).
+The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so a separate pair was deployed for this factory (see *CCTP-attested defense*, *Previous*).
 
 The Gateway standing orders recorded in the B3 run were signed for the previous account (`0xdcB201E7…`), and the keeper only submits an order whose recipient is the account it defends. The automatic Gateway repayment therefore needs new standing orders signed for `0x4d298b39…` before it can run again on this factory.
 
@@ -209,7 +209,7 @@ From the keeper's first simulated reading (23:11:40 UTC) to the confirmed `sweep
 The keeper's third defense step, in [`keeper/src/defense.ts`](../keeper/src/defense.ts). It is off while `DEFENSE_ALARM_ADDRESS` is empty. When it is on, the keeper runs, for each account on each pass:
 
 1. `sweep()` when the account holds USDC (B2).
-2. The owner's Gateway standing orders when the position is under the guard's minimum and the account holds nothing to repay with (B4). The orders submitted never add up to more than the owner's debt on every venue less the USDC already on the account: an account has no withdrawal, so an order larger than that is skipped and logged (`standing order … skipped: larger than the debt left to repay`).
+2. The owner's Gateway standing orders when the position is under the guard's minimum and the account holds nothing to repay with (B4). The orders submitted never add up to more than the owner's debt on every venue less the USDC already on the account: accounts of the earlier factories have no withdrawal, so an order larger than that is skipped and logged (`standing order … skipped: larger than the debt left to repay`).
 3. When the position is still under the minimum, the account still holds nothing to repay with and Gateway is not covering the shortfall (no transfer on its way or settled in the last minute: no order left, every order left larger than the debt left to repay, or Gateway refused them, for example for a reserve too low), the defense relay:
    - simulates `DefenseAlarm.raise(owner)` on Arc. `CoolingDown(nextAllowed)`: nothing is sent until `nextAllowed`. `PositionHealthy`: the alarm does not see a shortfall, because the balance on the account restores the position or because the alarm judges the position differently (a production alarm ignores the guard's simulated drop, and every alarm keeps the thresholds it pinned at deployment), so the keeper calls `sweep()` on the account directly. Any other revert holds `raise` for that owner for 1 minute, doubling up to 1 hour;
    - sends `raise(owner)` with 30% gas headroom (the alarm's own `sweep()` reverts with `SweepOutOfGas` on a tight estimate) and follows that transaction until it has a receipt (the owner stays on hold meanwhile, so a slow `raise` is never sent twice; without a receipt after 5 minutes it is treated as lost and `raise` is held as after a failure), then reads `AlarmRaised` from the receipt;
@@ -265,16 +265,16 @@ Deployed on 2026-11-19 from `main` at [`9aeb073`](https://github.com/enzoblain/A
 | Deploy the production `DefenseAlarm` (Arc, `DEFENSE_HONORS_SIMULATION=false`) | [`0x02e539a5…`](https://explorer.arc.io/tx/0x02e539a5a8cb2ca0d8aed37cc16a92809618420f2c31ed409055cc3f552326d7) | 32033492 |
 | Deploy the demo `DefenseExecutor` (Base) | [`0xc51aed79…`](https://basescan.org/tx/0xc51aed7941d6603ccbe56e798dde79d267e4b27539d20dfb363cd4c4d3f15bb7) | 59457240 |
 | Deploy the production `DefenseExecutor` (Base) | [`0xe7d1031e…`](https://basescan.org/tx/0xe7d1031ef22a3faa5d5721e8f49147f1c90b6af38b5e498eab766099b0497051) | 59457284 |
-| Demo `alarm.setExecutor` (Arc) | [`0x867ae679…`](https://explorer.arc.io/tx/0x867ae6791ddd6338ce456bf0688d40ed53365e7d4a9608bd66c2e787490e1dff) | |
-| Production `alarm.setExecutor` (Arc) | [`0xd0cea2b5…`](https://explorer.arc.io/tx/0xd0cea2b50fb559111fa3082c200f7cb4da79d1ad4d018212bb16b8110f939905) | |
-| Demo wallet policy on the demo executor (Base): `WETH.approve(executor, 0.0002e18)` | [`0x569ba364…`](https://basescan.org/tx/0x569ba3640511b00c0911946530a2b1b0669fdb1692e73e68aac25e9d9fef9a1f) | |
-| Demo wallet policy on the demo executor (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0xf2dea5e9…`](https://basescan.org/tx/0xf2dea5e9aff5514346a5a9d29b1ae11b92787bc2bd55e2756ba2b07c5c0a561b) | |
+| Demo `alarm.setExecutor` (Arc) | [`0x867ae679…`](https://explorer.arc.io/tx/0x867ae6791ddd6338ce456bf0688d40ed53365e7d4a9608bd66c2e787490e1dff) | 32033589 |
+| Production `alarm.setExecutor` (Arc) | [`0xd0cea2b5…`](https://explorer.arc.io/tx/0xd0cea2b50fb559111fa3082c200f7cb4da79d1ad4d018212bb16b8110f939905) | 32033602 |
+| Demo wallet policy on the demo executor (Base): `WETH.approve(executor, 0.0002e18)` | [`0x569ba364…`](https://basescan.org/tx/0x569ba3640511b00c0911946530a2b1b0669fdb1692e73e68aac25e9d9fef9a1f) | 59457451 |
+| Demo wallet policy on the demo executor (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0xf2dea5e9…`](https://basescan.org/tx/0xf2dea5e9aff5514346a5a9d29b1ae11b92787bc2bd55e2756ba2b07c5c0a561b) | 59457456 |
 
-Checked after mining, on both alarms: `venues()` returns `[AaveV4Adapter, MorphoAdapter]` of the current factory, `minHealthFactor()` 1.25e18, `targetHealthFactor()` 1.5e18, `honorsSimulation()` true for the demo alarm and false for the production one, `executor()` the paired executor, and each executor's `alarm()` its alarm. `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` on both (the alarm finds the account and the position is above the minimum). No policy is set on the production executor. The `run-latest.json` files under [`broadcast/DeployDefense.s.sol/`](broadcast/DeployDefense.s.sol/) hold the last run on each chain: the production executor (Base) and the production `setExecutor` (Arc).
+Checked after mining, on both alarms: `venues()` returns `[AaveV4Adapter, MorphoAdapter]` of the current factory, `minHealthFactor()` 1.25e18, `targetHealthFactor()` 1.5e18, `honorsSimulation()` true for the demo alarm and false for the production one, `executor()` the paired executor, and each executor's `alarm()` its alarm. `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` on both (the alarm finds the account and the position is above the minimum). No policy is set on the production executor. The demo policy lists USDC first, but the demo wallet holds no USDC on Base and granted the executor no USDC allowance: only its WETH (about 0.00006 WETH, approved up to 0.0002) can be spent. The `run-latest.json` files under [`broadcast/DeployDefense.s.sol/`](broadcast/DeployDefense.s.sol/) hold the last run on each chain: the production executor (Base) and the production `setExecutor` (Arc).
 
 ### Previous: for the factory with the Morpho venue
 
-Deployed on 2026-11-19 from commit [`7791d59`](https://github.com/enzoblain/Ardoise/commit/7791d59) (same contract sources as the previous pair) with [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol), by the project wallet, for the factory [`0xB4476B61…`](https://explorer.arc.io/address/0xB4476B617B750B9f48786c60930bc499343BB4a8), with the same settings as the previous pair (cooldown 1800 s, alarm TTL 900 s; executor: fast burns, price age 1500 s, minimum interval 2400 s).
+Deployed on 2026-11-19 from commit [`7791d59`](https://github.com/enzoblain/Ardoise/commit/7791d59) (same contract sources as the first factory's pair) with [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol), by the project wallet, for the factory [`0xB4476B61…`](https://explorer.arc.io/address/0xB4476B617B750B9f48786c60930bc499343BB4a8), with the same settings as the first factory's pair (cooldown 1800 s, alarm TTL 900 s; executor: fast burns, price age 1500 s, minimum interval 2400 s).
 
 | Contract | Chain | Address | Source verification |
 |----------|-------|---------|---------------------|
@@ -289,7 +289,7 @@ Deployed on 2026-11-19 from commit [`7791d59`](https://github.com/enzoblain/Ardo
 | Owner policy (Base): `WETH.approve(executor, 0.0002e18)` | [`0x9f786c41…`](https://basescan.org/tx/0x9f786c419a14c8c2377fc9f540fec15da06b1a4d38cfbead2546ceeb0b7eebdf) | 59432665 | 46,019 | |
 | Owner policy (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0x878f698a…`](https://basescan.org/tx/0x878f698a58abfd59cd3ed165592397b3db1e228e33c46c08ffb927868d9d85dd) | 59432670 | 211,307 | |
 
-Checked after mining: `alarm.factory()` returns the Morpho factory, `alarm.executor()` the executor and `executor.alarm()` the alarm. A call to `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` (the alarm finds its account [`0x4d298b39…`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49) and the position is above the minimum), not `NoAccount`. The broadcasts are in [`broadcast/DeployDefense.s.sol/8453/run-latest.json`](broadcast/DeployDefense.s.sol/8453/run-latest.json) (executor) and [`broadcast/DeployDefense.s.sol/5042/run-latest.json`](broadcast/DeployDefense.s.sol/5042/run-latest.json) (`setExecutor`; the alarm deployment is listed above).
+Checked after mining: `alarm.factory()` returns the Morpho factory, `alarm.executor()` the executor and `executor.alarm()` the alarm. A call to `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` (the alarm finds its account [`0x4d298b39…`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49) and the position is above the minimum), not `NoAccount`. The broadcasts are in `broadcast/DeployDefense.s.sol/` at [`49f096a`](https://github.com/enzoblain/Ardoise/tree/49f096a/contracts/broadcast/DeployDefense.s.sol): `8453/run-latest.json` (executor) and `5042/run-latest.json` (`setExecutor`; the alarm deployment is listed above).
 
 ### Keeper run with no manual step (2026-11-19)
 
@@ -352,17 +352,17 @@ Timing (block timestamps): `raise` mined → attestation complete: under 9 s (po
 
 ### How to deploy
 
-From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Each pair above cost about 0.02 USDC on Arc and 0.000012 ETH on Base (see the tables above). These commands deployed the two current pairs on 2026-11-19 (the demo pair with `DEFENSE_HONORS_SIMULATION=true`).
+From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Each pair cost about 0.02 to 0.03 USDC on Arc and about 0.000012 ETH on Base (see the tables above). These commands deployed the two current pairs on 2026-11-19 (the demo pair with `DEFENSE_HONORS_SIMULATION=true`).
 
 The alarm pins `factory.venues()` and the thresholds of `factory.guard()` as they are in the deployment block, for good. The script refuses to deploy unless the guard's thresholds, and then the alarm's pinned ones, equal `DEFENSE_EXPECTED_MIN_HEALTH_FACTOR` and `DEFENSE_EXPECTED_TARGET_HEALTH_FACTOR` (defaults `1.25e18` and `1.5e18`, the deployed guard's values), so thresholds changed on the guard just before the deployment cannot be pinned silently. The venue list has no such check: read it on the factory before step 1, read it back from the alarm after it (the script logs it too), and stop if anything differs from the adapters in the tables above. An alarm cannot be corrected, only replaced.
 
 ```sh
 set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
 # 0. Arc: what the alarm is about to pin
-cast call 0xB4476B617B750B9f48786c60930bc499343BB4a8 "venues()(address[])" --rpc-url https://rpc.mainnet.arc.io
-cast call 0xB4476B617B750B9f48786c60930bc499343BB4a8 "guard()(address)" --rpc-url https://rpc.mainnet.arc.io
+cast call 0x96359511A27830eDa8B5c663fE451eCf11ae1449 "venues()(address[])" --rpc-url https://rpc.mainnet.arc.io
+cast call 0x96359511A27830eDa8B5c663fE451eCf11ae1449 "guard()(address)" --rpc-url https://rpc.mainnet.arc.io
 # 1. Arc: the production alarm, for the current factory (never hard-coded: pass it)
-DEFENSE_FACTORY=0xB4476B617B750B9f48786c60930bc499343BB4a8 DEFENSE_HONORS_SIMULATION=false \
+DEFENSE_FACTORY=0x96359511A27830eDa8B5c663fE451eCf11ae1449 DEFENSE_HONORS_SIMULATION=false \
   forge script script/DeployDefense.s.sol:DeployDefenseAlarm --rpc-url https://rpc.mainnet.arc.io --broadcast
 cast call <alarm> "venues()(address[])" --rpc-url https://rpc.mainnet.arc.io            # both adapters, in order
 cast call <alarm> "minHealthFactor()(uint256)" --rpc-url https://rpc.mainnet.arc.io     # 1250000000000000000
@@ -377,7 +377,7 @@ DEFENSE_ALARM_ADDRESS=<alarm> DEFENSE_EXECUTOR_ADDRESS=<executor> \
 # Sources (Sourcify supports both chains)
 forge verify-contract <alarm> src/defense/DefenseAlarm.sol:DefenseAlarm --chain-id 5042 --verifier sourcify \
   --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64,bool)" \
-    0xB4476B617B750B9f48786c60930bc499343BB4a8 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900 false)
+    0x96359511A27830eDa8B5c663fE451eCf11ae1449 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900 false)
 forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor --chain-id 8453 --verifier sourcify \
   --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256,uint256),(address,address,uint24)[])" \
     "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500,2400)" \
@@ -395,7 +395,7 @@ For the hackathon, one address holds every privileged role on the contracts abov
 | Contract | Role | Holder | What the role can do |
 |----------|------|--------|----------------------|
 | `ArdoiseFactory` `0x96359511…1449` (current), `0xB4476B61…B4a8` and `0xb44DD865…92bD` (earlier) | `admin` | project wallet | `setVenues`: replace the venue list every account of that factory borrows from and repays to. `setGuard`: replace the guard, or remove it, which stops payments |
-| `MarginGuard` `0xEBAC5C07…f080` (set on both factories) | `owner` | project wallet | `setThresholds`: change the minimum and target health factors, with no upper bound. `setSimulatedDrop`: make the guard, the keeper and the defense alarm reason as if the collateral had lost up to 90% of its value |
+| `MarginGuard` `0xEBAC5C07…f080` (set on all three factories) | `owner` | project wallet | `setThresholds`: change the minimum and target health factors, with no upper bound. `setSimulatedDrop`: make the guard, the keeper and the defense alarm reason as if the collateral had lost up to 90% of its value |
 | Every `DefenseAlarm` above | `deployer` | project wallet | `setExecutor`, once. It was used on each alarm (tables above), so the role has no power left |
 | Every `DefenseExecutor` above (Base) | none | | No admin and no owner |
 | `ArdoiseAccount` | `owner` | the wallet that created it | Pay, change its own caps; no project role |
