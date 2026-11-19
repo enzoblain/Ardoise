@@ -286,18 +286,29 @@ test("retries an order refused for a lack of balance after a delay, and drops a 
   assert.ok(logs.slice(before).some((line) => line.includes("Insufficient balance")), "retried after the delay");
 });
 
+/**
+ * A fetch that never answers and rejects only when its request times out.
+ * `AbortSignal.timeout` uses an unreferenced timer, so on Node 22 nothing
+ * would keep the event loop alive and the test runner would cancel the test;
+ * the referenced timer here stands in for the open socket of a real request.
+ */
+const hangingFetch: Fetch = (_url, init) =>
+  new Promise((_resolve, reject) => {
+    const keepAlive = setTimeout(() => {}, 60_000);
+    init?.signal?.addEventListener("abort", () => {
+      clearTimeout(keepAlive);
+      reject(init.signal!.reason);
+    });
+  });
+
 test("does not hang when Gateway never answers", async () => {
-  const hanging: Fetch = (_url, init) =>
-    new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
-  const { instance, logs } = funder(hanging, [order(5n * USDC)]);
+  const { instance, logs } = funder(hangingFetch, [order(5n * USDC)]);
   await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   assert.ok(logs.some((line) => line.includes("not used") && line.includes("retrying")));
 });
 
 test("holds the account after a submission with no answer, then draws again", async () => {
-  const hanging: Fetch = (_url, init) =>
-    new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
-  const { instance, logs, clock } = funder(hanging, [order(5n * USDC), order(5n * USDC)]);
+  const { instance, logs, clock } = funder(hangingFetch, [order(5n * USDC), order(5n * USDC)]);
   await instance.fund(OWNER, ACCOUNT, 5n * USDC, DEBT);
   const attempts = logs.filter((line) => line.includes("not used")).length;
   clock.now = 60_000;
