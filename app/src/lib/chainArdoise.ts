@@ -199,6 +199,11 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       return guard === null ? null : read<bigint>(guard, guardAbi, "minHealthFactor");
     },
 
+    async targetHealthFactor() {
+      const guard = await guardAddress();
+      return guard === null ? null : read<bigint>(guard, guardAbi, "targetHealthFactor");
+    },
+
     async simulatedDropBps() {
       return Number(await simulatedDropBps(await guardAddress()));
     },
