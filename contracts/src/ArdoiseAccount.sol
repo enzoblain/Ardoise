@@ -10,8 +10,8 @@ import {IGuard} from "./interfaces/IGuard.sol";
 import {IVenue} from "./interfaces/IVenue.sol";
 
 /// @title ArdoiseAccount
-/// @notice A user's Ardoise account: each `pay()` borrows exactly what the payment needs on the
-/// cheapest venue, once the guard has checked the margin, delivers it on Arc or through CCTP
+/// @notice A user's Ardoise account: each payment borrows exactly what it needs on the venue the
+/// owner picks (`payVia`) or the cheapest one (`pay`), once the guard has checked the margin, delivers it on Arc or through CCTP
 /// with Circle's Forwarding Service, and records one debt line.
 /// @dev Deployed by `ArdoiseFactory`, one per owner. The collateral position stays in the owner's
 /// wallet; the account only borrows within the allowances the owner granted to each venue
@@ -203,76 +203,31 @@ contract ArdoiseAccount is IArdoise {
         if (address(venue) == address(0)) revert NoVenueAvailable(amount);
     }
 
-    // Every external call goes to the admin-set venue and guard, USDC or CCTP, inside the
-    // non-reentrant lock; the line can only be written once the venue has sent the tokens.
-    // forge-lint: disable-next-item(reentrancy-no-eth, reentrancy-events, unused-return)
     /// @inheritdoc IArdoise
-    /// @dev Also reverts with `GuardNotSet` while the factory has no guard, with `ZeroAmount`, with `FeeOnArc` when `maxFee` is not 0 for a payment
-    /// on Arc, and with `BorrowShortfall` if the venue sends less than `amount + maxFee`. Payees
-    /// on the known non-EVM CCTP domains (Noble 4, Solana 5, Sui 8, Aptos 9) may use all 32
-    /// bytes; every other domain needs a left-padded EVM address. A payment to another chain
-    /// burns `amount + maxFee` through CCTP with the Forwarding Service, which mints on the
-    /// destination without the payee paying gas; anything the venue sends beyond that stays in
-    /// the account for `sweep()`.
+    /// @dev Same checks, delivery and reverts as `payVia`, on the venue `bestVenue(amount + maxFee)`
+    /// returns; the caps are checked before the venue is chosen.
     function pay(uint256 amount, uint32 destinationDomain, bytes32 payee, uint256 maxFee, string calldata memo)
         external
         nonReentrant
         onlyOwner
         returns (uint256 lineId)
     {
-        if (amount == 0) revert ZeroAmount();
-        if (destinationDomain == ARC && maxFee != 0) revert FeeOnArc(maxFee);
-        _checkPayee(destinationDomain, payee);
-        uint256 total = amount + maxFee;
-        _spend(total);
+        return _pay(IVenue(address(0)), amount, destinationDomain, payee, maxFee, memo);
+    }
 
-        IVenue venue = bestVenue(total);
-        IGuard currentGuard = guard();
-        if (address(currentGuard) == address(0)) revert GuardNotSet();
-        uint256 allowed = currentGuard.checkMargin(owner, venue, total);
-        if (allowed < total) revert PaymentRefused(total, allowed);
-        // Capped at type(uint32).max first, so the cast cannot truncate.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint32 rateBps = uint32(_min(venue.rate(), type(uint32).max));
-
-        uint256 balanceBefore = usdc.balanceOf(address(this));
-        venue.borrow(owner, total);
-        uint256 borrowed = usdc.balanceOf(address(this)) - balanceBefore;
-        if (borrowed < total) revert BorrowShortfall(total, borrowed);
-
-        _lines.push(
-            Line({
-                venue: venue,
-                principal: borrowed,
-                repaid: 0,
-                rateBps: rateBps,
-                destinationDomain: destinationDomain,
-                // forge-lint: disable-next-line(unsafe-typecast)
-                openedAt: uint64(block.timestamp), // fits until the year 584 billion
-                closed: false,
-                payee: payee,
-                memo: memo
-            })
-        );
-        lineId = _lines.length;
-
-        if (destinationDomain == ARC) {
-            _call(usdc.transfer(address(uint160(uint256(payee))), total));
-        } else {
-            _call(usdc.approve(address(tokenMessenger), total));
-            tokenMessenger.depositForBurnWithHook(
-                total,
-                destinationDomain,
-                payee,
-                address(usdc),
-                bytes32(0),
-                maxFee,
-                minFinalityThreshold,
-                abi.encodePacked(FORWARD_HOOK)
-            );
-        }
-
-        emit Paid(lineId, venue, amount, maxFee, borrowed, rateBps, destinationDomain, payee, memo);
+    /// @inheritdoc IArdoise
+    /// @dev Reverts with `UnknownVenue` before any other check when `venue` is not in the
+    /// factory's list, so the owner can never borrow through an adapter the admin did not add.
+    function payVia(
+        IVenue venue,
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 payee,
+        uint256 maxFee,
+        string calldata memo
+    ) external nonReentrant onlyOwner returns (uint256 lineId) {
+        if (address(venue) == address(0) || !_isVenue(venue)) revert UnknownVenue(venue);
+        return _pay(venue, amount, destinationDomain, payee, maxFee, memo);
     }
 
     // ----- Repayments -----
@@ -350,6 +305,96 @@ contract ArdoiseAccount is IArdoise {
     }
 
     // ----- Internals -----
+
+    // Every external call goes to the admin-set venue and guard, USDC or CCTP, inside the
+    // non-reentrant lock; the line can only be written once the venue has sent the tokens.
+    // forge-lint: disable-next-item(reentrancy-no-eth, reentrancy-events, unused-return)
+    /// @dev Shared by `pay` and `payVia`: `venue` is the zero address for `pay`, which then takes
+    /// `bestVenue`. Reverts with `ZeroAmount`, `FeeOnArc` when `maxFee` is not 0 for a payment on
+    /// Arc, `InvalidPayee`, `CapExceeded`, `NoVenueAvailable` (also when the chosen venue lacks
+    /// the liquidity), `GuardNotSet` while the factory has no guard, `PaymentRefused`, and
+    /// `BorrowShortfall` if the venue sends less than `amount + maxFee`. Payees on the known
+    /// non-EVM CCTP domains (Noble 4, Solana 5, Sui 8, Aptos 9) may use all 32 bytes; every other
+    /// domain needs a left-padded EVM address. A payment to another chain burns `amount + maxFee`
+    /// through CCTP with the Forwarding Service, which mints on the destination without the payee
+    /// paying gas; anything the venue sends beyond that stays in the account for `sweep()`.
+    function _pay(
+        IVenue venue,
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 payee,
+        uint256 maxFee,
+        string calldata memo
+    ) private returns (uint256 lineId) {
+        if (amount == 0) revert ZeroAmount();
+        if (destinationDomain == ARC && maxFee != 0) revert FeeOnArc(maxFee);
+        _checkPayee(destinationDomain, payee);
+        uint256 total = amount + maxFee;
+        _spend(total);
+
+        if (address(venue) == address(0)) {
+            venue = bestVenue(total);
+        } else if (venue.available() < total) {
+            revert NoVenueAvailable(total);
+        }
+        IGuard currentGuard = guard();
+        if (address(currentGuard) == address(0)) revert GuardNotSet();
+        uint256 allowed = currentGuard.checkMargin(owner, venue, total);
+        if (allowed < total) revert PaymentRefused(total, allowed);
+        // Capped at type(uint32).max first, so the cast cannot truncate.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint32 rateBps = uint32(_min(venue.rate(), type(uint32).max));
+
+        uint256 balanceBefore = usdc.balanceOf(address(this));
+        venue.borrow(owner, total);
+        uint256 borrowed = usdc.balanceOf(address(this)) - balanceBefore;
+        if (borrowed < total) revert BorrowShortfall(total, borrowed);
+
+        _lines.push(
+            Line({
+                venue: venue,
+                principal: borrowed,
+                repaid: 0,
+                rateBps: rateBps,
+                destinationDomain: destinationDomain,
+                // forge-lint: disable-next-line(unsafe-typecast)
+                openedAt: uint64(block.timestamp), // fits until the year 584 billion
+                closed: false,
+                payee: payee,
+                memo: memo
+            })
+        );
+        lineId = _lines.length;
+
+        if (destinationDomain == ARC) {
+            _call(usdc.transfer(address(uint160(uint256(payee))), total));
+        } else {
+            _call(usdc.approve(address(tokenMessenger), total));
+            tokenMessenger.depositForBurnWithHook(
+                total,
+                destinationDomain,
+                payee,
+                address(usdc),
+                bytes32(0),
+                maxFee,
+                minFinalityThreshold,
+                abi.encodePacked(FORWARD_HOOK)
+            );
+        }
+
+        emit Paid(lineId, venue, amount, maxFee, borrowed, rateBps, destinationDomain, payee, memo);
+    }
+
+    // The venue list is admin-set and short.
+    // forge-lint: disable-next-item(calls-loop)
+    /// @dev Whether `venue` is in the factory's venue list.
+    function _isVenue(IVenue venue) private view returns (bool) {
+        IVenue[] memory list = venues();
+        for (uint256 i = 0; i < list.length; ++i) {
+            if (list[i] == venue) return true;
+        }
+        return false;
+    }
 
     // Only reached from `repay` and `sweep`, both non-reentrant.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events, block-timestamp)

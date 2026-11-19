@@ -84,6 +84,10 @@ interface IArdoise {
     /// @param amount Amount that could not be borrowed, fees included.
     error NoVenueAvailable(uint256 amount);
 
+    /// @notice Thrown by `payVia` when the venue is not in the factory's venue list.
+    /// @param venue The rejected venue.
+    error UnknownVenue(IVenue venue);
+
     /// @notice Thrown when a debt line does not exist.
     /// @param lineId The unknown identifier.
     error UnknownLine(uint256 lineId);
@@ -122,7 +126,8 @@ interface IArdoise {
     /// @return venue Chosen venue; reverts with `NoVenueAvailable` if none qualifies.
     function bestVenue(uint256 amount) external view returns (IVenue venue);
 
-    /// @notice Pays `amount` USDC to `payee` on `destinationDomain`, borrowing it on the best venue.
+    /// @notice Pays `amount` USDC to `payee` on `destinationDomain`, borrowing it on the best venue
+    /// (`bestVenue(amount + maxFee)`); same as `payVia` on that venue.
     /// @dev Owner only, non-reentrant. Borrows `amount + maxFee`; with CCTP the payee receives at
     /// least `amount` (the unused part of `maxFee` reaches the payee too). Caps apply to
     /// `amount + maxFee`. Reverts with `NotOwner`, `InvalidPayee` (zero, or upper 12 bytes not
@@ -136,6 +141,28 @@ interface IArdoise {
     function pay(uint256 amount, uint32 destinationDomain, bytes32 payee, uint256 maxFee, string calldata memo)
         external
         returns (uint256 lineId);
+
+    /// @notice Pays `amount` USDC to `payee` on `destinationDomain`, borrowing it on `venue`, the
+    /// venue the owner chose (the app recommends the cheapest, `bestVenue`).
+    /// @dev Same as `pay` with the venue fixed: the same caps, guard check on `venue`, debt line
+    /// and `Paid` event. Owner only, non-reentrant. Reverts with `UnknownVenue` if `venue` is not
+    /// in the factory's list, `NoVenueAvailable` if its `available()` is below `amount + maxFee`,
+    /// `PaymentRefused` if the guard allows less there, and with the other errors of `pay`.
+    /// @param venue Venue to borrow from, one of `venues()`.
+    /// @param amount Amount the payee must receive, in USDC.
+    /// @param destinationDomain CCTP domain of the payee's chain, `ARC_DOMAIN()` for Arc.
+    /// @param payee Payee address as bytes32 (left-padded EVM address).
+    /// @param maxFee Maximum CCTP fee (protocol + forwarder), in USDC; 0 for Arc.
+    /// @param memo Free text stored on the debt line.
+    /// @return lineId Identifier of the new debt line.
+    function payVia(
+        IVenue venue,
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 payee,
+        uint256 maxFee,
+        string calldata memo
+    ) external returns (uint256 lineId);
 
     /// @notice Repays up to `amount` of a debt line, pulling USDC from the caller.
     /// @dev Anyone may repay. The caller must have approved the account for `amount`. Reverts

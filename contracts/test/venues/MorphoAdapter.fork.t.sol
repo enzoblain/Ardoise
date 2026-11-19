@@ -19,6 +19,15 @@ import {
 import {IMorpho, MarketParams} from "../../src/venues/morpho/IMorpho.sol";
 import {ArcBlocklistMock, ArcNativeCoinMock} from "../mocks/ArcNativeCoinMock.sol";
 
+/// @dev The Aave V4 calls a user makes once to supply collateral and let Ardoise borrow, which the
+/// adapter itself never needs.
+interface IAaveV4UserSetup {
+    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
+    function setUsingAsCollateral(uint256 reserveId, bool usingAsCollateral, address onBehalfOf) external;
+    function setUserPositionManager(address positionManager, bool approve) external;
+    function approveBorrow(address spoke, uint256 reserveId, address spender, uint256 amount) external;
+}
+
 /// @notice Ardoise with both adapters against the real Arc mainnet contracts, on a fork.
 /// @dev Skipped unless `ARC_FORK_URL` is set (an Arc mainnet RPC endpoint), so `forge test` stays
 /// offline by default: `ARC_FORK_URL=https://rpc.blockdaemon.mainnet.arc.io forge test --match-contract Fork`.
@@ -101,6 +110,28 @@ contract MorphoAdapterForkTest is Test {
         assertApproxEqAbs(morpho.debtOf(user), 5e6, 1);
         assertLt(morpho.healthAfter(user, 0), type(uint256).max);
         assertGe(morpho.healthAfter(user, 0), 1.25e18);
+    }
+
+    function test_fork_payViaMorphoWhileAaveIsCheaperAndAllowed() public {
+        // The user also has collateral on Aave V4, so `pay()` would borrow there; they choose Morpho.
+        vm.skip(aave.rate() >= morpho.rate());
+        deal(CIRBTC, user, 100_000);
+        vm.startPrank(user);
+        IERC20(CIRBTC).approve(AAVE_MAIN_SPOKE, 100_000);
+        IAaveV4UserSetup(AAVE_MAIN_SPOKE).supply(2, 100_000, user);
+        IAaveV4UserSetup(AAVE_MAIN_SPOKE).setUsingAsCollateral(2, true, user);
+        IAaveV4UserSetup(AAVE_MAIN_SPOKE).setUserPositionManager(AAVE_TAKER, true);
+        IAaveV4UserSetup(AAVE_TAKER).approveBorrow(AAVE_MAIN_SPOKE, 0, address(aave), 20e6);
+        vm.stopPrank();
+        assertEq(address(account.bestVenue(5e6)), address(aave));
+
+        address payee = makeAddr("payee");
+        vm.prank(user);
+        uint256 lineId = account.payVia(morpho, 5e6, ARC, bytes32(uint256(uint160(payee))), 0, "chosen");
+        assertEq(IERC20(USDC).balanceOf(payee), 5e6);
+        assertApproxEqAbs(morpho.debtOf(user), 5e6, 1);
+        assertEq(aave.debtOf(user), 0);
+        assertEq(address(account.line(lineId).venue), address(morpho));
     }
 
     function test_fork_refusesWhatTheGuardRefusesOnMorpho() public {
