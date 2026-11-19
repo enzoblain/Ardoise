@@ -27,7 +27,7 @@ struct RootView: View {
             case .signedOut:
                 SignInView()
             case .loading:
-                ProgressView("Reading your account on Arc…")
+                ProgressView("Signing in…")
                     .foregroundStyle(Theme.muted)
             case .needsActivation:
                 ActivateView()
