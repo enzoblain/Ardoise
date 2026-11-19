@@ -4,6 +4,10 @@ Addresses of the Ardoise contracts. The app (C4) and the keeper (B2) read them f
 
 ## Arc mainnet (chain id 5042)
 
+### Not deployed: accepted venues
+
+`ArdoiseAccount` in the repository only borrows from, approves and pays venues its owner accepted (`acceptVenue`, `revokeVenue`, `acceptedVenues()`, see *Accepted venues* in [`docs/api.md`](../docs/api.md)). This fixes a finding of the security review: on the factories below, a venue the admin lists later is used by every existing account, and `sweep()` would pay it the account's USDC for whatever debt it reports. **None of the contracts below has this change.** The factory embeds the account's bytecode, so it takes a new factory (`script/Deploy.s.sol` with `ARDOISE_GUARD`, as for the Morpho factory), new accounts, and a new defense alarm and executor for that factory; the venue adapters read their factory as an immutable and are redeployed with it, so every user grants the new adapters their borrow allowance or authorization again. Accounts already created keep the earlier behaviour for good: they cannot be upgraded. On a new factory, set the venue list before any account is created, since an account accepts the list of that moment and every later venue needs its owner's `acceptVenue`.
+
 ### Current: factory with the Morpho venue (PR #39)
 
 Deployed on 2026-11-19 from the `feat/morpho-venue` branch ([PR #39](https://github.com/enzoblain/Ardoise/pull/39), main merged in) with [`script/Deploy.s.sol`](script/Deploy.s.sol) and `ARDOISE_GUARD` set to the existing guard, in block [31976642](https://explorer.arc.io/block/31976642), by the project wallet (factory admin). Same constructor arguments as below (caps 10 / 20 USDC, finality 2000); the factory lists two venues, Aave V4 then Morpho, and accounts created here have `payVia(venue, …)`. Accounts of the previous factory keep working but are not the ones the app and the keeper read. Gas: 0.162 USDC.
