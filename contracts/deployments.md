@@ -182,7 +182,7 @@ The keeper never chooses an amount or a recipient: the alarm measures the shortf
 | `BASE_RPC_URL` | Base endpoint for `receiveMessage`; empty uses the public Base RPC |
 | `KEEPER_PRIVATE_KEY` | Same key on both chains; the wallet needs a little ETH on Base. Empty: dry run, the keeper logs the alarm it would raise and sends nothing |
 
-At start, with the relay on, the keeper logs the alarm address and its wallet's address and ETH balance on Base. Status: built and covered by tests (`keeper/src/defense.test.ts`); not yet run against the mainnet contracts, which are not deployed.
+At start, with the relay on, the keeper logs the alarm address and its wallet's address and ETH balance on Base. Status: covered by tests (`keeper/src/defense.test.ts`) and running on mainnet since 2026-11-19 with the alarm for the Morpho factory; it relayed a live alarm alone on 2026-11-19 (see *Keeper run with no manual step*).
 
 ## CCTP-attested defense (D1)
 
@@ -206,6 +206,24 @@ Deployed on 2026-11-19 from commit [`7791d59`](https://github.com/enzoblain/Ardo
 | Owner policy (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0x878f698a…`](https://basescan.org/tx/0x878f698a58abfd59cd3ed165592397b3db1e228e33c46c08ffb927868d9d85dd) | 59432670 | 211,307 | |
 
 Checked after mining: `alarm.factory()` returns the Morpho factory, `alarm.executor()` the executor and `executor.alarm()` the alarm. A call to `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` (the alarm finds its account [`0x4d298b39…`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49) and the position is above the minimum), not `NoAccount`. The broadcasts are in [`broadcast/DeployDefense.s.sol/8453/run-latest.json`](broadcast/DeployDefense.s.sol/8453/run-latest.json) (executor) and [`broadcast/DeployDefense.s.sol/5042/run-latest.json`](broadcast/DeployDefense.s.sol/5042/run-latest.json) (`setExecutor`; the alarm deployment is listed above).
+
+### Keeper run with no manual step (2026-11-19)
+
+The keeper, restarted from `main` at 08:39 UTC on the Morpho factory with `DEFENSE_ALARM_ADDRESS` set to the alarm above, defended the demo account `0x4d298b39…` alone: one Gateway standing order of 0.34 USDC re-signed for this account (the reserve held 0.399422 USDC), 0.000143 WETH on Base under the policy above, and 0.0001 ETH on Base in the keeper wallet. The only manual steps were turning the simulated drop on and off. Times are block timestamps (UTC).
+
+| Time | Step | Transaction |
+|------|------|-------------|
+| 08:39:48 | `guard.setSimulatedDrop(8000)`: Aave V4 health factor 2.63 read as 0.525, 0.462666 USDC missing to reach 1.5 | [`0x97e9f5b1…`](https://explorer.arc.io/tx/0x97e9f5b103628d43825e9881be11c8d68dec01cdefe16872769139386a73363d) |
+| 08:39:51 | keeper submits the Gateway standing order (0.34 USDC) | Gateway transfer `96539074…` |
+| 08:40:11 | Gateway mint on the account, then `sweep()` repays 0.34 USDC; 0.122745 USDC still missing, health factor 1.005 | [`0xc4c7781b…`](https://explorer.arc.io/tx/0xc4c7781b0911bd63cebe3bd0e693d89352f9af5d404fb85eac19a85f1ad254a9), [`0x05b8afe6…`](https://explorer.arc.io/tx/0x05b8afe6e887cfffbcf8fa22cc12f35c26ab9597392de8dc39cbb317e2ce721b) |
+| 08:41:15 | no standing order left and the Gateway transfer settled over a minute ago: keeper calls `alarm.raise(owner)`, alarm #1 for 0.122745 USDC | [`0x289fd120…`](https://explorer.arc.io/tx/0x289fd120a66d699585d6b4f2102ea0c942778a963c36d39eb62d7dacebb6a9c3) |
+| 08:41:19 (log) | Circle's attestation complete, 2 s after the raise was confirmed | |
+| 08:41:20 | keeper relays `receiveMessage` on Base: the executor swaps WETH and burns 0.147745 USDC (0.025 maximum fee) to the account | [`0x1364061d…`](https://basescan.org/tx/0x1364061dab1e69fbd0b85d698919c0a1ede43bdd003c54bbdbba264b42b24151) |
+| 08:41:25 | Circle's forwarder mints 0.122745 USDC on the account | [`0x908be65c…`](https://explorer.arc.io/tx/0x908be65c75724bc79f4b312d236a3fd671ccaf0de734ad877a9bea53e0d80499) |
+| 08:41:30 | keeper `sweep()` repays 0.122745 USDC: simulated health factor back to 1.500 | [`0x6979521d…`](https://explorer.arc.io/tx/0x6979521de46b87d47eede512d313bc7c286dc788af1631b8e8e54402f519a6cb) |
+| | `guard.setSimulatedDrop(0)` | [`0x125a95f8…`](https://explorer.arc.io/tx/0x125a95f8cbd17b9746f9d76a0c34b84440e0a16c9cd63edf74fd7b903baf2f40) |
+
+From the drop to the target: 102 s, of which 60 s is the keeper waiting a minute after the Gateway transfer settles before it raises the alarm. From `raise` to the repayment on Arc: 15 s.
 
 ### Previous: for the first factory
 
