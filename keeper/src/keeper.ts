@@ -279,12 +279,16 @@ export class Keeper {
               functionName: "health",
               args: [watched.owner],
             }),
-            publicClient.readContract({
-              address: venue,
-              abi: venueAbi,
-              functionName: "debtOf",
-              args: [watched.owner],
-            }),
+            // Only the cap on Gateway draws needs this figure: a failed read
+            // must not stop the sweep or the defense step.
+            publicClient
+              .readContract({
+                address: venue,
+                abi: venueAbi,
+                functionName: "debtOf",
+                args: [watched.owner],
+              })
+              .catch(() => null),
           ]);
           return { healthFactor: positionHealth, debtUsd, debt };
         }),
@@ -307,7 +311,10 @@ export class Keeper {
     }
     // The state is read and logged even for an account on hold, so that a
     // margin warning is never hidden by an earlier failed attempt.
-    if (decision.action === "sweep" && mayAttempt) await this.sweep(watched.account);
+    // A sweep decided on a balance under the usual minimum restores a
+    // position under the guard's minimum: it is sent whatever its size.
+    const minRepaid = usdcBalance >= MIN_SWEEP_AMOUNT ? MIN_SWEEP_AMOUNT : 1n;
+    if (decision.action === "sweep" && mayAttempt) await this.sweep(watched.account, minRepaid);
     // Called on every pass, shortfall or not, so transfers already on their
     // way are followed. USDC it brings lands on the account and is swept on
     // a later pass like any other balance.
@@ -315,7 +322,15 @@ export class Keeper {
       try {
         // Capped at the debt left once the balance is applied: an account has
         // no withdrawal, so USDC brought beyond the debt would stay on it.
-        await this.options.gateway.fund(watched.owner, watched.account, decision.shortfall, debtLeftToFund(state));
+        // Without a debt figure nothing is drawn, but the call is still made
+        // so that transfers on their way are followed.
+        const maxDraw = debtLeftToFund(state);
+        if (maxDraw === null) {
+          this.logOnce(watched.account, "debt", "the debt on a venue cannot be read: nothing is drawn from Gateway until it can");
+        } else {
+          this.logRecovery(watched.account, "debt", "the debt on every venue can be read again");
+        }
+        await this.options.gateway.fund(watched.owner, watched.account, maxDraw === null ? 0n : decision.shortfall, maxDraw ?? 0n);
       } catch (error) {
         this.logOnce(watched.account, "gateway", `Gateway funding failed: ${errorMessage(error)}`);
       }
@@ -331,7 +346,9 @@ export class Keeper {
       const outcome = await this.options.defense.defend(watched.owner);
       // The alarm's own sweep would restore the position, but it is rolled
       // back with the `PositionHealthy` revert: sweep the account directly.
-      if (outcome === "sweep" && this.canAttempt(watched.account)) await this.sweep(watched.account);
+      // That balance can be under the usual minimum and still be all that
+      // the position needs.
+      if (outcome === "sweep" && this.canAttempt(watched.account)) await this.sweep(watched.account, 1n);
     }
   }
 
@@ -371,10 +388,11 @@ export class Keeper {
   }
 
   /**
-   * Simulates `sweep()`, sends it if it repays enough to be worth its gas,
-   * and waits for it so that the next pass reads the updated balance.
+   * Simulates `sweep()`, sends it if it repays at least `minRepaid` (what
+   * makes it worth its gas), and waits for it so that the next pass reads
+   * the updated balance.
    */
-  private async sweep(account: Address): Promise<void> {
+  private async sweep(account: Address, minRepaid: bigint): Promise<void> {
     const { publicClient, walletClient, log } = this.options;
     const { request, result: expected } = await publicClient.simulateContract({
       address: account,
@@ -384,7 +402,7 @@ export class Keeper {
     });
     // The balance can exceed what sweep() applies, for example when the debt
     // is smaller or was taken outside Ardoise: decide on the simulated amount.
-    if (expected < MIN_SWEEP_AMOUNT) {
+    if (expected < minRepaid) {
       this.logOnce(account, "sweep", `sweep() would repay only ${usdc(expected)}, not sent`);
       return;
     }
@@ -465,6 +483,8 @@ function describe(decision: Decision, usdcBalance: bigint, lowestHealthFactor: b
       return `${state}: sweeping the idle balance into the debt`;
     case "underfunded":
       return `${state}: under the minimum but nothing to repay with${missing}`;
+    case "unrepayable":
+      return `${state}: WARNING, under the minimum with no USDC debt on that venue: the keeper cannot repay it`;
     case "no-debt":
       return `${state}: no debt, nothing to do`;
     case "no-balance":

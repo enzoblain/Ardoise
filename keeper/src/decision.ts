@@ -17,6 +17,8 @@ const USDC_UNIT_IN_WAD = 10n ** 12n;
  * Smallest repayment worth a transaction, in USDC base units (0.1 USDC).
  * Gas on Arc is paid in USDC, so sweeping dust costs more than it repays, and
  * anyone could drain the keeper wallet by sending dust to an indebted account.
+ * The one exception is a balance that restores a position under the minimum
+ * (see `decide`): that sweep is sent whatever its size.
  *
  * TODO: set this to a multiple of the measured cost of `sweep()` once
  * `ArdoiseAccount` is deployed (A4); until then 0.1 USDC is a margin over the
@@ -30,8 +32,11 @@ export interface VenuePosition {
   healthFactor: bigint;
   /** Debt value in USD (WAD). */
   debtUsd: bigint;
-  /** USDC debt in base units, as returned by `IVenue.debtOf(owner)`: the most a repayment can absorb. */
-  debt: bigint;
+  /**
+   * USDC debt in base units, as returned by `IVenue.debtOf(owner)`: the most
+   * a repayment can absorb. `null` when that read failed.
+   */
+  debt: bigint | null;
 }
 
 /** Margin thresholds read from the guard (WAD). */
@@ -65,8 +70,12 @@ export type Decision =
     }
   | {
       action: "wait";
-      /** `underfunded`: a position is under the minimum but the account holds nothing to repay with. */
-      reason: "no-debt" | "no-balance" | "dust" | "underfunded";
+      /**
+       * `underfunded`: a position is under the minimum but the account does
+       * not hold enough to restore it. `unrepayable`: a position is under the
+       * minimum and has no USDC debt on its venue, so USDC cannot restore it.
+       */
+      reason: "no-debt" | "no-balance" | "dust" | "underfunded" | "unrepayable";
       shortfall: bigint;
     };
 
@@ -103,7 +112,8 @@ export function applySimulatedDrop(position: VenuePosition, dropBps: bigint): Ve
  * @param position Position to restore.
  * @param targetHealthFactor Health factor to reach (WAD).
  * @returns Amount to repay in USDC base units, rounded up and never above
- * `position.debt`; 0 if the position is already at or above the target.
+ * `position.debt` when it is known; 0 if the position is already at or above
+ * the target.
  */
 export function repaymentToTarget(position: VenuePosition, targetHealthFactor: bigint): bigint {
   if (position.debtUsd === 0n || position.healthFactor >= targetHealthFactor) return 0n;
@@ -111,7 +121,7 @@ export function repaymentToTarget(position: VenuePosition, targetHealthFactor: b
   const debtAtTargetUsd = (riskAdjustedCollateralUsd * WAD) / targetHealthFactor;
   const excessUsd = position.debtUsd - debtAtTargetUsd;
   const repayment = (excessUsd + USDC_UNIT_IN_WAD - 1n) / USDC_UNIT_IN_WAD;
-  return repayment > position.debt ? position.debt : repayment;
+  return position.debt !== null && repayment > position.debt ? position.debt : repayment;
 }
 
 /**
@@ -122,10 +132,15 @@ export function repaymentToTarget(position: VenuePosition, targetHealthFactor: b
  *
  * @param state What the keeper read about the account.
  * @returns The amount in USDC base units; 0 when the balance already covers
- * the whole debt.
+ * the whole debt; `null` when the debt on a venue is unknown, in which case
+ * nothing may be brought, since the amount could not be capped.
  */
-export function debtLeftToFund(state: AccountState): bigint {
-  const debt = state.positions.reduce((sum, position) => sum + position.debt, 0n);
+export function debtLeftToFund(state: AccountState): bigint | null {
+  let debt = 0n;
+  for (const position of state.positions) {
+    if (position.debt === null) return null;
+    debt += position.debt;
+  }
   return debt > state.usdcBalance ? debt - state.usdcBalance : 0n;
 }
 
@@ -138,6 +153,12 @@ export function debtLeftToFund(state: AccountState): bigint {
  * whether a shortfall is reported. Under a simulated price drop, positions
  * are judged with the simulated health factor.
  *
+ * A balance under `MIN_SWEEP_AMOUNT` is swept all the same when it is enough
+ * to bring every position under the minimum back to the target: nothing else
+ * would ever apply it, and the position would stay under the minimum. This
+ * cannot be used to drain the keeper wallet with dust, since after that
+ * sweep the position is no longer under the minimum.
+ *
  * @param state What the keeper read about the account.
  * @returns `sweep` when a transaction is worth sending, otherwise `wait` with
  * the reason. `shortfall` is the USDC that would still be missing, once the
@@ -149,22 +170,31 @@ export function decide(state: AccountState): Decision {
   if (!hasDebt) return { action: "wait", reason: "no-debt", shortfall: 0n };
 
   const thresholds = state.thresholds;
+  const positionsUnderMinimum =
+    thresholds === null
+      ? []
+      : state.positions
+          .map((position) => applySimulatedDrop(position, thresholds.simulatedDropBps))
+          .filter((position) => position.debtUsd > 0n && position.healthFactor < thresholds.minHealthFactor);
   const needed =
     thresholds === null
       ? 0n
-      : state.positions
-          .map((position) => applySimulatedDrop(position, thresholds.simulatedDropBps))
-          .filter((position) => position.debtUsd > 0n && position.healthFactor < thresholds.minHealthFactor)
-          .reduce((sum, position) => sum + repaymentToTarget(position, thresholds.targetHealthFactor), 0n);
+      : positionsUnderMinimum.reduce(
+          (sum, position) => sum + repaymentToTarget(position, thresholds.targetHealthFactor),
+          0n,
+        );
   const underMinimum = needed > 0n;
-  const canSweep = state.usdcBalance >= MIN_SWEEP_AMOUNT;
-  // A balance too small to sweep now still repays with the next sweep, so it
-  // is deducted in both cases, as `DefenseAlarm.shortfall` deducts it.
+  // A balance too small to sweep on its own still repays with the next sweep,
+  // so it is always deducted, as `DefenseAlarm.shortfall` deducts it.
   const shortfall = needed > state.usdcBalance ? needed - state.usdcBalance : 0n;
+  const canSweep = state.usdcBalance >= MIN_SWEEP_AMOUNT || (underMinimum && shortfall === 0n);
 
   if (canSweep) {
     return { action: "sweep", reason: underMinimum ? "restore-margin" : "repay-idle-balance", shortfall };
   }
   if (underMinimum) return { action: "wait", reason: "underfunded", shortfall };
+  // Under the minimum with nothing to repay in USDC (the debt on that venue
+  // is in another asset): USDC cannot help, but the operator must know.
+  if (positionsUnderMinimum.length > 0) return { action: "wait", reason: "unrepayable", shortfall: 0n };
   return { action: "wait", reason: state.usdcBalance === 0n ? "no-balance" : "dust", shortfall: 0n };
 }

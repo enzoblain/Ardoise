@@ -136,6 +136,53 @@ test("the shortfall never exceeds the USDC debt of the venues under the minimum"
   assert.equal(decide({ usdcBalance: 300n * USDC, positions: [mixed], thresholds }).shortfall, 500n * USDC);
 });
 
+test("sweeps a balance under the usual minimum when it restores a position under the minimum", () => {
+  // 0.30 USDC of debt at HF 1.20 needs 0.06 USDC to reach 1.5.
+  const small: VenuePosition = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debt: 300_000n };
+  assert.equal(repaymentToTarget(small, thresholds.targetHealthFactor), 60_000n);
+  for (const usdcBalance of [60_000n, 80_000n, MIN_SWEEP_AMOUNT - 1n]) {
+    assert.deepEqual(decide({ usdcBalance, positions: [small], thresholds }), {
+      action: "sweep",
+      reason: "restore-margin",
+      shortfall: 0n,
+    });
+  }
+  // One unit short: the rest is still asked for, so the position never waits with nothing to do.
+  assert.deepEqual(decide({ usdcBalance: 59_999n, positions: [small], thresholds }), {
+    action: "wait",
+    reason: "underfunded",
+    shortfall: 1n,
+  });
+  // The same dust on a healthy position is still not worth a transaction.
+  assert.equal(decide({ usdcBalance: 80_000n, positions: [healthy], thresholds }).reason, "dust");
+});
+
+test("a position under the minimum always ends with a sweep or a positive shortfall", () => {
+  const small: VenuePosition = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debt: 300_000n };
+  for (let usdcBalance = 0n; usdcBalance <= 120_000n; usdcBalance += 1_000n) {
+    const decision = decide({ usdcBalance, positions: [small], thresholds });
+    assert.ok(decision.action === "sweep" || decision.shortfall > 0n, `balance ${usdcBalance}`);
+  }
+});
+
+test("reports a position under the minimum with no USDC debt as unrepayable instead of fine", () => {
+  const foreign: VenuePosition = { ...underMinimum, debt: 0n };
+  assert.deepEqual(decide({ usdcBalance: 0n, positions: [foreign], thresholds }), {
+    action: "wait",
+    reason: "unrepayable",
+    shortfall: 0n,
+  });
+  // A venue that can be repaid next to it is still handled as usual.
+  assert.equal(decide({ usdcBalance: 0n, positions: [foreign, underMinimum], thresholds }).reason, "underfunded");
+});
+
+test("without a debt figure the repayment is not capped and nothing may be brought", () => {
+  const unknown: VenuePosition = { ...underMinimum, debt: null };
+  assert.equal(repaymentToTarget(unknown, thresholds.targetHealthFactor), 1_300n * USDC);
+  assert.equal(decide({ usdcBalance: 0n, positions: [unknown], thresholds }).reason, "underfunded");
+  assert.equal(debtLeftToFund({ usdcBalance: 0n, positions: [healthy, unknown], thresholds }), null);
+});
+
 test("a balance too small to sweep is still deducted from the shortfall", () => {
   const dust = MIN_SWEEP_AMOUNT - 1n;
   const decision = decide({ usdcBalance: dust, positions: [underMinimum], thresholds });

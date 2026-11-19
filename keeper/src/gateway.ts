@@ -484,7 +484,8 @@ export class GatewayFunder {
     for (const order of usable) {
       const { salt, value } = order.burnIntent.spec;
       if (BigInt(value) <= maxDraw) continue;
-      // The debt left moves on every pass: keeping it out of the line lets `logOnce` say it once.
+      // The debt left and the shortfall move on every pass: keeping them out
+      // of this line and of the summary below lets `logOnce` say each once.
       this.logOnce(
         `${account}:${salt}`,
         `standing order ${salt} of ${usdc(BigInt(value))} skipped: larger than the debt left to repay, the surplus could not leave the account`,
@@ -496,7 +497,7 @@ export class GatewayFunder {
         account,
         usable.length === 0
           ? `${usdc(shortfall)} missing and no standing order available on Gateway`
-          : `${usdc(shortfall)} missing and every standing order left is larger than the debt left to repay; nothing drawn from Gateway`,
+          : "every standing order left is larger than the debt left to repay; nothing drawn from Gateway",
       );
       return;
     }
