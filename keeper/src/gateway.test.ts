@@ -276,3 +276,25 @@ test("keeps two owners' orders apart even with the same salt", async () => {
   await instance.fund(OTHER, OTHER_ACCOUNT, 5n * USDC);
   assert.equal(gateway.submitted.length, 2);
 });
+
+test("reports an account as covered while a transfer is on its way and just after it settles", async () => {
+  const statuses: Record<string, string> = {};
+  const gateway = fakeGateway(statuses);
+  const { instance, clock } = funder(gateway.fetchImpl, [order(5n * USDC)]);
+  assert.equal(instance.isCovering(ACCOUNT), false);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  assert.equal(instance.isCovering(ACCOUNT), true, "transfer on its way");
+  statuses.t1 = "confirmed";
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  assert.equal(instance.isCovering(ACCOUNT), true, "settled during this pass");
+  clock.now = 60_000;
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  assert.equal(instance.isCovering(ACCOUNT), false, "no order left: the next defense step may act");
+});
+
+test("does not cover an account whose only order Gateway refuses for a lack of balance", async () => {
+  const gateway = fakeGateway({}, "Insufficient balance");
+  const { instance } = funder(gateway.fetchImpl, [order(5n * USDC)]);
+  await instance.fund(OWNER, ACCOUNT, 5n * USDC);
+  assert.equal(instance.isCovering(ACCOUNT), false);
+});
