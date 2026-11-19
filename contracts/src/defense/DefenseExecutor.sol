@@ -64,6 +64,13 @@ contract DefenseExecutor is IMessageHandlerV2 {
     uint256 private constant BPS = 10_000;
     /// @notice Highest slippage a policy may allow (10%).
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
+    /// @notice Lowest slippage a policy may set for an asset it sells, as a multiple of the fee of
+    /// the asset's pool. The pool fee comes out of the swap's output, so a bound under it fails on
+    /// a pool exactly at the oracle price, and a failed swap reverts the whole delivery: such a
+    /// policy would never be defended. Twice the fee (10 bps on the 0.05% WETH/USDC pool) leaves
+    /// as much again for price impact and for the pool sitting slightly off the oracle; it only
+    /// rules out bounds that cannot work, 50 to 100 bps remain the sensible setting.
+    uint256 public constant MIN_SLIPPAGE_POOL_FEES = 2;
     /// @notice Gas that must be left before a swap: about three times what a SwapRouter02
     /// single-pool swap on the WETH/USDC pool uses (about 95k measured on a Base fork), so a
     /// relayer cannot pick a gas limit at which a swap of defense size runs out of gas.
@@ -172,8 +179,6 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// @param amountIn Amount of `asset` taken.
     /// @param usdcOut USDC it provided (equal to `amountIn` for USDC).
     event AssetUsed(address indexed owner, uint64 indexed nonce, address asset, uint256 amountIn, uint256 usdcOut);
-    /// @notice Emitted when a swap fails; the asset goes back to the owner and the next one is tried.
-    event SwapFailed(address indexed owner, uint64 indexed nonce, address asset, uint256 amountIn);
     /// @notice Emitted when USDC is burned to the owner's account on Arc.
     /// @param amount USDC burned; the account receives `amount` minus the fee, at most `maxFee`.
     event DefenseExecuted(
@@ -192,6 +197,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     error AlarmAlreadyUsed(uint64 nonce);
     /// @notice Thrown by `setPolicy` for an invalid policy.
     error InvalidPolicy();
+    /// @notice Thrown by `setPolicy` when `maxSlippageBps` is under `minSlippageBps(asset)` for an
+    /// asset the policy sells: every swap of it, and so every delivery needing it, would revert.
+    error SlippageBelowPoolFee(address asset, uint256 minSlippageBps);
     /// @notice Thrown when an alarm arrives within `minDefenseInterval` of the owner's last burn;
     /// the message can be relayed again from `nextAllowed` until the alarm expires.
     error TooSoon(address owner, uint256 nextAllowed);
@@ -207,6 +215,12 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// gas: the relayer sent too little gas, and reverting keeps the alarm deliverable instead of
     /// consuming it without a defense.
     error SwapOutOfGas();
+    /// @notice Thrown when the swap of `asset` fails for a reason other than gas, in practice a pool
+    /// price outside the policy's slippage bound against Chainlink. Anyone can relay, so a relayer
+    /// could otherwise move the pool and deliver in one transaction to consume the alarm without
+    /// a defense; reverting undoes the whole delivery (USDC already gathered included) and keeps
+    /// the alarm deliverable until it expires.
+    error SwapFailed(address asset);
 
     modifier nonReentrant() {
         if (_locked != 1) revert Reentrancy();
@@ -250,12 +264,15 @@ contract DefenseExecutor is IMessageHandlerV2 {
     // forge-lint: disable-next-item(require-revert-in-loop)
     /// @notice Sets the caller's policy. The caller must also approve this contract for each asset.
     /// @dev Reverts with `InvalidPolicy` for empty or mismatched lists, a duplicate or unsupported
-    /// asset, a zero period or a slippage above `MAX_SLIPPAGE_BPS`. Resets nothing already spent
-    /// in the current period. Emits `PolicySet`.
+    /// asset, a zero period or a slippage above `MAX_SLIPPAGE_BPS`, and with
+    /// `SlippageBelowPoolFee` for a slippage under `minSlippageBps` of an asset it sells (a policy
+    /// of USDC alone may set any slippage, it never swaps). Resets nothing already spent in the
+    /// current period. Emits `PolicySet`.
     /// @param assets Assets in the order they are used; USDC or assets in `swapAssets`.
     /// @param caps Maximum taken per period for each asset, in the asset's units.
     /// @param period Length of a cap period, in seconds.
-    /// @param maxSlippageBps Largest shortfall of a swap against the Chainlink price.
+    /// @param maxSlippageBps Largest shortfall of a swap against the Chainlink price, pool fee
+    /// included.
     /// @param maxFee Largest CCTP fee (protocol + forwarder) the owner accepts per defense, in USDC.
     function setPolicy(
         address[] calldata assets,
@@ -268,8 +285,10 @@ contract DefenseExecutor is IMessageHandlerV2 {
             revert InvalidPolicy();
         }
         for (uint256 i = 0; i < assets.length; ++i) {
-            if (assets[i] != address(usdc) && address(swapAssets[assets[i]].feed) == address(0)) {
-                revert InvalidPolicy();
+            if (assets[i] != address(usdc)) {
+                if (address(swapAssets[assets[i]].feed) == address(0)) revert InvalidPolicy();
+                uint256 minBps = minSlippageBps(assets[i]);
+                if (maxSlippageBps < minBps) revert SlippageBelowPoolFee(assets[i], minBps);
             }
             for (uint256 j = 0; j < i; ++j) {
                 if (assets[j] == assets[i]) revert InvalidPolicy();
@@ -283,6 +302,15 @@ contract DefenseExecutor is IMessageHandlerV2 {
     function clearPolicy() external {
         delete _policies[msg.sender];
         emit PolicyCleared(msg.sender);
+    }
+
+    /// @notice Lowest `maxSlippageBps` a policy selling `asset` may set: `MIN_SLIPPAGE_POOL_FEES`
+    /// times the fee of the asset's pool, rounded up to a basis point.
+    /// @param asset A swap asset.
+    /// @return The minimum, in basis points (0 for an asset that is not sold).
+    function minSlippageBps(address asset) public view returns (uint256) {
+        // Uniswap V3 fees are in hundredths of a basis point.
+        return _ceilDiv(uint256(swapAssets[asset].poolFee) * MIN_SLIPPAGE_POOL_FEES, 100);
     }
 
     /// @notice The policy of `owner` (empty lists when none).
@@ -312,7 +340,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
 
     /// @inheritdoc IMessageHandlerV2
     /// @dev Reverts (so the message can be relayed again) for a wrong caller, source, sender,
-    /// a replayed alarm or a malformed body. An expired alarm, a missing policy or funds that do
+    /// a replayed alarm, a malformed body, a stale price (`StalePrice`) or a swap that fails
+    /// (`SwapFailed`, `SwapOutOfGas`): nothing is taken, no cap or interval is used, and the alarm
+    /// stays deliverable until it expires. An expired alarm, a missing policy or funds that do
     /// not cover the fee consume the alarm without a burn (`AlarmIgnored`). An alarm within
     /// `minDefenseInterval` of the owner's last burn, whose funds may still be on their way to
     /// Arc, reverts with `TooSoon` and can be relayed again later.
@@ -401,7 +431,8 @@ contract DefenseExecutor is IMessageHandlerV2 {
     // Same reasons as `_defend`, its only caller.
     // forge-lint: disable-next-item(calls-loop, reentrancy-events, reentrancy-no-eth, require-revert-in-loop)
     /// @dev Takes up to `needed` USDC worth of `asset` from the owner, within cap, allowance and
-    /// balance. Returns the USDC obtained.
+    /// balance. Returns the USDC obtained. Reverts with `SwapFailed` or `SwapOutOfGas` when the
+    /// asset has to be sold and the swap fails.
     function _take(DefenseMessage.Alarm memory a, Policy storage p, address asset, uint256 needed)
         private
         returns (uint256 usdcOut)
@@ -429,11 +460,12 @@ contract DefenseExecutor is IMessageHandlerV2 {
         _call(token.approve(address(swapRouter), amountIn));
 
         uint256 used = 0;
-        // Anyone can relay the message, so a relayer must not be able to pick a gas limit at which
-        // the swap fails for lack of gas while the delivery succeeds and consumes the alarm. The
-        // floor covers a swap costing up to about 285k (a defense-size swap costs about 95k); the
-        // 63/64 check catches a swap that ran out of gas in its own frame (it gets 63/64 of the gas
-        // left, so under 1/64 remains).
+        // Anyone can relay the message, so a relayer must not be able to make the swap fail (a gas
+        // limit too low for it, or a pool pushed away from the oracle in the same transaction)
+        // while the delivery succeeds and consumes the alarm: a failed swap reverts the delivery.
+        // The floor covers a swap costing up to about 285k (a defense-size swap costs about 95k);
+        // the 63/64 check tells a swap that ran out of gas in its own frame (it gets 63/64 of the
+        // gas left, so under 1/64 remains) from one that failed on price.
         uint256 gasBefore = gasleft();
         if (gasBefore < MIN_SWAP_GAS) revert SwapOutOfGas();
         if (amountIn == maxIn) {
@@ -445,7 +477,7 @@ contract DefenseExecutor is IMessageHandlerV2 {
                 used = spentIn;
                 usdcOut = needed;
             } catch {
-                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+                _revertFailedSwap(asset, gasBefore);
             }
         } else {
             uint256 minOut = amountIn * price * 1e6 * (BPS - p.maxSlippageBps) / (unit * priceUnit * BPS);
@@ -459,18 +491,26 @@ contract DefenseExecutor is IMessageHandlerV2 {
                 used = amountIn;
                 usdcOut = out;
             } catch {
-                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+                _revertFailedSwap(asset, gasBefore);
             }
         }
         _call(token.approve(address(swapRouter), 0));
 
-        if (used == 0) emit SwapFailed(a.owner, a.nonce, asset, amountIn);
-        else emit AssetUsed(a.owner, a.nonce, asset, used, usdcOut);
+        emit AssetUsed(a.owner, a.nonce, asset, used, usdcOut);
         // Give back what the swap did not use, and take it off the period's spending.
         if (amountIn > used) {
             _usage[a.owner][asset].spent -= amountIn - used;
             _call(token.transfer(a.owner, amountIn - used));
         }
+    }
+
+    // Called from `_take`, inside `_defend`'s loop: the revert is the point.
+    // forge-lint: disable-next-item(require-revert-in-loop)
+    /// @dev Reverts the delivery after a failed swap: `SwapOutOfGas` when the swap, given
+    /// `gasBefore`, left under 1/64 of it, `SwapFailed` otherwise.
+    function _revertFailedSwap(address asset, uint256 gasBefore) private view {
+        if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+        revert SwapFailed(asset);
     }
 
     // Same reasons as `_defend`.

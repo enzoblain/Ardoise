@@ -10,6 +10,22 @@ import {MockToken} from "../venues/mocks/MockAaveV4.sol";
 /// debt, `repay` pulls at most the debt. Rate, liquidity and health are set by the test, and it
 /// can misbehave on demand (revert, send short, reenter the account).
 contract TokenVenue is IVenue {
+    /// @notice Ways `repay` can misbehave without reverting. Except for `ReportsMax`, no debt
+    /// is restored.
+    enum RepayQuirk {
+        None,
+        /// Takes the whole amount and returns 0.
+        TakesAllReportsNothing,
+        /// Takes the amount less 1 wei and returns 0.
+        TakesLessReportsNothing,
+        /// Takes nothing, sends 1 wei of the token to the caller and returns 0.
+        SendsDust,
+        /// Takes the whole amount and returns no data at all.
+        ReturnsNothing,
+        /// Repays honestly but returns `type(uint256).max`.
+        ReportsMax
+    }
+
     /// @inheritdoc IVenue
     IArdoiseFactory public immutable factory;
     /// @notice Token lent.
@@ -31,6 +47,8 @@ contract TokenVenue is IVenue {
     uint256 public surplus;
     /// @notice When true, `repay` reverts.
     bool public repayBroken;
+    /// @notice How `repay` misbehaves, if at all.
+    RepayQuirk public repayQuirk;
     /// @notice Call made back into `msg.sender` during `borrow`, if set.
     bytes public reentryCall;
     /// @notice Debt of each user.
@@ -70,6 +88,11 @@ contract TokenVenue is IVenue {
     /// @notice Makes `repay` revert or work again.
     function setRepayBroken(bool broken_) external {
         repayBroken = broken_;
+    }
+
+    /// @notice Makes `repay` misbehave, or behave again with `RepayQuirk.None`.
+    function setRepayQuirk(RepayQuirk quirk) external {
+        repayQuirk = quirk;
     }
 
     /// @notice Sets the call made back into the borrower during `borrow`.
@@ -134,11 +157,100 @@ contract TokenVenue is IVenue {
     /// @inheritdoc IVenue
     function repay(address user, uint256 amount) external returns (uint256 repaid) {
         require(!repayBroken, "repay refused");
+        RepayQuirk quirk = repayQuirk;
+        if (quirk == RepayQuirk.TakesAllReportsNothing) {
+            token.transferFrom(msg.sender, address(this), amount);
+            return 0;
+        }
+        if (quirk == RepayQuirk.TakesLessReportsNothing) {
+            token.transferFrom(msg.sender, address(this), amount - 1);
+            return 0;
+        }
+        if (quirk == RepayQuirk.SendsDust) {
+            token.mint(msg.sender, 1);
+            return 0;
+        }
+        if (quirk == RepayQuirk.ReturnsNothing) {
+            token.transferFrom(msg.sender, address(this), amount);
+            assembly {
+                return(0, 0)
+            }
+        }
         repaid = amount < debtOf[user] ? amount : debtOf[user];
         if (repaid == 0) return 0;
         token.transferFrom(msg.sender, address(this), repaid);
         debtOf[user] -= repaid;
         emit Repaid(user, msg.sender, repaid);
+        if (quirk == RepayQuirk.ReportsMax) return type(uint256).max;
+    }
+}
+
+/// @notice Venue a compromised admin could list: it passes `setVenues`, quotes a rate of 0 with
+/// unlimited liquidity, reports the worst health and an unlimited debt for everyone, and sends
+/// whatever it is approved for to `thief`.
+contract GreedyVenue is IVenue {
+    /// @inheritdoc IVenue
+    IArdoiseFactory public immutable factory;
+    /// @notice Token it claims to lend.
+    MockToken public immutable token;
+    /// @notice Receiver of everything `repay` pulls.
+    address public immutable thief;
+
+    /// @param factory_ Factory it claims to trust.
+    /// @param token_ Token it claims to lend.
+    /// @param thief_ Receiver of the repayments.
+    constructor(IArdoiseFactory factory_, MockToken token_, address thief_) {
+        factory = factory_;
+        token = token_;
+        thief = thief_;
+    }
+
+    /// @inheritdoc IVenue
+    function name() external pure returns (string memory) {
+        return "Greedy venue";
+    }
+
+    /// @inheritdoc IVenue
+    function asset() external view returns (address) {
+        return address(token);
+    }
+
+    /// @inheritdoc IVenue
+    function rate() external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @inheritdoc IVenue
+    function available() external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IVenue
+    function health(address) external pure returns (uint256, uint256, uint256) {
+        return (0, 0, 1e30);
+    }
+
+    /// @inheritdoc IVenue
+    function healthAfter(address, uint256) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IVenue
+    function debtOf(address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IVenue
+    /// @dev Fronts the payment from its own balance, so that the account would record a line.
+    function borrow(address, uint256 amount) external returns (uint256) {
+        token.transfer(msg.sender, amount);
+        return amount;
+    }
+
+    /// @inheritdoc IVenue
+    function repay(address, uint256 amount) external returns (uint256) {
+        token.transferFrom(msg.sender, thief, amount);
+        return amount;
     }
 }
 

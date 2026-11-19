@@ -7,6 +7,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IMessageHandlerV2, IMessageTransmitterV2} from "../../src/cctp/IMessageTransmitterV2.sol";
 import {ITokenMessengerV2} from "../../src/cctp/ITokenMessengerV2.sol";
 import {DefenseAlarm} from "../../src/defense/DefenseAlarm.sol";
+import {IDefenseAlarm} from "../../src/defense/interfaces/IDefenseAlarm.sol";
 import {DefenseExecutor, IAggregatorV3, ISwapRouter02} from "../../src/defense/DefenseExecutor.sol";
 import {MarginGuard} from "../../src/guard/MarginGuard.sol";
 import {IArdoiseFactory} from "../../src/interfaces/IArdoiseFactory.sol";
@@ -230,6 +231,46 @@ contract DefenseEndToEndTest is Test {
         bridge.relay(0);
         vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.AlarmAlreadyUsed.selector, nonce));
         bridge.relay(0);
+    }
+
+    // A relayer who moves the pool and delivers in one transaction must not cancel the defense.
+    function test_deliveryWithThePoolOffTheOracleRevertsAndCanBeRetried() public {
+        vm.prank(admin);
+        guard.setSimulatedDrop(3_000);
+        (, uint256 amountNeeded) = alarm.shortfall(owner);
+        uint256 raisedAt = vm.getBlockTimestamp();
+        uint64 nonce = alarm.raise(owner);
+
+        // The owner allows 1% of slippage; the pool pays 1.5% under the oracle at delivery.
+        router.setQuirks(150, false);
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.SwapFailed.selector, address(weth)));
+        vm.prank(makeAddr("attacker"));
+        bridge.relay(0);
+        assertFalse(executor.alarmUsed(nonce));
+        assertEq(executor.lastDefenseAt(owner), 0);
+        assertEq(usdcBase.balanceOf(owner), 1e6);
+        assertEq(weth.balanceOf(owner), 0.01e18);
+        assertEq(executor.remainingCap(owner, address(usdcBase)), 0.2e6);
+        assertEq(executor.remainingCap(owner, address(weth)), 0.01e18);
+        assertEq(messenger.burnCount(), 0);
+
+        // No second alarm is needed, and none could be raised before the cooldown anyway.
+        vm.expectRevert(abi.encodeWithSelector(IDefenseAlarm.CoolingDown.selector, uint64(raisedAt + 1800)));
+        alarm.raise(owner);
+
+        // Later in the alarm's validity the pool is back at the oracle: the same message runs.
+        skip(600);
+        router.setQuirks(0, false);
+        vm.expectEmit(address(executor));
+        emit DefenseExecutor.DefenseExecuted(owner, account, nonce, amountNeeded + MAX_FEE, MAX_FEE);
+        assertTrue(bridge.relay(0));
+        assertTrue(executor.alarmUsed(nonce));
+        assertEq(messenger.burnCount(), 1);
+
+        // And only once.
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.AlarmAlreadyUsed.selector, nonce));
+        bridge.relay(0);
+        assertEq(messenger.burnCount(), 1);
     }
 
     function test_sameBodyFromAnotherSenderIsRefused() public {

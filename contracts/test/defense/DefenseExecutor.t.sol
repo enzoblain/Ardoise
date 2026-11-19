@@ -185,17 +185,115 @@ contract DefenseExecutorTest is Test {
         assertEq(amount, 1.03e6);
     }
 
-    function test_defense_swapWorseThanSlippageIsSkippedAndRefunded() public {
+    function test_defense_swapWorseThanSlippageRevertsSoTheAlarmIsNotConsumed() public {
         _policyUsdcThenWeth(0, 1e18, 100); // 1% max slippage, no USDC allowed
         _fund(weth, 1e18);
         router.setQuirks(200, false); // the pool pays 2% under the oracle
+        bytes memory body = _alarm(1 * USDC, 1);
 
-        vm.expectEmit(address(executor));
-        emit DefenseExecutor.AlarmIgnored(owner, 1, DefenseExecutor.IgnoreReason.NotEnoughFunds);
-        _deliver(_alarm(1 * USDC, 1));
+        _expectSwapFailed(body);
+        assertFalse(executor.alarmUsed(1));
         assertEq(weth.balanceOf(owner), 1e18);
         assertEq(executor.remainingCap(owner, address(weth)), 1e18);
+        assertEq(executor.lastDefenseAt(owner), 0);
         assertEq(messenger.burnCount(), 0);
+
+        // Once the pool is back within the bound, the same alarm runs, exactly once.
+        router.setQuirks(50, false);
+        _deliver(body);
+        (uint256 amount,,,,,,,) = messenger.last();
+        assertEq(amount, 1 * USDC + MAX_FEE);
+        assertTrue(executor.alarmUsed(1));
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.AlarmAlreadyUsed.selector, uint64(1)));
+        vm.prank(transmitter);
+        executor.handleReceiveFinalizedMessage(ARC, _sender(alarm), 2000, body);
+        assertEq(messenger.burnCount(), 1);
+    }
+
+    function test_defense_partialSwapWorseThanSlippageAlsoReverts() public {
+        _policyUsdcThenWeth(0, 0.0005e18, 100); // exact-input path
+        _fund(weth, 1e18);
+        router.setQuirks(200, false);
+        bytes memory body = _alarm(1 * USDC, 1);
+        _expectSwapFailed(body);
+        assertFalse(executor.alarmUsed(1));
+        assertEq(executor.remainingCap(owner, address(weth)), 0.0005e18);
+    }
+
+    function test_defense_failedSwapAlsoHoldsBackTheUsdcPart() public {
+        _policyUsdcThenWeth(0.5e6, 1e18, 100);
+        _fund(usdc, 10 * USDC);
+        _fund(weth, 1e18);
+        router.setQuirks(200, false);
+        bytes memory body = _alarm(2 * USDC, 1);
+
+        // The USDC cap covers 0.5 of the 2.03 needed and the WETH swap fails on price: nothing is
+        // delivered, so that the alarm cannot be consumed with only its USDC part.
+        _expectSwapFailed(body);
+        assertFalse(executor.alarmUsed(1));
+        assertEq(usdc.balanceOf(owner), 10 * USDC);
+        assertEq(weth.balanceOf(owner), 1e18);
+        assertEq(executor.remainingCap(owner, address(usdc)), 0.5e6);
+        assertEq(executor.remainingCap(owner, address(weth)), 1e18);
+        assertEq(executor.lastDefenseAt(owner), 0);
+        assertEq(messenger.burnCount(), 0);
+
+        // With the price back, one delivery takes both parts, for what the alarm asks and no more.
+        router.setQuirks(0, false);
+        _deliver(body);
+        (uint256 amount,,,,,,,) = messenger.last();
+        assertEq(amount, 2 * USDC + MAX_FEE);
+        assertEq(usdc.balanceOf(owner), 9.5e6);
+        assertEq(messenger.burnCount(), 1);
+    }
+
+    function test_defense_failedSwapFirstInOrderHoldsBackTheUsdcAfterIt() public {
+        _policyWethThenUsdc(0.0005e18, 5 * USDC, 100); // WETH first, worth about 0.89 USDC
+        _fund(usdc, 10 * USDC);
+        _fund(weth, 1e18);
+        router.setQuirks(200, false);
+        bytes memory body = _alarm(2 * USDC, 1);
+
+        // The USDC that comes after the failed swap could cover the whole alarm, but the policy
+        // order is the owner's: the delivery reverts rather than skip the asset they put first.
+        _expectSwapFailed(body);
+        assertFalse(executor.alarmUsed(1));
+        assertEq(usdc.balanceOf(owner), 10 * USDC);
+        assertEq(weth.balanceOf(owner), 1e18);
+        assertEq(executor.remainingCap(owner, address(weth)), 0.0005e18);
+        assertEq(executor.remainingCap(owner, address(usdc)), 5 * USDC);
+        assertEq(executor.lastDefenseAt(owner), 0);
+
+        // With the price back: all the allowed WETH is sold, USDC covers the rest, once.
+        router.setQuirks(0, false);
+        _deliver(body);
+        (uint256 amount,,,,,,,) = messenger.last();
+        assertEq(amount, 2 * USDC + MAX_FEE);
+        uint256 fromWeth = uint256(0.0005e18) * 1777e6 / 1e18;
+        assertEq(weth.balanceOf(owner), 1e18 - 0.0005e18);
+        assertEq(usdc.balanceOf(owner), 10 * USDC - (2 * USDC + MAX_FEE - fromWeth));
+        assertEq(messenger.burnCount(), 1);
+    }
+
+    function test_defense_swapNotNeededIsNotAttempted() public {
+        _policyUsdcThenWeth(5 * USDC, 1e18, 100);
+        _fund(usdc, 10 * USDC);
+        _fund(weth, 1e18);
+        router.setQuirks(0, true); // the USDC covers the alarm: the broken swap is never reached
+        _deliver(_alarm(2 * USDC, 1));
+        (uint256 amount,,,,,,,) = messenger.last();
+        assertEq(amount, 2 * USDC + MAX_FEE);
+        assertEq(weth.balanceOf(owner), 1e18);
+    }
+
+    function test_defense_revokedSwapAssetIsSkippedNotReverted() public {
+        _policyUsdcThenWeth(0.5e6, 1e18, 100);
+        _fund(usdc, 10 * USDC);
+        weth.mint(owner, 1e18); // in the policy, but no allowance: nothing to sell
+        router.setQuirks(0, true);
+        _deliver(_alarm(2 * USDC, 1));
+        (uint256 amount,,,,,,,) = messenger.last();
+        assertEq(amount, 0.5e6);
     }
 
     function test_defense_partialWethUsesMinOut() public {
@@ -209,16 +307,35 @@ contract DefenseExecutorTest is Test {
         assertEq(weth.balanceOf(owner), 1e18 - 0.0005e18);
     }
 
-    function test_defense_brokenRouterFallsBackAndRefunds() public {
+    function test_defense_alwaysFailingSwapLetsTheAlarmExpire() public {
         _policyUsdcThenWeth(0.5e6, 1e18, 100);
         _fund(usdc, 10 * USDC);
         _fund(weth, 1e18);
         router.setQuirks(0, true);
-        _deliver(_alarm(2 * USDC, 1));
-        // Only the 0.5 USDC cap is burned; the WETH is untouched.
+        bytes memory body = _alarm(2 * USDC, 1); // valid for 1 hour
+
+        // Every delivery reverts while the alarm is valid, without using caps or the interval.
+        _expectSwapFailed(body);
+        skip(30 minutes);
+        _expectSwapFailed(body);
+        assertFalse(executor.alarmUsed(1));
+        assertEq(usdc.balanceOf(owner), 10 * USDC);
+        assertEq(executor.remainingCap(owner, address(usdc)), 0.5e6);
+        assertEq(executor.lastDefenseAt(owner), 0);
+
+        // Past its expiry it is consumed like any expired alarm, and nothing stays stuck.
+        skip(30 minutes + 1);
+        vm.expectEmit(address(executor));
+        emit DefenseExecutor.AlarmIgnored(owner, 1, DefenseExecutor.IgnoreReason.Expired);
+        _deliver(body);
+        assertTrue(executor.alarmUsed(1));
+        assertEq(messenger.burnCount(), 0);
+
+        // The owner can still be defended with USDC alone by taking the asset out of the policy.
+        _policyUsdcOnly(0.5e6);
+        _deliver(_alarm(2 * USDC, 2));
         (uint256 amount,,,,,,,) = messenger.last();
         assertEq(amount, 0.5e6);
-        assertEq(weth.balanceOf(owner), 1e18);
     }
 
     function test_defense_swapOutOfGasRevertsSoTheAlarmIsNotConsumed() public {
@@ -251,7 +368,7 @@ contract DefenseExecutorTest is Test {
     function test_defense_tooLittleGasBeforeSwapReverts() public {
         _policyUsdcThenWeth(0, 1e18, 100);
         _fund(weth, 1e18);
-        router.setQuirks(0, true); // a failing swap would otherwise consume the alarm
+        router.setQuirks(0, true); // the gas floor comes first: the swap is not even tried
         bytes memory body = _alarm(1 * USDC, 1);
         vm.prank(transmitter);
         vm.expectRevert(DefenseExecutor.SwapOutOfGas.selector);
@@ -397,6 +514,54 @@ contract DefenseExecutorTest is Test {
         vm.stopPrank();
     }
 
+    function test_setPolicy_refusesSlippageTheSwapCannotMeet() public {
+        // The pool fee is 0.05%: twice that, 10 bps, is the least a policy selling WETH may set.
+        assertEq(executor.minSlippageBps(address(weth)), 10);
+        assertEq(executor.minSlippageBps(address(usdc)), 0);
+        address[] memory assets = new address[](2);
+        uint256[] memory caps = new uint256[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(weth);
+        vm.startPrank(owner);
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.SlippageBelowPoolFee.selector, address(weth), 10));
+        executor.setPolicy(assets, caps, 1 days, 0, MAX_FEE);
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.SlippageBelowPoolFee.selector, address(weth), 10));
+        executor.setPolicy(assets, caps, 1 days, 9, MAX_FEE);
+        executor.setPolicy(assets, caps, 1 days, 10, MAX_FEE);
+        assertEq(executor.policyOf(owner).maxSlippageBps, 10);
+
+        // A policy of USDC alone never swaps: its slippage is not constrained.
+        address[] memory usdcOnly = new address[](1);
+        uint256[] memory cap = new uint256[](1);
+        usdcOnly[0] = address(usdc);
+        executor.setPolicy(usdcOnly, cap, 1 days, 0, MAX_FEE);
+        assertEq(executor.policyOf(owner).maxSlippageBps, 0);
+        vm.stopPrank();
+    }
+
+    function test_minSlippageBps_roundsUpAndFollowsThePoolFee() public {
+        MockToken other = new MockToken(18);
+        DefenseExecutor.SwapAssetConfig[] memory assets = new DefenseExecutor.SwapAssetConfig[](2);
+        assets[0] = DefenseExecutor.SwapAssetConfig(address(weth), IAggregatorV3(address(feed)), 3000);
+        assets[1] = DefenseExecutor.SwapAssetConfig(address(other), IAggregatorV3(address(feed)), 150);
+        DefenseExecutor e = new DefenseExecutor(
+            DefenseExecutor.Config({
+                messageTransmitter: transmitter,
+                tokenMessenger: ITokenMessengerV2(address(messenger)),
+                alarm: alarm,
+                arcDomain: ARC,
+                usdc: IERC20(address(usdc)),
+                swapRouter: ISwapRouter02(address(router)),
+                burnFinality: 1000,
+                maxPriceAge: 1 hours,
+                minDefenseInterval: 15 minutes
+            }),
+            assets
+        );
+        assertEq(e.minSlippageBps(address(weth)), 60); // 0.3% pool
+        assertEq(e.minSlippageBps(address(other)), 3); // 1.5 bps pool: 3 bps
+    }
+
     // ----- helpers -----
 
     function _alarm(uint256 amount, uint64 nonce) internal view returns (bytes memory) {
@@ -407,6 +572,12 @@ contract DefenseExecutorTest is Test {
     function _deliver(bytes memory body) internal {
         vm.prank(transmitter);
         assertTrue(executor.handleReceiveFinalizedMessage(ARC, _sender(alarm), 2000, body));
+    }
+
+    function _expectSwapFailed(bytes memory body) internal {
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.SwapFailed.selector, address(weth)));
+        vm.prank(transmitter);
+        executor.handleReceiveFinalizedMessage(ARC, _sender(alarm), 2000, body);
     }
 
     function _sender(address a) internal pure returns (bytes32) {
@@ -426,6 +597,17 @@ contract DefenseExecutorTest is Test {
         caps[0] = cap;
         vm.prank(owner);
         executor.setPolicy(assets, caps, 1 days, 100, MAX_FEE);
+    }
+
+    function _policyWethThenUsdc(uint256 wethCap, uint256 usdcCap, uint16 slippage) internal {
+        address[] memory assets = new address[](2);
+        uint256[] memory caps = new uint256[](2);
+        assets[0] = address(weth);
+        assets[1] = address(usdc);
+        caps[0] = wethCap;
+        caps[1] = usdcCap;
+        vm.prank(owner);
+        executor.setPolicy(assets, caps, 1 days, slippage, MAX_FEE);
     }
 
     function _policyUsdcThenWeth(uint256 usdcCap, uint256 wethCap, uint16 slippage) internal {

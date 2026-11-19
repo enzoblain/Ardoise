@@ -1,0 +1,578 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		02A039F5A8246EE72992B62E /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CF9191C783E30E78505236A /* HomeView.swift */; };
+		02D635BFDDD95F16C53B2F48 /* ActivateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6490E68F9479B64D13C7DCE1 /* ActivateView.swift */; };
+		0969567647882E15D60AAAD2 /* Abis.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18E2D137291410A5381EDB8 /* Abis.swift */; };
+		0E6692F0E1EF2A79AE2EBA50 /* ArcRpc.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B11F81A1A45E2939936D5FF /* ArcRpc.swift */; };
+		12A52D77FA3E0639C89046EB /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E987C745C4BE4253DD7E9423 /* SignInView.swift */; };
+		1F7C9F6AB0604FDC163238DD /* CircleModularWalletsCore in Frameworks */ = {isa = PBXBuildFile; productRef = B23CD17CB16C1F5314DCD1F3 /* CircleModularWalletsCore */; };
+		325181FF1FB2746F498F8203 /* ArdoiseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9076BD8B42D4EE44F2A7587 /* ArdoiseService.swift */; };
+		438BBF6B9B7B4BCBCDDDD3BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3346327899A42C23D78B20D3 /* Assets.xcassets */; };
+		43CC99182A10024B616D498F /* PasskeyWallet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 856431681EF4E77ACB2A7E95 /* PasskeyWallet.swift */; };
+		458995E33F9BCE16BC0B8588 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3092CFD8526C7BF08A895F27 /* AppModel.swift */; };
+		4ADE3DD84800F6ECEE63DE69 /* Fees.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894DB9EB9C7708B06AF8EA0A /* Fees.swift */; };
+		530CCD2A9ECC940896E6B886 /* web3swift in Frameworks */ = {isa = PBXBuildFile; productRef = 328343852FB8D8DF1B55A5C6 /* web3swift */; };
+		568913466C9E3E5FEDB00F1B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F3A87C2E89C03D8972C351 /* Theme.swift */; };
+		5B66BF8118122208B286F1D7 /* Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9380A897A4016C7FD921ABF8 /* Format.swift */; };
+		61E4107FBBFE3352CA7842DC /* StatementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 480B400E520315C8AD1A0B95 /* StatementView.swift */; };
+		6E903F25B57308B4D10A519C /* Deployment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0DD876C02290FE570AC9B /* Deployment.swift */; };
+		7AADCFDFA39CE7651317039E /* PayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7227450A8DC8CFA49925F381 /* PayView.swift */; };
+		DDAF59789A03F5ED66734726 /* ArdoiseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A608032DEB12EE97AF5D30 /* ArdoiseApp.swift */; };
+		EFFE28B1B24E15B7527ECA5A /* ArdoiseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAC59E3140F6EFB3948DF96 /* ArdoiseTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		50DAC6BD1A82C4954EE04515 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B0B4FC183B93817718C35DE9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4AF7B4D46DA355F076B52B61;
+			remoteInfo = Ardoise;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		17F3A87C2E89C03D8972C351 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		3092CFD8526C7BF08A895F27 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		3346327899A42C23D78B20D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3388945502BBA23AC5C60187 /* Ardoise.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Ardoise.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E75FC5E9A52CD3D0A131411 /* Ardoise.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Ardoise.entitlements; sourceTree = "<group>"; };
+		3FAC59E3140F6EFB3948DF96 /* ArdoiseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArdoiseTests.swift; sourceTree = "<group>"; };
+		480B400E520315C8AD1A0B95 /* StatementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementView.swift; sourceTree = "<group>"; };
+		6490E68F9479B64D13C7DCE1 /* ActivateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivateView.swift; sourceTree = "<group>"; };
+		7227450A8DC8CFA49925F381 /* PayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayView.swift; sourceTree = "<group>"; };
+		7CF9191C783E30E78505236A /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		856431681EF4E77ACB2A7E95 /* PasskeyWallet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyWallet.swift; sourceTree = "<group>"; };
+		87F6D4E514BB696ECBF169A2 /* ArdoiseTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ArdoiseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		894DB9EB9C7708B06AF8EA0A /* Fees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fees.swift; sourceTree = "<group>"; };
+		8B11F81A1A45E2939936D5FF /* ArcRpc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcRpc.swift; sourceTree = "<group>"; };
+		9380A897A4016C7FD921ABF8 /* Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Format.swift; sourceTree = "<group>"; };
+		A18E2D137291410A5381EDB8 /* Abis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Abis.swift; sourceTree = "<group>"; };
+		B1A608032DEB12EE97AF5D30 /* ArdoiseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArdoiseApp.swift; sourceTree = "<group>"; };
+		B2E0DD876C02290FE570AC9B /* Deployment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deployment.swift; sourceTree = "<group>"; };
+		B9076BD8B42D4EE44F2A7587 /* ArdoiseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArdoiseService.swift; sourceTree = "<group>"; };
+		CC4301E541EADE0E2C8A2F95 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E85505D177840F5157AE96AB /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+		E987C745C4BE4253DD7E9423 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7F1084F4BE1AFD02E0D7C560 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1F7C9F6AB0604FDC163238DD /* CircleModularWalletsCore in Frameworks */,
+				530CCD2A9ECC940896E6B886 /* web3swift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		281C2FC6A2FC40113773B657 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3388945502BBA23AC5C60187 /* Ardoise.app */,
+				87F6D4E514BB696ECBF169A2 /* ArdoiseTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4ED7D178D3E058303EF376BD /* ios */ = {
+			isa = PBXGroup;
+			children = (
+				E85505D177840F5157AE96AB /* Config.xcconfig */,
+			);
+			name = ios;
+			path = .;
+			sourceTree = "<group>";
+		};
+		644D751044D6E1F3B7422256 = {
+			isa = PBXGroup;
+			children = (
+				E2B7E5D469091FC771CD0EEF /* Ardoise */,
+				FABC60CE14082E177BA09B3E /* ArdoiseTests */,
+				4ED7D178D3E058303EF376BD /* ios */,
+				281C2FC6A2FC40113773B657 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		694916E2C8DDEEF4E9102A0A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				6490E68F9479B64D13C7DCE1 /* ActivateView.swift */,
+				7CF9191C783E30E78505236A /* HomeView.swift */,
+				7227450A8DC8CFA49925F381 /* PayView.swift */,
+				E987C745C4BE4253DD7E9423 /* SignInView.swift */,
+				480B400E520315C8AD1A0B95 /* StatementView.swift */,
+				17F3A87C2E89C03D8972C351 /* Theme.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		740243EEEEC35390D3A2603F /* Logic */ = {
+			isa = PBXGroup;
+			children = (
+				894DB9EB9C7708B06AF8EA0A /* Fees.swift */,
+				9380A897A4016C7FD921ABF8 /* Format.swift */,
+			);
+			path = Logic;
+			sourceTree = "<group>";
+		};
+		756D5791918794C30E0887B9 /* Wallet */ = {
+			isa = PBXGroup;
+			children = (
+				856431681EF4E77ACB2A7E95 /* PasskeyWallet.swift */,
+			);
+			path = Wallet;
+			sourceTree = "<group>";
+		};
+		A415E4C4034785319F7618DF /* App */ = {
+			isa = PBXGroup;
+			children = (
+				3092CFD8526C7BF08A895F27 /* AppModel.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		D2A931C0E969546230A4E586 /* Chain */ = {
+			isa = PBXGroup;
+			children = (
+				A18E2D137291410A5381EDB8 /* Abis.swift */,
+				8B11F81A1A45E2939936D5FF /* ArcRpc.swift */,
+				B9076BD8B42D4EE44F2A7587 /* ArdoiseService.swift */,
+				B2E0DD876C02290FE570AC9B /* Deployment.swift */,
+			);
+			path = Chain;
+			sourceTree = "<group>";
+		};
+		E2B7E5D469091FC771CD0EEF /* Ardoise */ = {
+			isa = PBXGroup;
+			children = (
+				3E75FC5E9A52CD3D0A131411 /* Ardoise.entitlements */,
+				B1A608032DEB12EE97AF5D30 /* ArdoiseApp.swift */,
+				3346327899A42C23D78B20D3 /* Assets.xcassets */,
+				CC4301E541EADE0E2C8A2F95 /* Info.plist */,
+				A415E4C4034785319F7618DF /* App */,
+				D2A931C0E969546230A4E586 /* Chain */,
+				740243EEEEC35390D3A2603F /* Logic */,
+				694916E2C8DDEEF4E9102A0A /* Views */,
+				756D5791918794C30E0887B9 /* Wallet */,
+			);
+			path = Ardoise;
+			sourceTree = "<group>";
+		};
+		FABC60CE14082E177BA09B3E /* ArdoiseTests */ = {
+			isa = PBXGroup;
+			children = (
+				3FAC59E3140F6EFB3948DF96 /* ArdoiseTests.swift */,
+			);
+			path = ArdoiseTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		170DBDB44A773235F52CC2EA /* ArdoiseTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EC84A6AD9D95407B0B2FF4F2 /* Build configuration list for PBXNativeTarget "ArdoiseTests" */;
+			buildPhases = (
+				3426AD286B59AD85AC95F32A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				16290BB9AD9C8BCF0B1157D2 /* PBXTargetDependency */,
+			);
+			name = ArdoiseTests;
+			packageProductDependencies = (
+			);
+			productName = ArdoiseTests;
+			productReference = 87F6D4E514BB696ECBF169A2 /* ArdoiseTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		4AF7B4D46DA355F076B52B61 /* Ardoise */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 04761DDC323B6785D259A82B /* Build configuration list for PBXNativeTarget "Ardoise" */;
+			buildPhases = (
+				FB541870359A32E30A972BCE /* Sources */,
+				02266145D88FC6028537F576 /* Resources */,
+				7F1084F4BE1AFD02E0D7C560 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Ardoise;
+			packageProductDependencies = (
+				B23CD17CB16C1F5314DCD1F3 /* CircleModularWalletsCore */,
+				328343852FB8D8DF1B55A5C6 /* web3swift */,
+			);
+			productName = Ardoise;
+			productReference = 3388945502BBA23AC5C60187 /* Ardoise.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B0B4FC183B93817718C35DE9 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					170DBDB44A773235F52CC2EA = {
+						DevelopmentTeam = V89X9X5JFK;
+						ProvisioningStyle = Automatic;
+					};
+					4AF7B4D46DA355F076B52B61 = {
+						DevelopmentTeam = V89X9X5JFK;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = FB32FC581349233396FB3A7D /* Build configuration list for PBXProject "Ardoise" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 644D751044D6E1F3B7422256;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				51FE4355F5B0DFAD15B246AB /* XCRemoteSwiftPackageReference "modularwallets-ios-sdk" */,
+				00BB52F7BACB5070A3DE5FDA /* XCRemoteSwiftPackageReference "web3swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 281C2FC6A2FC40113773B657 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4AF7B4D46DA355F076B52B61 /* Ardoise */,
+				170DBDB44A773235F52CC2EA /* ArdoiseTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		02266145D88FC6028537F576 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				438BBF6B9B7B4BCBCDDDD3BD /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3426AD286B59AD85AC95F32A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EFFE28B1B24E15B7527ECA5A /* ArdoiseTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FB541870359A32E30A972BCE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0969567647882E15D60AAAD2 /* Abis.swift in Sources */,
+				02D635BFDDD95F16C53B2F48 /* ActivateView.swift in Sources */,
+				458995E33F9BCE16BC0B8588 /* AppModel.swift in Sources */,
+				0E6692F0E1EF2A79AE2EBA50 /* ArcRpc.swift in Sources */,
+				DDAF59789A03F5ED66734726 /* ArdoiseApp.swift in Sources */,
+				325181FF1FB2746F498F8203 /* ArdoiseService.swift in Sources */,
+				6E903F25B57308B4D10A519C /* Deployment.swift in Sources */,
+				4ADE3DD84800F6ECEE63DE69 /* Fees.swift in Sources */,
+				5B66BF8118122208B286F1D7 /* Format.swift in Sources */,
+				02A039F5A8246EE72992B62E /* HomeView.swift in Sources */,
+				43CC99182A10024B616D498F /* PasskeyWallet.swift in Sources */,
+				7AADCFDFA39CE7651317039E /* PayView.swift in Sources */,
+				12A52D77FA3E0639C89046EB /* SignInView.swift in Sources */,
+				61E4107FBBFE3352CA7842DC /* StatementView.swift in Sources */,
+				568913466C9E3E5FEDB00F1B /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		16290BB9AD9C8BCF0B1157D2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4AF7B4D46DA355F076B52B61 /* Ardoise */;
+			targetProxy = 50DAC6BD1A82C4954EE04515 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		264CEAF229B6A970F903861B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = E85505D177840F5157AE96AB /* Config.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = V89X9X5JFK;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		5301FA9F04EB76E94EDA63FF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Ardoise/Ardoise.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Ardoise/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.enzoblain.ardoise;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9F04BD156CC6CE9FD3D41DBB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.enzoblain.ardoise.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ardoise.app/Ardoise";
+			};
+			name = Debug;
+		};
+		D5E4C7808C61850740465A69 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = E85505D177840F5157AE96AB /* Config.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = V89X9X5JFK;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		DA2B6C83BBBD70546E5BE4CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Ardoise/Ardoise.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Ardoise/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.enzoblain.ardoise;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FAD734ACB7D97B39C14F2300 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.enzoblain.ardoise.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ardoise.app/Ardoise";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		04761DDC323B6785D259A82B /* Build configuration list for PBXNativeTarget "Ardoise" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5301FA9F04EB76E94EDA63FF /* Debug */,
+				DA2B6C83BBBD70546E5BE4CB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EC84A6AD9D95407B0B2FF4F2 /* Build configuration list for PBXNativeTarget "ArdoiseTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9F04BD156CC6CE9FD3D41DBB /* Debug */,
+				FAD734ACB7D97B39C14F2300 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FB32FC581349233396FB3A7D /* Build configuration list for PBXProject "Ardoise" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				264CEAF229B6A970F903861B /* Debug */,
+				D5E4C7808C61850740465A69 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		00BB52F7BACB5070A3DE5FDA /* XCRemoteSwiftPackageReference "web3swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/web3swift-team/web3swift.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 3.3.2;
+			};
+		};
+		51FE4355F5B0DFAD15B246AB /* XCRemoteSwiftPackageReference "modularwallets-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/circlefin/modularwallets-ios-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		328343852FB8D8DF1B55A5C6 /* web3swift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 00BB52F7BACB5070A3DE5FDA /* XCRemoteSwiftPackageReference "web3swift" */;
+			productName = web3swift;
+		};
+		B23CD17CB16C1F5314DCD1F3 /* CircleModularWalletsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 51FE4355F5B0DFAD15B246AB /* XCRemoteSwiftPackageReference "modularwallets-ios-sdk" */;
+			productName = CircleModularWalletsCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = B0B4FC183B93817718C35DE9 /* Project object */;
+}

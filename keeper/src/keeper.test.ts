@@ -8,6 +8,8 @@ import {
   encodeEventTopics,
   encodeFunctionResult,
   numberToHex,
+  pad,
+  zeroAddress,
   zeroHash,
   type Account,
   type Address,
@@ -21,6 +23,7 @@ import { arc } from "viem/chains";
 
 import { accountAbi, erc20Abi, factoryAbi, guardAbi, venueAbi } from "./abis.js";
 import { USDC_ADDRESS } from "./config.js";
+import { GATEWAY_MAINNET, GatewayFunder, type StandingOrder } from "./gateway.js";
 import { Keeper, type KeeperOptions } from "./keeper.js";
 
 const WAD = 10n ** 18n;
@@ -46,6 +49,10 @@ interface FakeChain {
   debt: bigint;
   /** Debt on a second venue (Morpho next to Aave V4), or `null` for a factory with one venue. */
   secondVenueDebt: bigint | null;
+  /** What the first venue answers instead of the position derived from `debt`, in the contract's own units. */
+  position: { healthFactor: bigint; debtUsd: bigint; debtOf: bigint } | null;
+  /** Makes every venue's `debtOf` read fail, while `health` still answers. */
+  debtOfFails: boolean;
   /** Amount `sweep()` reports in simulation. */
   sweepRepays: bigint;
   guardReverts: boolean;
@@ -69,6 +76,8 @@ function fakeChain(overrides: Partial<FakeChain> = {}): FakeChain {
     balance: 100n * USDC,
     debt: 4_000n,
     secondVenueDebt: null,
+    position: null,
+    debtOfFails: false,
     sweepRepays: 100n * USDC,
     guardReverts: false,
     simulatedDropBps: 0n,
@@ -107,8 +116,14 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
     case VENUE:
     case SECOND_VENUE: {
       // Both positions hold 7,800 USD of risk-adjusted collateral.
-      const debtUsd = (to.toLowerCase() === VENUE ? chain.debt : chain.secondVenueDebt!) * WAD;
-      const health = debtUsd === 0n ? 2n ** 256n - 1n : (7_800n * WAD * WAD) / debtUsd;
+      const debt = to.toLowerCase() === VENUE ? chain.debt : chain.secondVenueDebt!;
+      const override = to.toLowerCase() === VENUE ? chain.position : null;
+      if (decodeFunctionData({ abi: venueAbi, data }).functionName === "debtOf") {
+        if (chain.debtOfFails) throw new Error("execution reverted");
+        return encodeFunctionResult({ abi: venueAbi, functionName: "debtOf", result: override?.debtOf ?? debt * USDC });
+      }
+      const debtUsd = override?.debtUsd ?? debt * WAD;
+      const health = override?.healthFactor ?? (debtUsd === 0n ? 2n ** 256n - 1n : (7_800n * WAD * WAD) / debtUsd);
       return encodeFunctionResult({ abi: venueAbi, functionName: "health", result: [health, 10_000n * WAD, debtUsd] });
     }
     case USDC_ADDRESS:
@@ -455,6 +470,172 @@ test("asks Gateway for the shortfall of an account under the minimum with nothin
   assert.equal(account.toLowerCase(), ACCOUNT);
   // 6,500 of debt at HF 1.2 back to 1.5: 6,500 - 7,800 / 1.5 = 1,300 USDC.
   assert.equal(shortfall, 1_300n * USDC);
+});
+
+test("caps what Gateway may bring at the debt on every venue, less the balance already on the account", async () => {
+  // 0.05 USDC on the account is too little to sweep now, but it repays with the next sweep.
+  const chain = fakeChain({ debt: 6_500n, secondVenueDebt: 1_000n, balance: 50_000n });
+  const calls: [bigint, bigint][] = [];
+  const { keeper } = setUp(chain, {
+    gateway: { fund: async (_owner, _account, shortfall, maxDraw) => void calls.push([shortfall, maxDraw]), isCovering: () => false },
+  });
+  await keeper.tick();
+  assert.deepEqual(calls, [[1_300n * USDC - 50_000n, 7_500n * USDC - 50_000n]]);
+});
+
+test("leaves the shortfall to the defense alarm when every standing order is larger than the debt left", async () => {
+  // 4,000 USDC of debt at HF 1.95, judged at 1.17 under a -40% drop: 880 USDC missing.
+  const chain = fakeChain({ debt: 4_000n, balance: 0n, simulatedDropBps: 4_000n });
+  const submitted: string[] = [];
+  const gatewayLogs: string[] = [];
+  const address32 = (address: Address): Hex => pad(address, { size: 32 });
+  // The owner's only order brings 5,000 USDC: 1,000 USDC of it could never leave the account.
+  const tooLarge: StandingOrder = {
+    burnIntent: {
+      maxBlockHeight: "62265703",
+      maxFee: "30000",
+      spec: {
+        version: 1,
+        sourceDomain: 6,
+        destinationDomain: GATEWAY_MAINNET.arcDomain,
+        sourceContract: address32(GATEWAY_MAINNET.walletContract),
+        destinationContract: address32(GATEWAY_MAINNET.minterContract),
+        sourceToken: address32(GATEWAY_MAINNET.sourceUsdc[6]),
+        destinationToken: address32(GATEWAY_MAINNET.arcUsdc),
+        sourceDepositor: address32(OWNER),
+        destinationRecipient: address32(ACCOUNT),
+        sourceSigner: address32(OWNER),
+        destinationCaller: address32(zeroAddress),
+        value: (5_000n * USDC).toString(),
+        salt: pad("0x01", { size: 32 }),
+        hookData: "0x",
+      },
+    },
+    signature: "0x1234",
+  };
+  const gateway = new GatewayFunder({
+    network: GATEWAY_MAINNET,
+    loadOrders: async () => [tooLarge],
+    log: (message) => gatewayLogs.push(message),
+    dryRun: false,
+    fetch: async (url) => {
+      submitted.push(url);
+      return { ok: true, status: 201, json: async () => ({ transferId: "t1" }) };
+    },
+  });
+  const defended: Address[] = [];
+  const { keeper } = setUp(chain, {
+    gateway,
+    defense: { defend: async (owner) => (defended.push(owner), "raised") },
+  });
+  await keeper.tick();
+  assert.deepEqual(submitted, [], "nothing sent to Gateway");
+  assert.ok(gatewayLogs.some((line) => line.includes("skipped: larger than the debt left to repay")));
+  assert.deepEqual(defended.map((owner) => owner.toLowerCase()), [OWNER]);
+});
+
+test("sweeps a balance under the usual minimum when it is all a position under the minimum needs", async () => {
+  // 0.30 USDC of debt at HF 1.20 needs 0.06 USDC to reach 1.5; the account holds 0.08 USDC.
+  const position = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debtOf: 300_000n };
+  const chain = fakeChain({ position, balance: 80_000n, sweepRepays: 80_000n });
+  const shortfalls: bigint[] = [];
+  const defended: Address[] = [];
+  const { keeper, logs } = setUp(chain, {
+    wallet: true,
+    gateway: { fund: async (_owner, _account, shortfall) => void shortfalls.push(shortfall), isCovering: () => false },
+    defense: { defend: async (owner) => (defended.push(owner), "raised") },
+  });
+  await keeper.tick();
+  assert.equal(chain.sent, 1, "the sweep is sent although it repays less than 0.1 USDC");
+  assert.ok(logs.some((line) => line.includes("under the minimum, sweeping the balance")));
+  assert.deepEqual(shortfalls, [0n]);
+  assert.equal(defended.length, 0);
+});
+
+test("sweeps a debt under the usual minimum when the balance restores a position under the minimum", async () => {
+  // 0.09 USDC of debt at HF 1.20 with 0.10 USDC on the account: sweep() can only repay the 0.09 USDC.
+  const position = { healthFactor: (12n * WAD) / 10n, debtUsd: (9n * WAD) / 100n, debtOf: 90_000n };
+  const chain = fakeChain({ position, balance: 100_000n, sweepRepays: 90_000n });
+  const { keeper } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.equal(chain.sent, 1);
+});
+
+test("does not send a sweep under the usual minimum for a position that is not under the guard's minimum", async () => {
+  // Same debt at HF 1.95: the 0.09 USDC repayment is not worth its gas.
+  const position = { healthFactor: (195n * WAD) / 100n, debtUsd: (9n * WAD) / 100n, debtOf: 90_000n };
+  const chain = fakeChain({ position, balance: 100_000n, sweepRepays: 90_000n });
+  const { keeper, logs } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.equal(chain.sent, 0);
+  assert.ok(logs.some((line) => line.includes("would repay only 0.09 USDC, not sent")));
+});
+
+test("draws from Gateway when a balance under the usual minimum does not restore the position", async () => {
+  const position = { healthFactor: (12n * WAD) / 10n, debtUsd: (3n * WAD) / 10n, debtOf: 300_000n };
+  const chain = fakeChain({ position, balance: 50_000n });
+  const calls: [bigint, bigint][] = [];
+  const { keeper } = setUp(chain, {
+    wallet: true,
+    gateway: { fund: async (_owner, _account, shortfall, maxDraw) => void calls.push([shortfall, maxDraw]), isCovering: () => false },
+  });
+  await keeper.tick();
+  assert.equal(chain.sent, 0);
+  assert.deepEqual(calls, [[10_000n, 250_000n]]);
+});
+
+test("sweeps a balance under the usual minimum when the alarm finds it restores the position", async () => {
+  const chain = fakeChain({ debt: 6_500n, balance: 50_000n, sweepRepays: 50_000n });
+  const { keeper } = setUp(chain, { wallet: true, defense: { defend: async () => "sweep" } });
+  await keeper.tick();
+  assert.equal(chain.sent, 1);
+});
+
+test("still sweeps and raises the alarm, but draws nothing from Gateway, when a venue's debt cannot be read", async () => {
+  const chain = fakeChain({ debt: 6_500n, balance: 100n * USDC, debtOfFails: true });
+  const calls: [bigint, bigint][] = [];
+  const defended: Address[] = [];
+  const { keeper, logs } = setUp(chain, {
+    wallet: true,
+    gateway: { fund: async (_owner, _account, shortfall, maxDraw) => void calls.push([shortfall, maxDraw]), isCovering: () => false },
+    defense: { defend: async (owner) => (defended.push(owner), "raised") },
+  });
+  await keeper.tick();
+  assert.equal(chain.sent, 1, "the sweep does not need the debt figure");
+  assert.ok(!logs.some((line) => line.includes("check failed")));
+  // The fake sweep emptied the account and left the debt: the position is now underfunded.
+  await keeper.tick();
+  await keeper.tick();
+  assert.deepEqual(calls, [[0n, 0n], [0n, 0n], [0n, 0n]], "Gateway is only asked to follow its transfers");
+  const unread = logs.filter((line) => line.includes("nothing is drawn from Gateway until it can"));
+  assert.equal(unread.length, 1);
+  assert.ok(unread[0].toLowerCase().includes(`the debt on venue ${VENUE} cannot be read (`), "names the venue and the error");
+  assert.ok(!unread[0].includes("\n"), "one line: no request details");
+  assert.equal(defended.length, 2, "the defense step runs on both underfunded passes");
+
+  chain.debtOfFails = false;
+  await keeper.tick();
+  assert.deepEqual(calls[3], [1_300n * USDC, 6_500n * USDC]);
+  assert.ok(logs.some((line) => line.toLowerCase().includes(`the debt on venue ${VENUE} can be read again`)));
+});
+
+test("warns about a position under the minimum that has no USDC debt, and does nothing", async () => {
+  // 6,500 USD of debt in another asset on the venue: USDC cannot repay it.
+  const position = { healthFactor: (12n * WAD) / 10n, debtUsd: 6_500n * WAD, debtOf: 0n };
+  const chain = fakeChain({ position, balance: 0n });
+  const shortfalls: bigint[] = [];
+  const defended: Address[] = [];
+  const { keeper, logs } = setUp(chain, {
+    wallet: true,
+    gateway: { fund: async (_owner, _account, shortfall) => void shortfalls.push(shortfall), isCovering: () => false },
+    defense: { defend: async (owner) => (defended.push(owner), "raised") },
+  });
+  await keeper.tick();
+  assert.ok(logs.some((line) => line.includes("health factor 1.200") && line.includes("WARNING, under the minimum with no USDC debt")));
+  assert.ok(!logs.some((line) => line.includes("margin is fine")));
+  assert.deepEqual(shortfalls, [0n]);
+  assert.equal(defended.length, 0);
+  assert.equal(chain.sent, 0);
 });
 
 test("still calls Gateway with no shortfall, so transfers on their way are followed", async () => {

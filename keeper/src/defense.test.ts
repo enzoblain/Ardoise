@@ -46,8 +46,8 @@ type Revert = { errorName: string; args: readonly unknown[] } | Error;
 interface Fake {
   /** Revert of the `raise` simulation, or `null` for success. */
   raiseRevert: Revert | null;
-  /** Reverts of successive `receiveMessage` simulations; success once empty. */
-  relayReverts: Revert[];
+  /** Reverts of successive `receiveMessage` simulations (`null`: it passes); success once empty. */
+  relayReverts: (Revert | null)[];
   /** Successive Iris answers; the last one repeats. */
   iris: ({ status: number; body?: unknown })[];
   irisUrls: string[];
@@ -56,6 +56,8 @@ interface Fake {
   relaysSent: { message: Hex; attestation: Hex }[];
   /** Status of the Base receipt. */
   relayReceipt: "success" | "reverted";
+  /** Statuses of the first Base receipts, one per transaction; then `relayReceipt`. */
+  relayReceipts: ("success" | "reverted")[];
   /** Receipt queries answered "not found" before the receipt shows, on each chain. */
   arcReceiptMissing: number;
   baseReceiptMissing: number;
@@ -73,6 +75,7 @@ function fake(overrides: Partial<Fake> = {}): Fake {
     raisesSent: 0,
     relaysSent: [],
     relayReceipt: "success",
+    relayReceipts: [],
     arcReceiptMissing: 0,
     baseReceiptMissing: 0,
     relayGas: [],
@@ -195,7 +198,7 @@ function setUp(state: Fake, options: { wallet?: boolean } = { wallet: true }) {
               return "0x20";
             case "eth_call": {
               const revert = state.relayReverts.shift();
-              if (revert !== undefined) throw rpcRevert(revert, [...defenseRelayAbi, ...errorStringAbi]);
+              if (revert !== undefined && revert !== null) throw rpcRevert(revert, [...defenseRelayAbi, ...errorStringAbi]);
               return encodeFunctionResult({ abi: defenseRelayAbi, functionName: "receiveMessage", result: true });
             }
             case "eth_getTransactionByHash":
@@ -207,7 +210,7 @@ function setUp(state: Fake, options: { wallet?: boolean } = { wallet: true }) {
                 state.baseReceiptMissing -= 1;
                 return null;
               }
-              return receipt(RELAY_TX, state.relayReceipt, [
+              return receipt(RELAY_TX, state.relayReceipts.shift() ?? state.relayReceipt, [
                 log(
                   "0x00000000000000000000000000000000000000e1",
                   encodeEventTopics({
@@ -391,6 +394,46 @@ test("retries a SwapOutOfGas revert like any other failure", async () => {
   assert.ok(logs.some((line) => line.includes("failed (SwapOutOfGas), retrying in 5 s")));
   assert.deepEqual(sleeps, [5_000]);
   assert.equal(state.relaysSent.length, 1);
+});
+
+test("keeps retrying a SwapFailed revert until the pool price is back", async () => {
+  const swapFailed = { errorName: "SwapFailed", args: ["0x4200000000000000000000000000000000000006"] };
+  const state = fake({ relayReverts: [swapFailed, swapFailed, swapFailed] });
+  const { relay, logs, sleeps } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.ok(logs.some((line) => line.includes("failed (SwapFailed), retrying in 5 s")));
+  assert.deepEqual(sleeps, [5_000, 10_000, 20_000]);
+  // Simulations spend no gas and do not count as failed deliveries: one transaction, delivered.
+  assert.equal(state.relaysSent.length, 1);
+  assert.ok(logs.some((line) => line.includes("delivered on Base")));
+});
+
+test("does not count on-chain reverts that the next simulation puts down to the pool price", async () => {
+  // Six times over: the simulation passes, the pool moves before inclusion and the transaction
+  // reverts, then the next simulation fails with SwapFailed. One more than the give-up limit.
+  const swapFailed = { errorName: "SwapFailed", args: ["0x4200000000000000000000000000000000000006"] };
+  const state = fake({
+    relayReverts: Array.from({ length: 6 }, () => [null, swapFailed]).flat(),
+    relayReceipts: Array.from({ length: 6 }, () => "reverted" as const),
+  });
+  const { relay, logs } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.equal(state.relaysSent.length, 7);
+  assert.ok(!logs.some((line) => line.includes("giving up")));
+  assert.ok(logs.some((line) => line.includes("delivered on Base")));
+});
+
+test("still gives up on on-chain reverts that the next simulation does not explain", async () => {
+  // The first revert is explained by the price and not counted; the five others are.
+  const swapFailed = { errorName: "SwapFailed", args: ["0x4200000000000000000000000000000000000006"] };
+  const state = fake({ relayReverts: [null, swapFailed], relayReceipt: "reverted" });
+  const { relay, logs } = setUp(state);
+  await relay.defend(OWNER);
+  await relay.idle();
+  assert.equal(state.relaysSent.length, 6);
+  assert.ok(logs.some((line) => line.includes("failed 5 times") && line.includes("giving up")));
 });
 
 test("gives up when TooSoon names a time after the alarm expires", async () => {

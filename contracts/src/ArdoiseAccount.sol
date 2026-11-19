@@ -16,13 +16,45 @@ import {IVenue} from "./interfaces/IVenue.sol";
 /// @dev Deployed by `ArdoiseFactory`, one per owner. The collateral position stays in the owner's
 /// wallet; the account only borrows within the allowances the owner granted to each venue
 /// adapter, and only holds USDC between a borrow and its delivery or while it waits for
-/// `sweep()`. Venues and guard are read from the factory on every call.
+/// `sweep()` or for the owner's `withdraw()`. The guard is read from the factory on every call.
+///
+/// Venues need the owner's consent as well as the admin's: the account borrows from, approves
+/// and pays only venues that are both in the factory's list and in its own accepted set. A
+/// venue adapter is trusted with the account's USDC (`sweep()` approves it for what it reports
+/// as debt), so a venue the admin lists later must not reach an account whose owner never
+/// agreed to it. The accepted set starts as the factory's list when the account is created.
+/// That snapshot trusts the list as it stands in the creation transaction, which the admin
+/// may change just before it: the owner should read `acceptedVenues()` right after creating
+/// the account and revoke anything unexpected before funding it or granting an allowance.
+/// Only the owner changes the set afterwards, with `acceptVenue` and `revokeVenue`. A venue
+/// the admin delists stays accepted and is usable again as soon as it is relisted, without
+/// any event on the account: the owner should `revokeVenue` a delisted venue they no longer
+/// want.
+///
+/// Whatever a venue reports, a debt line never costs more than its own estimate: each
+/// repayment credits the line with the USDC that actually left, so the total paid through a
+/// line stops at its principal plus simple interest at the rate recorded when it was opened,
+/// itself capped at `MAX_LINE_RATE_BPS`. This is the whole exposure to a venue once it is
+/// revoked or delisted.
 contract ArdoiseAccount is IArdoise {
+    /// @notice Largest number of venues an account accepts, so that `bestVenue` and `sweep()`
+    /// call at most that many venues whatever the factory lists (they still read the whole
+    /// factory list).
+    uint256 public constant MAX_ACCEPTED_VENUES = 8;
+
     /// @dev CCTP domain of Arc.
     uint32 private constant ARC = 26;
     /// @dev "cctp-forward", the hook data that enables Circle's Forwarding Service.
     bytes32 private constant FORWARD_HOOK = "cctp-forward";
     uint256 private constant BPS = 10_000;
+
+    /// @notice Highest rate recorded on a debt line, in bps a year: 100%.
+    /// @dev The recorded rate only feeds the line's interest estimate, which is what a venue
+    /// that is no longer usable may still be paid. The venues quote a few percent a year, and
+    /// the real debt of an accepted venue is repaid by `sweep()` whatever the estimate says, so
+    /// the cap costs an honest venue nothing; without it, a venue hostile at payment time could
+    /// record a rate that makes its line's estimate reach the whole balance within hours.
+    uint256 public constant MAX_LINE_RATE_BPS = 10_000;
     uint256 private constant YEAR = 365 days;
 
     /// @notice Factory that deployed the account and holds the venue list and the guard.
@@ -62,7 +94,27 @@ contract ArdoiseAccount is IArdoise {
 
     uint256 private _locked = 1;
 
-    /// @notice Thrown when a payment amount is zero.
+    /// @dev Venues the owner accepted, at most `MAX_ACCEPTED_VENUES`, without duplicates.
+    IVenue[] private _accepted;
+
+    /// @notice Emitted when a venue joins the accepted set: at creation for the factory's list,
+    /// then on `acceptVenue`.
+    /// @param venue The accepted venue.
+    event VenueAccepted(IVenue indexed venue);
+    /// @notice Emitted when the owner removes a venue from the accepted set.
+    /// @param venue The revoked venue.
+    event VenueRevoked(IVenue indexed venue);
+
+    /// @notice Thrown by `acceptVenue` for a venue the owner already accepted.
+    /// @param venue The venue.
+    error VenueAlreadyAccepted(IVenue venue);
+    /// @notice Thrown by `revokeVenue` for a venue that is not in the accepted set.
+    /// @param venue The venue.
+    error VenueNotAccepted(IVenue venue);
+    /// @notice Thrown by `acceptVenue` when the accepted set already holds
+    /// `MAX_ACCEPTED_VENUES` venues.
+    error TooManyVenues();
+    /// @notice Thrown when a payment or withdrawal amount is zero.
     error ZeroAmount();
     /// @notice Thrown when a payment on Arc carries a CCTP fee.
     /// @param maxFee The rejected fee.
@@ -73,7 +125,7 @@ contract ArdoiseAccount is IArdoise {
     error BorrowShortfall(uint256 expected, uint256 received);
     /// @notice Thrown when a token transfer or approval returns false.
     error TokenCallFailed();
-    /// @notice Thrown on a reentrant call to `pay`, `repay` or `sweep`.
+    /// @notice Thrown on a reentrant call to `pay`, `payVia`, `repay`, `sweep` or `withdraw`.
     error Reentrancy();
     /// @notice Thrown by `pay` while the factory has no guard: payments wait for one, repayments
     /// and `sweep` do not.
@@ -94,6 +146,9 @@ contract ArdoiseAccount is IArdoise {
     // The factory always passes its caller as the owner, which cannot be the zero address.
     // forge-lint: disable-next-item(missing-zero-check)
     /// @notice Deploys the account of `owner_`; the caller is the factory.
+    /// @dev Accepts the venues the factory lists at this moment (duplicates once, and only the
+    /// first `MAX_ACCEPTED_VENUES`), emitting `VenueAccepted` for each: creating the account is
+    /// the owner's consent to that list, and to nothing the admin adds later.
     /// @param owner_ Wallet that owns the account and the collateral position.
     /// @param usdc_ USDC token.
     /// @param tokenMessenger_ CCTP V2 TokenMessenger.
@@ -114,6 +169,13 @@ contract ArdoiseAccount is IArdoise {
         tokenMessenger = tokenMessenger_;
         minFinalityThreshold = minFinalityThreshold_;
         _setCaps(perPaymentCap, dailyCap);
+
+        IVenue[] memory listed = IArdoiseFactory(msg.sender).venues();
+        for (uint256 i = 0; i < listed.length && _accepted.length < MAX_ACCEPTED_VENUES; ++i) {
+            if (_contains(_accepted, listed[i])) continue;
+            _accepted.push(listed[i]);
+            emit VenueAccepted(listed[i]);
+        }
     }
 
     // ----- Configuration -----
@@ -129,8 +191,70 @@ contract ArdoiseAccount is IArdoise {
     }
 
     /// @inheritdoc IArdoise
-    function venues() public view returns (IVenue[] memory) {
-        return factory.venues();
+    /// @dev Only the venues that are both in the factory's list and accepted by the owner, each
+    /// once, in the factory's order: the set `pay`, `payVia` and `sweep()` work with. A venue
+    /// the admin lists after the account was created is absent until the owner calls
+    /// `acceptVenue`; a venue the admin delists or the owner revokes leaves it at once. A
+    /// delisted venue stays accepted, so it is back here as soon as the admin relists it.
+    function venues() public view returns (IVenue[] memory usable) {
+        IVenue[] memory listed = factory.venues();
+        IVenue[] memory accepted = _accepted;
+        usable = new IVenue[](accepted.length);
+        uint256 count = 0;
+        for (uint256 i = 0; i < listed.length && count < accepted.length; ++i) {
+            if (!_contains(accepted, listed[i]) || _containsFirst(usable, count, listed[i])) continue;
+            usable[count++] = listed[i];
+        }
+        // Shrinks the array to the venues found; it was allocated for `accepted.length`.
+        assembly ("memory-safe") {
+            mstore(usable, count)
+        }
+    }
+
+    /// @notice Venues the owner accepted, whether or not the factory still lists them.
+    /// @dev Not part of `IArdoise`. `venues()` is this set restricted to the factory's list. To
+    /// be read right after `createAccount()`, and whenever the factory's list changes: a venue
+    /// shown here that the factory no longer lists becomes usable again if it is relisted.
+    /// @return The accepted venues, at most `MAX_ACCEPTED_VENUES`, in no particular order.
+    function acceptedVenues() external view returns (IVenue[] memory) {
+        return _accepted;
+    }
+
+    /// @notice Accepts a venue the factory lists, so that the account may borrow from it and
+    /// `sweep()` may repay the owner's debt there. Owner only.
+    /// @dev Not part of `IArdoise`. Accepting a venue trusts its adapter with the USDC the
+    /// account holds: `sweep()` approves it for the debt it reports. Reverts with `NotOwner`,
+    /// `UnknownVenue` if the factory does not list `venue`, `VenueAlreadyAccepted`, or
+    /// `TooManyVenues` once `MAX_ACCEPTED_VENUES` are accepted (revoke one first).
+    /// @param venue Venue to accept.
+    function acceptVenue(IVenue venue) external onlyOwner {
+        if (!_contains(factory.venues(), venue)) revert UnknownVenue(venue);
+        if (_contains(_accepted, venue)) revert VenueAlreadyAccepted(venue);
+        if (_accepted.length >= MAX_ACCEPTED_VENUES) revert TooManyVenues();
+        _accepted.push(venue);
+        emit VenueAccepted(venue);
+    }
+
+    /// @notice Removes a venue from the accepted set: the account no longer borrows from it, and
+    /// `sweep()` no longer reads its health or repays the owner's whole debt there. Owner only.
+    /// @dev Not part of `IArdoise`. Debt lines already opened on the venue stay repayable, with
+    /// `repay` and at the end of `sweep()`. Each is credited with the USDC the venue actually
+    /// takes, so the venue receives at most the sum of its open lines' estimates (principal plus
+    /// simple interest at the rate recorded when the line was opened, at most
+    /// `MAX_LINE_RATE_BPS`, less what was already repaid), however many times `sweep()` is
+    /// called and whatever it reports. Interest runs while a line stays open. Reverts with
+    /// `NotOwner` or `VenueNotAccepted`.
+    /// @param venue Venue to revoke.
+    function revokeVenue(IVenue venue) external onlyOwner {
+        uint256 n = _accepted.length;
+        for (uint256 i = 0; i < n; ++i) {
+            if (_accepted[i] != venue) continue;
+            _accepted[i] = _accepted[n - 1];
+            _accepted.pop();
+            emit VenueRevoked(venue);
+            return;
+        }
+        revert VenueNotAccepted(venue);
     }
 
     // forge-lint: disable-next-item(block-timestamp)
@@ -146,16 +270,17 @@ contract ArdoiseAccount is IArdoise {
 
     // ----- Payments -----
 
-    // Venues come from the admin-set factory list, which stays short; a venue that cannot answer
-    // is treated as unavailable rather than blocking payments.
+    // Venues are the listed ones the owner accepted, at most `MAX_ACCEPTED_VENUES`; a venue that
+    // cannot answer is treated as unavailable rather than blocking payments.
     // forge-lint: disable-next-item(calls-loop)
     /// @inheritdoc IArdoise
     /// @dev Venues whose `available()` or `rate()` reverts are skipped, and so is a venue whose
-    /// guard check reverts; ties go to the first venue in the factory's list. The guard is asked
-    /// in order of rate and the first venue it allows in full wins, so a cheaper venue where the
-    /// owner has no position (or not enough margin) never blocks a payment another venue can
-    /// make. When no venue is allowed in full, the one allowing the most is returned, and
-    /// `pay()` then reverts with `PaymentRefused` and that amount. Without a guard, the cheapest
+    /// guard check reverts; ties go to the first venue in the factory's list. Only `venues()` are
+    /// considered, so a venue the owner did not accept is never called nor chosen, whatever
+    /// rate it quotes. The guard is asked in order of rate and the first venue it allows in full
+    /// wins, so a cheaper venue where the owner has no position (or not enough margin) never
+    /// blocks a payment another venue can make. When no venue is allowed in full, the one
+    /// allowing the most is returned, and `pay()` then reverts with `PaymentRefused` and that amount. Without a guard, the cheapest
     /// venue with enough liquidity is returned. A guard check that reverts on every venue ends in
     /// `NoVenueAvailable`, which hides the guard's own error. Cost: a venue the guard allows only
     /// in part costs its full search (about 25 `healthAfter` calls), and `pay()` asks the guard
@@ -216,8 +341,10 @@ contract ArdoiseAccount is IArdoise {
     }
 
     /// @inheritdoc IArdoise
-    /// @dev Reverts with `UnknownVenue` before the payment checks (after the owner check) when `venue` is not in the
-    /// factory's list, so the owner can never borrow through an adapter the admin did not add.
+    /// @dev Reverts with `UnknownVenue` before the payment checks (after the owner check) when
+    /// `venue` is not one of `venues()`: in the factory's list and accepted by the owner. The
+    /// account therefore never borrows through an adapter the admin did not add, and a venue
+    /// listed after the account was created needs `acceptVenue` first.
     function payVia(
         IVenue venue,
         uint256 amount,
@@ -245,15 +372,30 @@ contract ArdoiseAccount is IArdoise {
     // Repays through each line's venue inside the non-reentrant lock.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
     /// @inheritdoc IArdoise
-    /// @dev Venues are served in order of health factor, lowest first (ties keep the factory's
+    /// @dev Only `venues()` are served this way, the listed venues the owner accepted: a venue
+    /// the owner never accepted is never read, approved or paid, whatever debt and health it
+    /// reports. They are served in order of health factor, lowest first (ties keep the factory's
     /// order), so the balance goes to the position closest to liquidation: with Aave V4 and
     /// Morpho as separate positions, repaying a line on the healthy one would leave the other in
     /// danger. For each venue, its open lines are repaid oldest first, then whatever remains of
     /// the owner's debt there: the line estimates use simple interest while venues compound, and
     /// the owner may have debt opened outside Ardoise. Open lines on a venue the factory no longer
-    /// lists come last. Lines whose venue debt is already 0 are closed on the way at no cost; a
-    /// venue that refuses the repayment is skipped rather than blocking the sweep, so the keeper
-    /// is never stuck behind one line. Anything left after that stays in the account.
+    /// lists or the owner revoked come last: a line can only have been opened on a venue the
+    /// owner had accepted, and such a venue receives at most what its open lines still owe by
+    /// their own estimate, over any number of sweeps, since a line is credited with the USDC
+    /// that left the account even when the venue reports less. Lines whose venue debt is
+    /// already 0 are closed on the way at no cost. Anything left after that stays in the account.
+    ///
+    /// A misbehaving venue is skipped rather than blocking the others: one whose `repay`,
+    /// `debtOf` or `health` reverts or returns malformed data, one that reports more than it
+    /// was approved for (the report is capped at the approval), one that sends USDC to the
+    /// account during `repay` (counted as nothing spent). Only the first 32 bytes of what a
+    /// venue returns are read. What remains to a venue is gas: these calls forward the gas the
+    /// sweep has, so a venue that burns it makes that sweep fail until its line is closed.
+    ///
+    /// The return value adds, for each line, the amount applied to it (the larger of the debt
+    /// the venue reports as restored and the USDC it took) and, for the debt repaid beyond the
+    /// lines on a usable venue, what that venue reports, never more than it was approved for.
     function sweep() external nonReentrant returns (uint256 repaid) {
         uint256 balance = usdc.balanceOf(address(this));
         uint256 count = _lines.length;
@@ -287,6 +429,50 @@ contract ArdoiseAccount is IArdoise {
         return _line(lineId).closed;
     }
 
+    // ----- Withdrawal -----
+
+    /// @notice Emitted when the owner takes idle USDC back from the account.
+    /// @param to Recipient, always the owner.
+    /// @param amount USDC sent.
+    event Withdrawn(address indexed to, uint256 amount);
+
+    /// @notice Thrown when a withdrawal asks for more USDC than the account holds.
+    /// @param requested Amount asked.
+    /// @param balance USDC the account holds.
+    error InsufficientBalance(uint256 requested, uint256 balance);
+
+    // The only external call is USDC, inside the non-reentrant lock, after the event.
+    // forge-lint: disable-next-item(reentrancy-no-eth)
+    /// @notice Sends `amount` of the USDC idle on the account to the owner.
+    /// @dev Not part of `IArdoise`, whose interface is frozen; the event and the error are
+    /// declared here for the same reason. Without it, USDC that `sweep()` cannot apply had no way
+    /// out: more USDC than debt (a Gateway standing order or a defense larger than the debt, a
+    /// transfer by mistake), or a venue that refuses repayments, which also kept the owner from
+    /// repaying that venue directly with those funds. It reads neither the guard nor the venues,
+    /// so it works with no guard set and whatever the venues do.
+    ///
+    /// It gives the owner no way around the guard or the caps: a payment transfers or burns the
+    /// whole `amount + maxFee` it borrowed before `pay` returns, so the balance is never the
+    /// proceeds of a borrow the owner chose. The one exception is what a venue sends beyond the
+    /// amount asked: that excess stays on the account, is owed by the owner and was counted by
+    /// neither check. Its size is the venue's doing, not the owner's (the Aave V4 and Morpho
+    /// adapters send exactly what is asked), and until now it could only be swept.
+    ///
+    /// The recipient is always the owner, so the call can only return the owner's own funds; USDC
+    /// withdrawn before a `sweep()` no longer repays the owner's debt, which is the owner's
+    /// choice. There is no "withdraw everything" value: the owner reads the account's USDC
+    /// balance, and a `sweep()` landing first makes the call revert rather than send another
+    /// amount than the one signed. Non-reentrant. Reverts with `Reentrancy`, `NotOwner`,
+    /// `ZeroAmount`, `InsufficientBalance` and `TokenCallFailed`.
+    /// @param amount USDC to send to the owner, at most the account's balance.
+    function withdraw(uint256 amount) external nonReentrant onlyOwner {
+        if (amount == 0) revert ZeroAmount();
+        uint256 balance = usdc.balanceOf(address(this));
+        if (amount > balance) revert InsufficientBalance(amount, balance);
+        emit Withdrawn(owner, amount);
+        _call(usdc.transfer(owner, amount));
+    }
+
     // ----- Views -----
 
     /// @inheritdoc IArdoise
@@ -309,8 +495,9 @@ contract ArdoiseAccount is IArdoise {
 
     // ----- Internals -----
 
-    // Every external call goes to the admin-set venue and guard, USDC or CCTP, inside the
-    // non-reentrant lock; the line can only be written once the venue has sent the tokens.
+    // Every external call goes to a listed venue the owner accepted, the admin-set guard, USDC
+    // or CCTP, inside the non-reentrant lock; the line can only be written once the venue has
+    // sent the tokens.
     // forge-lint: disable-next-item(reentrancy-no-eth, reentrancy-events, unused-return)
     /// @dev Shared by `pay` and `payVia`: `venue` is the zero address for `pay`, which then takes
     /// `bestVenue`. Reverts with `ZeroAmount`, `FeeOnArc` when `maxFee` is not 0 for a payment on
@@ -344,9 +531,9 @@ contract ArdoiseAccount is IArdoise {
         if (address(currentGuard) == address(0)) revert GuardNotSet();
         uint256 allowed = currentGuard.checkMargin(owner, venue, total);
         if (allowed < total) revert PaymentRefused(total, allowed);
-        // Capped at type(uint32).max first, so the cast cannot truncate.
+        // Capped at `MAX_LINE_RATE_BPS` first, so the cast cannot truncate.
         // forge-lint: disable-next-line(unsafe-typecast)
-        uint32 rateBps = uint32(_min(venue.rate(), type(uint32).max));
+        uint32 rateBps = uint32(_min(venue.rate(), MAX_LINE_RATE_BPS));
 
         uint256 balanceBefore = usdc.balanceOf(address(this));
         venue.borrow(owner, total);
@@ -388,7 +575,7 @@ contract ArdoiseAccount is IArdoise {
         emit Paid(lineId, venue, amount, maxFee, borrowed, rateBps, destinationDomain, payee, memo);
     }
 
-    /// @dev Whether `venue` is in the factory's venue list.
+    /// @dev Whether `venue` is one of `venues()`: listed by the factory and accepted by the owner.
     function _isVenue(IVenue venue) private view returns (bool) {
         return _contains(venues(), venue);
     }
@@ -397,7 +584,12 @@ contract ArdoiseAccount is IArdoise {
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events, block-timestamp)
     /// @dev Repays up to `amount` of line `lineId` through its venue. `payer` is the caller for
     /// `repay` (a venue revert bubbles up) or the account itself for `sweep` (a venue revert
-    /// leaves the line untouched). Returns the debt the venue restored and the USDC spent.
+    /// leaves the line untouched). Returns the amount applied to the line and the USDC spent,
+    /// both at most `amount` and at most what the line owes by its estimate.
+    /// The amount applied is the larger of the debt the venue says it restored and the USDC it
+    /// took: with honest venues the two are equal, and a venue that takes tokens while reporting
+    /// less would otherwise keep its line open and be paid the same estimate again on every
+    /// call. Counting what left bounds the total spent on a line by its estimate.
     function _repayLine(uint256 lineId, Line storage l, uint256 amount, address payer)
         private
         returns (uint256 repaid, uint256 spent)
@@ -409,6 +601,7 @@ contract ArdoiseAccount is IArdoise {
             bool ok;
             (ok, repaid, spent) = _venueRepay(venue, toRepay, payer);
             if (!ok) return (0, 0);
+            if (spent > repaid) repaid = spent;
             l.repaid += repaid;
         }
 
@@ -424,7 +617,11 @@ contract ArdoiseAccount is IArdoise {
     /// @dev Repays `amount` of the owner's debt on `venue`, pulling it from `payer` unless the
     /// payer is the account itself, and refunding what the venue does not take. For an external
     /// payer a venue revert bubbles up; for the account (`sweep`) it returns `ok = false` with
-    /// the approval cleared, so one failing venue cannot block the others.
+    /// the approval cleared, so one failing venue cannot block the others. Nothing the venue
+    /// returns or does can make this revert for the account, short of using up the gas: a
+    /// missing or short return value counts as nothing restored, `repaid` is capped at `amount`
+    /// (the venue was approved for no more), and `spent` is 0 if the venue sent tokens instead
+    /// of taking them. `spent` is at most `amount`.
     function _venueRepay(IVenue venue, uint256 amount, address payer)
         private
         returns (bool ok, uint256 repaid, uint256 spent)
@@ -439,20 +636,24 @@ contract ArdoiseAccount is IArdoise {
             balanceBefore += amount;
         }
         _call(usdc.approve(address(venue), amount));
-        try venue.repay(owner, amount) returns (uint256 restored) {
-            repaid = restored;
-            ok = true;
-        } catch (bytes memory reason) {
+        uint256 restored;
+        (ok, restored) = _venueCall(venue, abi.encodeCall(IVenue.repay, (owner, amount)));
+        if (!ok) {
             if (external_) {
+                // The venue's return data is still the last one: nothing was called since.
                 assembly ("memory-safe") {
+                    let reason := mload(0x40)
+                    returndatacopy(reason, 0, returndatasize())
                     // forge-lint: disable-next-line(require-revert-in-loop)
-                    revert(add(reason, 32), mload(reason))
+                    revert(reason, returndatasize())
                 }
             }
             _call(usdc.approve(address(venue), 0));
-            return (ok, repaid, spent); // all still zero: nothing was repaid
+            return (ok, repaid, spent); // repaid and spent still zero: nothing was repaid
         }
-        spent = balanceBefore - usdc.balanceOf(address(this));
+        repaid = _min(restored, amount);
+        uint256 balanceAfter = usdc.balanceOf(address(this));
+        spent = balanceBefore > balanceAfter ? balanceBefore - balanceAfter : 0;
         if (spent < amount) {
             _call(usdc.approve(address(venue), 0));
             if (external_) _call(usdc.transfer(payer, amount - spent));
@@ -462,8 +663,8 @@ contract ArdoiseAccount is IArdoise {
     // Only reached from `sweep`, which is non-reentrant.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
     /// @dev Applies `balance` to the open lines on `venue`, oldest first, from index `first`. With
-    /// `venue` zero, it takes the open lines whose venue is not in `listed` instead. Returns the
-    /// debt repaid and the balance left.
+    /// `venue` zero, it takes the open lines whose venue is not in `listed` (the venues already
+    /// served) instead. Returns the amount applied to the lines and the balance left.
     function _sweepLines(IVenue[] memory listed, IVenue venue, uint256 first, uint256 balance)
         private
         returns (uint256 repaid, uint256 left)
@@ -480,7 +681,7 @@ contract ArdoiseAccount is IArdoise {
         }
     }
 
-    // The venue list is admin-set and short.
+    // The list holds at most `MAX_ACCEPTED_VENUES` venues, all accepted by the owner.
     // forge-lint: disable-next-item(calls-loop)
     /// @dev `list` sorted by the owner's health factor on each venue, lowest first, keeping the
     /// list's order on ties; a venue that cannot report its health goes last.
@@ -488,10 +689,8 @@ contract ArdoiseAccount is IArdoise {
         uint256 n = list.length;
         uint256[] memory hf = new uint256[](n);
         for (uint256 i = 0; i < n; ++i) {
-            hf[i] = type(uint256).max;
-            try list[i].health(owner) returns (uint256 h, uint256, uint256) {
-                hf[i] = h;
-            } catch {}
+            (bool ok, uint256 h) = _venueRead(list[i], abi.encodeCall(IVenue.health, (owner)));
+            hf[i] = ok ? h : type(uint256).max;
         }
         // Insertion sort, stable: the list holds a handful of venues.
         for (uint256 i = 1; i < n; ++i) {
@@ -510,7 +709,12 @@ contract ArdoiseAccount is IArdoise {
     }
 
     function _contains(IVenue[] memory list, IVenue venue) private pure returns (bool) {
-        for (uint256 i = 0; i < list.length; ++i) {
+        return _containsFirst(list, list.length, venue);
+    }
+
+    /// @dev Whether `venue` is among the first `count` entries of `list`.
+    function _containsFirst(IVenue[] memory list, uint256 count, IVenue venue) private pure returns (bool) {
+        for (uint256 i = 0; i < count; ++i) {
             if (list[i] == venue) return true;
         }
         return false;
@@ -519,10 +723,28 @@ contract ArdoiseAccount is IArdoise {
     // forge-lint: disable-next-item(calls-loop)
     /// @dev The owner's debt on `venue`; `ok` is false if the venue cannot answer.
     function _debtOf(IVenue venue) private view returns (bool ok, uint256 debt) {
-        try venue.debtOf(owner) returns (uint256 d) {
-            ok = true;
-            debt = d;
-        } catch {}
+        return _venueRead(venue, abi.encodeCall(IVenue.debtOf, (owner)));
+    }
+
+    /// @dev Reads the first word a venue returns for a view call. `ok` is false if the call
+    /// reverts or returns less than 32 bytes. A low-level call, because `try` does not catch
+    /// malformed return data and copies all of it, whatever its size.
+    function _venueRead(IVenue venue, bytes memory data) private view returns (bool ok, uint256 word) {
+        assembly ("memory-safe") {
+            ok := staticcall(gas(), venue, add(data, 0x20), mload(data), 0x00, 0x20)
+            ok := and(ok, gt(returndatasize(), 0x1f))
+            if ok { word := mload(0x00) }
+        }
+    }
+
+    /// @dev Calls a venue and reads the first word it returns, 0 if it returns less than 32
+    /// bytes. `ok` is false only if the call reverts; the revert data is then the last return
+    /// data. A low-level call, for the same reasons as `_venueRead`.
+    function _venueCall(IVenue venue, bytes memory data) private returns (bool ok, uint256 word) {
+        assembly ("memory-safe") {
+            ok := call(gas(), venue, 0, add(data, 0x20), mload(data), 0x00, 0x20)
+            if and(ok, gt(returndatasize(), 0x1f)) { word := mload(0x00) }
+        }
     }
 
     // The timestamp only feeds an interest estimate; a few seconds of drift are irrelevant.
