@@ -1,16 +1,16 @@
 import Foundation
 
 /// The Ardoise contracts on Arc mainnet, from `contracts/deployments.md` (the
-/// factory with the Morpho venue). Same values as the web app's
+/// factory with the security-review fixes). Same values as the web app's
 /// `app/src/lib/contracts/deployments.ts`.
 enum Deployment {
-    static let factory = "0xB4476B617B750B9f48786c60930bc499343BB4a8"
+    static let factory = "0x96359511A27830eDa8B5c663fE451eCf11ae1449"
     static let usdc = "0x3600000000000000000000000000000000000000"
 
     /// Lending venues, in the factory's order, with the name shown in the app.
     static let venues: [Venue] = [
-        Venue(id: "aave-v4", name: "Aave V4", address: "0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F"),
-        Venue(id: "morpho", name: "Morpho", address: "0x48BbdF2Fda17FC197909C82dE1d95242659e80a5"),
+        Venue(id: "aave-v4", name: "Aave V4", address: "0xc07Ab03CC7E68a662124da695AF4Ea6745Dc6674"),
+        Venue(id: "morpho", name: "Morpho", address: "0xf4F0009eFC9da4359f2d6A726F702B2F96749E03"),
     ]
 
     /// CCTP domains the app pays to.
