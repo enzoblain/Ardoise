@@ -221,9 +221,11 @@ set -a && source .env && set +a
 ```bash
 (cd contracts && forge build && forge test)   # add ARC_FORK_URL=<Arc mainnet RPC> to run the mainnet fork tests
 (cd app && npm run lint && npm test && npm run build)
-(cd keeper && npm run typecheck)
+(cd keeper && npm run typecheck && npm test)
 (cd ios && xcodebuild test -project Ardoise.xcodeproj -scheme Ardoise -destination 'platform=iOS Simulator,name=iPhone 17 Pro')
 ```
+
+The [CI workflow](.github/workflows/ci.yml) runs the contract, app and keeper tests on every pull request and push to `main` (the fork tests skip without `ARC_FORK_URL`).
 
 ## Project structure
 
