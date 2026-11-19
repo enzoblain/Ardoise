@@ -10,7 +10,7 @@ struct ActivateView: View {
     @Environment(AppModel.self) private var model
     @State private var copied = false
     @State private var activating = false
-    @State private var error: String?
+    @State private var toast: Toast?
 
     /// How often the balances are read again while this screen is open.
     private static let pollInterval: Duration = .seconds(5)
@@ -38,16 +38,15 @@ struct ActivateView: View {
                 }
                 addressCard
                 steps
-                if let error {
-                    Text(error).font(.footnote).foregroundStyle(Theme.danger)
-                }
                 Button("Sign out", role: .destructive) { model.signOut() }
                     .font(.footnote)
                     .frame(maxWidth: .infinity)
             }
             .padding(20)
         }
+        .background(ScreenBackground())
         .safeAreaInset(edge: .bottom) { activateButton }
+        .toast($toast)
         .task {
             // Ticks the steps by itself as the transfers land.
             while !Task.isCancelled {
@@ -78,7 +77,7 @@ struct ActivateView: View {
                 Label(copied ? "Copied" : "Copy address", systemImage: copied ? "checkmark" : "doc.on.doc")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .secondaryButton()
             .controlSize(.large)
             Text(renewal
                 ? "Send USDC for gas to this address on Arc if it runs low. The same address on Base keeps your Gateway reserve."
@@ -87,8 +86,7 @@ struct ActivateView: View {
                 .foregroundStyle(Theme.muted)
         }
         .padding(20)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.accent.opacity(0.4)))
+        .glassSurface(cornerRadius: 24, tint: Theme.accent.opacity(0.10))
     }
 
     private var steps: some View {
@@ -116,8 +114,7 @@ struct ActivateView: View {
                     detail: canActivate ? "Everything is in place: tap \(renewal ? "Renew" : "Activate")." : "Available once the steps above are done."
                 )
             }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.line))
+            .glassSurface(cornerRadius: 20)
             Text("The steps tick themselves as your transfers land.")
                 .font(.caption)
                 .foregroundStyle(Theme.muted)
@@ -141,24 +138,22 @@ struct ActivateView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
+        .primaryButton()
         .controlSize(.large)
-        .tint(canActivate ? Theme.accent : Theme.line)
         .disabled(!canActivate || activating)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
     }
 
     private func activate() {
         activating = true
-        error = nil
+        toast = nil
         Task {
             defer { activating = false }
             do {
                 try await model.activate()
             } catch {
-                self.error = AppModel.message(error)
+                toast = .error(renewal ? "Renewal failed" : "Activation failed", error)
             }
         }
     }
