@@ -220,6 +220,28 @@ contract ArdoiseAccountWithdrawTest is Test {
         account.withdraw(1);
     }
 
+    function test_withdraw_canTakeWhatAVenueSendsBeyondTheAmountAsked() public {
+        // The documented exception: the excess is owed by the owner and was counted by neither
+        // the guard nor the caps, and its size is the venue's doing.
+        aave.setQuirks(false, 0, 3);
+        _payArc(10 * USDC);
+        assertEq(usdc.balanceOf(payee), 10 * USDC);
+        assertEq(usdc.balanceOf(address(account)), 3);
+        (,, uint256 spent) = account.caps();
+        assertEq(spent, 10 * USDC);
+
+        vm.startPrank(owner);
+        vm.expectRevert(abi.encodeWithSelector(ArdoiseAccount.InsufficientBalance.selector, 4, 3));
+        account.withdraw(4);
+        account.withdraw(3);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(owner), 3);
+        assertEq(usdc.balanceOf(address(account)), 0);
+        assertEq(account.line(1).principal, 10 * USDC + 3);
+        assertEq(aave.debtOf(owner), 10 * USDC + 3);
+    }
+
     // ----- reverts -----
 
     function test_withdraw_ownerOnly() public {
