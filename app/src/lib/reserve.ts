@@ -91,15 +91,43 @@ export async function readReserve(owner: Address, account: Address): Promise<Res
 }
 
 /**
- * The Gateway balance, split into what the keeper may draw (the unspent
- * standing orders it holds, at most the balance) and the rest, which only
+ * Gateway's fee on one transfer from Base to Arc, charged on top of the
+ * amount: 0.025307 USDC was taken on mainnet (`contracts/deployments.md`),
+ * so this rounds it up for safety.
+ */
+const GATEWAY_FEE_PER_ORDER = 30_000n;
+
+/**
+ * USDC the keeper can actually bring in with these standing orders: each
+ * order is all or nothing, and Gateway needs its value plus the fee in the
+ * balance. Orders are taken smallest first, as the keeper does, until the
+ * balance runs out; an order the balance only partly covers counts for 0.
+ *
+ * @param balance Gateway balance, USDC units.
+ * @param orderValues Value of each unspent standing order, USDC units.
+ * @returns The value the keeper can draw.
+ */
+export function coveredByOrders(balance: bigint, orderValues: bigint[]): bigint {
+  let left = balance;
+  let covered = 0n;
+  for (const value of [...orderValues].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+    if (value + GATEWAY_FEE_PER_ORDER > left) break;
+    left -= value + GATEWAY_FEE_PER_ORDER;
+    covered += value;
+  }
+  return covered;
+}
+
+/**
+ * The Gateway balance, split into what the keeper may draw (the standing
+ * orders the balance fully covers, fee included) and the rest, which only
  * the owner can move. Without a keeper intake, all of it is the owner's.
  */
 function gatewaySources(owner: Address): [string, Promise<ReserveAsset>][] {
   const read = Promise.all([
     gatewayBalance(owner),
-    KEEPER_URL ? keeperOrders(KEEPER_URL, owner).then((orders) => orders.reduce((sum, o) => sum + BigInt(o.value), 0n)) : 0n,
-  ]).then(([balance, ordered]) => ({ balance, covered: ordered < balance ? ordered : balance }));
+    KEEPER_URL ? keeperOrders(KEEPER_URL, owner).then((orders) => orders.map((o) => BigInt(o.value))) : [],
+  ]).then(([balance, values]) => ({ balance, covered: coveredByOrders(balance, values) }));
   return [
     ["Gateway standing orders", read.then(({ covered }) => usdcAsset(covered, network.base.label, "Gateway, standing orders", "automatic"))],
     [
