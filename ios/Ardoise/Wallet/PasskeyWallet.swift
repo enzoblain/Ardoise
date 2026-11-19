@@ -32,11 +32,18 @@ final class PasskeyWallet: @unchecked Sendable {
         guard let clientKey = Bundle.main.object(forInfoDictionaryKey: "CircleClientKey") as? String, !clientKey.isEmpty else {
             throw WalletError.notConfigured
         }
-        let credential = try await toWebAuthnCredential(
-            transport: toPasskeyTransport(clientKey: clientKey),
-            userName: register ? username : nil,
-            mode: register ? .register : .login
-        )
+        let credential: WebAuthnCredential
+        do {
+            credential = try await toWebAuthnCredential(
+                transport: toPasskeyTransport(clientKey: clientKey),
+                userName: register ? username : nil,
+                mode: register ? .register : .login
+            )
+        } catch where String(reflecting: error).contains("401") {
+            // The SDK sends the app's bundle ID; a client key made for the web
+            // app (an allowed domain, no bundle ID) is refused with a bare 401.
+            throw WalletError.keyRefused
+        }
         let owner = toWebAuthnAccount(credential)
         let bundler = BundlerClient(chain: Arc, transport: toModularTransport(clientKey: clientKey, url: Deployment.circleArcUrl))
         let account = try await toCircleSmartAccount(client: bundler, owner: owner)
@@ -74,6 +81,7 @@ final class PasskeyWallet: @unchecked Sendable {
 
 enum WalletError: LocalizedError {
     case notConfigured
+    case keyRefused
     case unconfirmed(String)
     case reverted(String)
 
@@ -81,6 +89,8 @@ enum WalletError: LocalizedError {
         switch self {
         case .notConfigured:
             return "Passkeys are not configured: set CIRCLE_CLIENT_KEY in ios/Config.xcconfig."
+        case .keyRefused:
+            return "Circle refused the client key for this app: it needs an iOS client key for the bundle ID \(Bundle.main.bundleIdentifier ?? ""), with ardoise-rust.vercel.app as its passkey domain."
         case .unconfirmed(let userOpHash):
             return "The payment was sent (user operation \(Format.short(userOpHash))) but its transaction could not be read yet. Check the statement before paying again."
         case .reverted(let hash):
