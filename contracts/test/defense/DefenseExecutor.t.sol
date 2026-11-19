@@ -47,9 +47,7 @@ contract DefenseExecutorTest is Test {
                 swapRouter: ISwapRouter02(address(router)),
                 burnFinality: 1000,
                 maxPriceAge: 1 hours,
-                // 0 here so that several alarms can be delivered in one test; the interval has its
-                // own test below.
-                minDefenseInterval: 0
+                minDefenseInterval: 15 minutes
             }),
             assets
         );
@@ -174,6 +172,7 @@ contract DefenseExecutorTest is Test {
         _policyUsdcOnly(1.5e6);
         _fund(usdc, 10 * USDC);
         _deliver(_alarm(1 * USDC, 1)); // takes 1.03
+        skip(15 minutes); // the minimum interval between two burns
         _deliver(_alarm(1 * USDC, 2)); // only 0.47 left under the cap
         (uint256 amount,,,,,,,) = messenger.last();
         assertEq(amount, 0.47e6);
@@ -252,7 +251,27 @@ contract DefenseExecutorTest is Test {
         assertEq(amount, 0.6e6);
     }
 
-    function test_defense_ignoresAlarmWithinMinIntervalOfLastBurn() public {
+    function test_constructor_boundsTheDefenseInterval() public {
+        DefenseExecutor.SwapAssetConfig[] memory none = new DefenseExecutor.SwapAssetConfig[](0);
+        DefenseExecutor.Config memory c = DefenseExecutor.Config({
+            messageTransmitter: transmitter,
+            tokenMessenger: ITokenMessengerV2(address(messenger)),
+            alarm: alarm,
+            arcDomain: ARC,
+            usdc: IERC20(address(usdc)),
+            swapRouter: ISwapRouter02(address(router)),
+            burnFinality: 1000,
+            maxPriceAge: 1 hours,
+            minDefenseInterval: 0
+        });
+        vm.expectRevert(DefenseExecutor.InvalidConfig.selector);
+        new DefenseExecutor(c, none);
+        c.minDefenseInterval = 1 days + 1;
+        vm.expectRevert(DefenseExecutor.InvalidConfig.selector);
+        new DefenseExecutor(c, none);
+    }
+
+    function test_defense_revertsAlarmWithinMinIntervalOfLastBurn() public {
         DefenseExecutor.SwapAssetConfig[] memory assets = new DefenseExecutor.SwapAssetConfig[](0);
         executor = new DefenseExecutor(
             DefenseExecutor.Config({
@@ -273,17 +292,19 @@ contract DefenseExecutorTest is Test {
         _deliver(_alarm(1 * USDC, 1));
         assertEq(executor.lastDefenseAt(owner), vm.getBlockTimestamp());
 
-        // The first defense's funds may still be on their way to Arc: a second alarm is consumed
-        // without taking anything.
+        // The first defense's funds may still be on their way to Arc: a second alarm reverts, so
+        // it can be relayed again once the interval is over, as long as it has not expired.
         skip(30 minutes);
-        vm.expectEmit(address(executor));
-        emit DefenseExecutor.AlarmIgnored(owner, 2, DefenseExecutor.IgnoreReason.TooSoon);
-        _deliver(_alarm(1 * USDC, 2));
-        assertEq(messenger.burnCount(), 1);
+        bytes memory second = _alarm(1 * USDC, 2);
+        uint256 nextAllowed = executor.lastDefenseAt(owner) + 1 hours;
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.TooSoon.selector, owner, nextAllowed));
+        vm.prank(transmitter);
+        executor.handleReceiveFinalizedMessage(ARC, _sender(alarm), 2000, second);
+        assertFalse(executor.alarmUsed(2));
         assertEq(usdc.balanceOf(owner), 10 * USDC - 1.03e6);
 
         skip(30 minutes);
-        _deliver(_alarm(1 * USDC, 3));
+        _deliver(second);
         assertEq(messenger.burnCount(), 2);
     }
 
