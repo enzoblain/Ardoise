@@ -13,6 +13,7 @@ import {
 
 import { accountAbi, erc20Abi, factoryAbi, guardAbi, venueAbi } from "./abis.js";
 import { USDC_ADDRESS } from "./config.js";
+import type { DefenseOutcome } from "./defense.js";
 import {
   MIN_SWEEP_AMOUNT,
   applySimulatedDrop,
@@ -85,7 +86,16 @@ export interface KeeperOptions {
    * Draws USDC from the owner's Gateway balance when the account lacks it
    * (B4), or `undefined` when no standing orders are configured.
    */
-  gateway?: { fund(owner: Address, account: Address, shortfall: bigint): Promise<void> };
+  gateway?: {
+    fund(owner: Address, account: Address, shortfall: bigint): Promise<void>;
+    /** Whether Gateway is still taking care of the account's shortfall. */
+    isCovering(account: Address): boolean;
+  };
+  /**
+   * Raises a CCTP defense alarm for the owner and relays it to Base (D2),
+   * or `undefined` when `DEFENSE_ALARM_ADDRESS` is empty.
+   */
+  defense?: { defend(owner: Address): Promise<DefenseOutcome> };
 }
 
 /** Formats a USDC amount in base units for the logs. */
@@ -102,7 +112,9 @@ function healthFactor(value: bigint): string {
  * Repay-only keeper: finds the Ardoise accounts of a factory and calls the
  * public `IArdoise.sweep()` on those that hold USDC and have debt.
  *
- * `sweep()` is the only transaction it ever sends. It applies the account's
+ * `sweep()` is the only transaction it sends itself (the optional defense
+ * relay adds the permissionless `raise(owner)` and CCTP's `receiveMessage`,
+ * see `defense.ts`). It applies the account's
  * own USDC balance to the account's debt, so the keeper wallet holds no user
  * funds and has no right to borrow, withdraw or move anything. The keeper
  * wallet only pays gas, so the bookkeeping below avoids paying twice for the
@@ -295,6 +307,18 @@ export class Keeper {
       } catch (error) {
         this.logOnce(watched.account, "gateway", `Gateway funding failed: ${errorMessage(error)}`);
       }
+    }
+    // Third step, only once the account has nothing to repay with and Gateway
+    // cannot cover the shortfall (no order left, reserve too low).
+    if (
+      this.options.defense !== undefined &&
+      decision.reason === "underfunded" &&
+      !(this.options.gateway?.isCovering(watched.account) ?? false)
+    ) {
+      const outcome = await this.options.defense.defend(watched.owner);
+      // The alarm's own sweep would restore the position, but it is rolled
+      // back with the `PositionHealthy` revert: sweep the account directly.
+      if (outcome === "sweep" && this.canAttempt(watched.account)) await this.sweep(watched.account);
     }
   }
 

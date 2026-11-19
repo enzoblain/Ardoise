@@ -1,24 +1,27 @@
 import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { createPublicClient, createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, formatEther, http, type Chain } from "viem";
 import { arc, base } from "viem/chains";
 
 import { loadConfig } from "./config.js";
 import { factoryAbi } from "./abis.js";
+import { DefenseRelay } from "./defense.js";
 import { GATEWAY_MAINNET, GatewayFunder, parseOrders } from "./gateway.js";
 import { accountOrNull, burnIntentTypedData, startIntake } from "./intake.js";
 import { Keeper, errorMessage } from "./keeper.js";
 
 /**
- * Keeper entry point (tasks B2 and B4 in docs/roadmap.md).
+ * Keeper entry point (tasks B2, B4 and D2 in docs/roadmap.md).
  *
  * Follows Arc mainnet and, for every Ardoise account of the factory, applies
  * the USDC waiting on the account to its debt by calling the public
  * `IArdoise.sweep()`. When a position is under the guard's minimum and the
  * account has nothing to repay with, it submits the owner's Gateway standing
- * orders so that USDC from Base arrives on the account. It reads its
- * settings from the repo-root `.env`.
+ * orders so that USDC from Base arrives on the account. When Gateway cannot
+ * cover the shortfall and `DEFENSE_ALARM_ADDRESS` is set, it raises the
+ * CCTP-attested defense alarm and relays Circle's attested message to Base.
+ * It reads its settings from the repo-root `.env`.
  */
 
 /**
@@ -123,7 +126,32 @@ async function main(): Promise<void> {
     log(`standing-order intake on http://127.0.0.1:${config.intakePort}/orders for ${config.appOrigin}`);
   }
 
-  const keeper = new Keeper({ publicClient, walletClient, factory: config.factory, fromBlock, log, gateway });
+  let defense: DefenseRelay | undefined;
+  if (config.defenseAlarm === null) {
+    log("DEFENSE_ALARM_ADDRESS is empty: CCTP defense relay off, the keeper never raises an alarm");
+  } else {
+    // Widened to the generic chain type the relay takes; Base's formatters still apply.
+    const baseChain: Chain = base;
+    const baseTransport = http(config.baseRpcUrl, RPC_RETRY);
+    const baseClient = createPublicClient({ chain: baseChain, transport: baseTransport });
+    const baseWallet =
+      config.keeperAccount === null
+        ? null
+        : createWalletClient({ account: config.keeperAccount, chain: baseChain, transport: baseTransport });
+    defense = new DefenseRelay({ arcClient: publicClient, arcWallet: walletClient, baseClient, baseWallet, alarm: config.defenseAlarm, log });
+    log(`defense alarm ${config.defenseAlarm}: when Gateway cannot cover a shortfall, the keeper raises it and relays it to Base`);
+    if (baseWallet !== null) {
+      const address = baseWallet.account.address;
+      try {
+        const balance = await baseClient.getBalance({ address });
+        log(`keeper wallet on Base ${address}: ${formatEther(balance)} ETH (pays the gas of receiveMessage)`);
+      } catch (error) {
+        log(`keeper wallet on Base ${address}: balance unreadable: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  const keeper = new Keeper({ publicClient, walletClient, factory: config.factory, fromBlock, log, gateway, defense });
   let delay = PASS_INTERVAL_MS;
   for (;;) {
     try {

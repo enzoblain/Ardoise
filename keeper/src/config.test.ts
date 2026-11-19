@@ -9,7 +9,7 @@ const FACTORY = "0x00000000000000000000000000000000000000f1";
 /** Throwaway key made for this run, so that no key is written in the repository. */
 const TEST_KEY = generatePrivateKey();
 
-test("an empty environment means no factory, no key, no standing orders and the public RPC", () => {
+test("an empty environment means no factory, no key, no standing orders, no defense relay and the public RPC", () => {
   assert.deepEqual(loadConfig({}), {
     rpcUrl: undefined,
     factory: null,
@@ -19,6 +19,7 @@ test("an empty environment means no factory, no key, no standing orders and the 
     intakePort: null,
     appOrigin: "http://localhost:3000",
     baseRpcUrl: undefined,
+    defenseAlarm: null,
   });
 });
 
@@ -43,6 +44,11 @@ test("reads the factory, its deploy block and the keeper wallet", () => {
   assert.equal(config.factory, FACTORY);
   assert.equal(config.factoryDeployBlock, 31_770_000n);
   assert.equal(config.keeperAccount?.address, privateKeyToAddress(TEST_KEY));
+});
+
+test("reads the defense alarm, which turns the defense relay on", () => {
+  assert.equal(loadConfig({ DEFENSE_ALARM_ADDRESS: ` ${FACTORY} ` }).defenseAlarm, FACTORY);
+  assert.throws(() => loadConfig({ DEFENSE_ALARM_ADDRESS: "0x123" }), /DEFENSE_ALARM_ADDRESS/);
 });
 
 test("rejects an invalid factory address or deploy block", () => {

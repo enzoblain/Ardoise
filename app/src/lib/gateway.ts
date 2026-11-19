@@ -18,6 +18,12 @@ import { network } from "@/lib/network";
  * API reference: https://developers.circle.com/gateway
  */
 
+/**
+ * The keeper's standing-order intake; public, it holds no secret. The keeper
+ * relays orders on Arc mainnet only, so it is empty elsewhere.
+ */
+export const KEEPER_URL = network.name === "mainnet" ? process.env.NEXT_PUBLIC_KEEPER_URL || "" : "";
+
 /** Gateway contracts and API on the app's network. */
 export const gateway = {
   apiUrl: network.name === "mainnet" ? "https://gateway-api.circle.com" : "https://gateway-api-testnet.circle.com",

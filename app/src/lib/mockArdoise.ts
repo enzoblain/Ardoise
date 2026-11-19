@@ -230,6 +230,8 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     simulated: true,
     health: async (venueId) => health(venueId),
     minHealthFactor: async () => options.minHealthFactor,
+    // The deployed MarginGuard's target.
+    targetHealthFactor: async () => (3n * WAD) / 2n,
     simulatedDropBps: async () => 0,
     caps: async () => ({ perPayment: options.perPaymentCap, daily: options.dailyCap, spentToday }),
     lines: async () => [...lines],

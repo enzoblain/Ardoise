@@ -384,6 +384,13 @@ const IN_FLIGHT_DEADLINE_MS = 30 * 60_000;
  */
 const UNCERTAIN_HOLD_MS = 2 * 60_000;
 
+/**
+ * How long after a transfer settled `isCovering` still reports the account
+ * as covered: the balance that pass read predates the mint, so the next
+ * passes must see the new balance before a later defense step acts.
+ */
+const SETTLED_GRACE_MS = 60_000;
+
 /** A refusal meaning the order can never be used again. */
 const SPENT = /already (been )?used|already exists|duplicate|salt/i;
 
@@ -405,6 +412,8 @@ export class GatewayFunder {
   private readonly retries = new Map<string, { count: number; retryAt: number }>();
   /** Accounts not to fund before a given time, after a submission with no answer. */
   private readonly heldUntil = new Map<Address, number>();
+  /** Time the last transfer of each account settled (delivered, failed or given up on). */
+  private readonly settledAt = new Map<Address, number>();
   private readonly lastLogged = new Map<string, string>();
   private readonly fetchImpl: Fetch;
   private readonly now: () => number;
@@ -509,6 +518,23 @@ export class GatewayFunder {
     return this.used.has(orderKey(order));
   }
 
+  /**
+   * Whether Gateway is taking care of an account's shortfall: a transfer is
+   * on its way, a submission whose answer was lost may still mint, or a
+   * transfer settled too recently for the keeper to have read its result.
+   * The keeper raises a CCTP defense alarm only when this is false.
+   *
+   * @param account Ardoise account.
+   * @returns True while the next defense step must wait for Gateway.
+   */
+  isCovering(account: Address): boolean {
+    if (this.inFlight.has(account)) return true;
+    const held = this.heldUntil.get(account);
+    if (held !== undefined && this.now() < held) return true;
+    const settled = this.settledAt.get(account);
+    return settled !== undefined && this.now() - settled < SETTLED_GRACE_MS;
+  }
+
   /** Follows the account's transfers and forgets those that settled or ran past the deadline. */
   private async follow(account: Address): Promise<void> {
     const transfers = this.inFlight.get(account) ?? [];
@@ -532,6 +558,7 @@ export class GatewayFunder {
         remaining.push(transfer);
       }
     }
+    if (remaining.length < transfers.length) this.settledAt.set(account, this.now());
     if (remaining.length === 0) this.inFlight.delete(account);
     else this.inFlight.set(account, remaining);
   }

@@ -20,8 +20,13 @@ export interface Config {
   intakePort: number | null;
   /** Browser origin allowed to call the intake (the app). */
   appOrigin: string;
-  /** Base RPC endpoint, to check order signatures, or `undefined` for the public one. */
+  /**
+   * Base RPC endpoint, to check order signatures and relay defense alarms,
+   * or `undefined` for the public one.
+   */
   baseRpcUrl: string | undefined;
+  /** `DefenseAlarm` on Arc, or `null` to keep the CCTP defense relay (D2) off. */
+  defenseAlarm: Address | null;
 }
 
 /**
@@ -66,6 +71,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     throw new Error("GATEWAY_INTAKE_PORT needs GATEWAY_ORDERS_FILE to store the orders in");
   }
 
+  const defenseAlarm = env.DEFENSE_ALARM_ADDRESS?.trim() || null;
+  if (defenseAlarm !== null && !isAddress(defenseAlarm)) {
+    throw new Error("DEFENSE_ALARM_ADDRESS is not a valid address");
+  }
+
   return {
     rpcUrl: env.ARC_RPC_URL?.trim() || undefined,
     factory,
@@ -75,5 +85,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     intakePort: intakePort === null ? null : Number(intakePort),
     appOrigin: env.APP_ORIGIN?.trim() || "http://localhost:3000",
     baseRpcUrl: env.BASE_RPC_URL?.trim() || undefined,
+    defenseAlarm,
   };
 }

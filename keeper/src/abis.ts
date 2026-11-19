@@ -2,9 +2,11 @@ import { parseAbi } from "viem";
 
 /**
  * Minimal ABIs for the contract members the keeper uses. They mirror the
- * frozen interfaces in `contracts/src/interfaces/`; the only state-changing
- * function listed anywhere in this file is `sweep()`, which is what keeps
- * the keeper repay-only.
+ * frozen interfaces in `contracts/src/interfaces/` and the defense contracts
+ * in `contracts/src/defense/`. The state-changing functions listed here are
+ * `sweep()`, the permissionless `DefenseAlarm.raise(owner)` and CCTP's
+ * `receiveMessage`, which delivers Circle's attested bytes unchanged: none of
+ * them lets the keeper choose an amount or a recipient.
  */
 
 export const factoryAbi = parseAbi([
@@ -28,3 +30,35 @@ export const guardAbi = parseAbi([
 ]);
 
 export const erc20Abi = parseAbi(["function balanceOf(address account) view returns (uint256)"]);
+
+/** `IDefenseAlarm` on Arc (`contracts/src/defense/interfaces/IDefenseAlarm.sol`). */
+export const defenseAlarmAbi = parseAbi([
+  "function raise(address owner) returns (uint64 nonce)",
+  "function cooldown(address owner) view returns (uint64 nextAllowed)",
+  "event AlarmRaised(address indexed owner, address indexed account, uint256 amountNeeded, uint64 nonce, uint64 expiry)",
+  "error ExecutorNotSet()",
+  "error NoAccount(address owner)",
+  "error GuardNotSet()",
+  "error PositionHealthy(address owner)",
+  "error CoolingDown(uint64 nextAllowed)",
+  "error SweepOutOfGas()",
+]);
+
+/**
+ * CCTP V2 `MessageTransmitterV2.receiveMessage` on Base, with the errors and
+ * events of `DefenseExecutor` (`contracts/src/defense/DefenseExecutor.sol`):
+ * the transmitter calls the executor, so its reverts and logs come back
+ * through this call.
+ */
+export const defenseRelayAbi = parseAbi([
+  "function receiveMessage(bytes message, bytes attestation) returns (bool success)",
+  "error AlarmAlreadyUsed(uint64 nonce)",
+  "error TooSoon(address owner, uint256 nextAllowed)",
+  "error UnexpectedSender(uint32 sourceDomain, bytes32 sender)",
+  "error UnfinalizedMessage(uint32 finalityThresholdExecuted)",
+  "error StalePrice(address feed)",
+  // Added by the executor's gas floor (PR #48): a delivery sent with too little gas for a swap.
+  "error SwapOutOfGas()",
+  "event DefenseExecuted(address indexed owner, address indexed account, uint64 indexed nonce, uint256 amount, uint256 maxFee)",
+  "event AlarmIgnored(address indexed owner, uint64 indexed nonce, uint8 reason)",
+]);

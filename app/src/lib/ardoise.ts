@@ -158,6 +158,8 @@ export interface ArdoiseClient {
   health(venueId: string): Promise<Health>;
   /** `IGuard.minHealthFactor()`: lowest health factor a payment may leave; `null` while no guard is set. */
   minHealthFactor(): Promise<bigint | null>;
+  /** `MarginGuard.targetHealthFactor()`: what the keeper repays a position back to; `null` while no guard is set. */
+  targetHealthFactor(): Promise<bigint | null>;
   /**
    * Simulated collateral price drop the guard applies for the demo, in basis
    * points; 0 when the simulation is off. `health()` and `quote()` already
