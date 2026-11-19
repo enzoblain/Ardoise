@@ -24,6 +24,8 @@ struct PayView: View {
     @State private var sending = false
     @State private var sentTx: String?
     @State private var payError: String?
+    /// Bumped after a successful payment to quote again on the new position.
+    @State private var quoteVersion = 0
 
     private var amount: BigUInt? { Format.parseUsdc(amountText) }
     private var chosen: Venue? { picked ?? quote?.recommended }
@@ -73,7 +75,7 @@ struct PayView: View {
             .padding(16)
         }
         .navigationTitle("Pay")
-        .task(id: "\(amountText)-\(chain.rawValue)") { await requote() }
+        .task(id: "\(amountText)-\(chain.rawValue)-\(quoteVersion)") { await requote() }
     }
 
     @ViewBuilder private var venues: some View {
@@ -85,7 +87,7 @@ struct PayView: View {
                         .buttonStyle(.plain)
                 }
             }
-        } else if quoteError == nil, amount != nil {
+        } else if quoteError == nil, payError == nil, amount != nil {
             ProgressView().frame(maxWidth: .infinity)
         }
     }
@@ -156,6 +158,7 @@ struct PayView: View {
                 payee = ""
                 memo = ""
                 await model.refresh()
+                quoteVersion += 1
             } catch WalletError.unconfirmed(let userOpHash) {
                 // It may well have gone through: never offer the same payment again.
                 self.quote = nil
