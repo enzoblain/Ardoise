@@ -16,6 +16,12 @@ if (existsSync(rootEnv)) {
 const nextConfig: NextConfig = {
   async headers() {
     return [
+      // Lets the iOS app (ios/) use the passkeys of this domain: Apple fetches
+      // this file and requires it as JSON, though it has no extension.
+      {
+        source: "/.well-known/apple-app-site-association",
+        headers: [{ key: "Content-Type", value: "application/json" }],
+      },
       {
         source: "/:path*",
         headers: [
