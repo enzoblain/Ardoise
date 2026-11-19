@@ -2,7 +2,7 @@
 
 Who builds what, and when, until the UBC Hackathon 2026 submission. Every agent picks its task here and works only on it.
 
-Last updated: 2026-11-18. All times are **CST (Austin, UTC-6)**; Paris is CST + 7 h.
+Last updated: 2026-11-19. All times are **CST (Austin, UTC-6)**; Paris is CST + 7 h.
 Status: ⬜ to do, 🔄 in progress, ✅ done, ✂️ cut.
 
 ## Who is who
@@ -108,6 +108,15 @@ The mainnet figures match the testnet ones, so the decisions above stand.
 | C7 | Visual pass on the app (`/app`, payment page): the landing page's dark theme and palette, two-column layout, cards; no logic change | Wed 11/18 | C6 | `feat/app-design` | `app/` (styles, components) | The app matches the landing page on desktop and mobile, every state still works | ✅ one dark theme in the logo's palette with shared card, field and button styles, two columns on desktop; checked on the demo flow, the receipt, the delivery page and mobile |
 | C8 | Circle passkey wallets in the app: sign in with a passkey (Circle smart account), activation in one signature (supply cirBTC, collateral, position managers, account, allowance in one user operation), payments as user operations; browser wallets unchanged | Wed 11/18 | 0.2, C4 | `feat/passkey-wallet` | `app/` (wallet, setup, account screens) | A passkey account activates and pays on Arc mainnet from the deployed app | 🔄 built and tested (unit tests, build, sign-in reaching Circle locally); the mainnet run needs the live client key and passkey domain in the Circle Console, and the account funded |
 | C9 | Gateway protection for passkey accounts: the same smart account on Base deposits in one user operation and signs standing orders through ERC-1271 (`contractSigner`); the keeper intake flags such orders from the chain | Wed 11/18 | C8, B4 | `feat/passkey-protection` | `app/` (Protection panel, Gateway signer), `keeper/` (intake) | A passkey account deposits on Base and repays from its Gateway reserve on mainnet | 🔄 built and unit-tested (app and keeper); the mainnet run follows the C8 one |
+
+## Track D — CCTP-attested defense · Hugo
+
+When a position is under the guard's minimum and the Gateway standing orders cannot cover it, a message attested by Circle (CCTP V2 generic messaging) goes from Arc to Base; only that message lets a contract on Base spend the owner's pre-authorized funds there and burn USDC back to the owner's Ardoise account.
+
+| # | Task | When | Depends on | Branch | Files | Done when | Status |
+|---|------|------|------------|--------|-------|-----------|--------|
+| D1 | Defense contracts (Hugo · H1): `DefenseAlarm` on Arc (checks the guard's minimum on chain, simulated drop included, sends the message), `DefenseExecutor` on Base (accepts only the finalized message from the alarm, pulls the owner's USDC then WETH within their policy, swaps against a Chainlink bound, burns to the owner's account), deploy scripts | Thu 11/19 | B3, B4 | `feat/cctp-defense` | `contracts/src/defense/`, `contracts/src/cctp/`, `contracts/script/DeployDefense.s.sol`, tests, `docs/api.md` | Tests pass, including a Base fork test; a real alarm on mainnet ends in a mint on the demo account | 🔄 contracts, unit tests and Base fork test done; mainnet deployment and proof run by the coordination session |
+| D2 | Keeper relay (Hugo · H2): after the sweep and the Gateway standing orders, raise the alarm, wait for Circle's attestation, relay it to Base | Thu 11/19 | D1 | `feat/keeper-defense-relay` | `keeper/`, `.env.example`, `contracts/deployments.md` (keeper section) | Keeper tests pass; the keeper relays a real alarm on mainnet | 🔄 |
 
 ## Assembly and submission
 
