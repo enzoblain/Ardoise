@@ -33,8 +33,10 @@ function ChapterLabels({ about, chapter }: { about: string; chapter: string }) {
 /**
  * The four opening slides of the landing page, played like a presentation as
  * the visitor scrolls: the ring of vaults, borrowing against collateral,
- * paying from a phone, and the reserve the keeper repays with. Each slide is
- * pinned while it plays and the next one slides over it. The phone screens
+ * paying from a phone, and the reserve the keeper repays with. The first
+ * three share one pinned stage: the ring gathers into a single vault card,
+ * which stays through the borrowing chapter and then settles into the phone
+ * as the paying slide opens around it. The last one slides over as a sheet. The phone screens
  * are illustrations with example amounts; only the borrow rate is live.
  *
  * @param props.rate Live borrow rate, already formatted (for example
@@ -47,81 +49,76 @@ export function Intro({ rate }: { rate: string | null }) {
 
       <section className={styles.act} data-progress>
         <div className={styles.stage}>
-          <header className={styles.header}>
-            <div>
-              <h1 className={`${styles.title} ${display.className}`}>Ardoise</h1>
-              <p className={styles.tagline}>
-                Post collateral, pay anyone in USDC, keep your assets. A bot guards the position on Arc mainnet.
-              </p>
+          <div className={styles.night}>
+            <header className={styles.header}>
+              <div>
+                <h1 className={`${styles.title} ${display.className}`}>Ardoise</h1>
+                <p className={styles.tagline}>
+                  Post collateral, pay anyone in USDC, keep your assets. A bot guards the position on Arc mainnet.
+                </p>
+              </div>
+              <LogoMark className={styles.mark} />
+            </header>
+            <div className={styles.ring}>
+              <VaultRing rate={rate} />
             </div>
-            <LogoMark className={styles.mark} />
-          </header>
-          <div className={styles.ring}>
-            <VaultRing rate={rate} />
           </div>
-          <div className={styles.solo}>
-            <SoloVaultCard rate={rate} />
-          </div>
-        </div>
-        <div className={styles.chapterOne}>
-          <ChapterLabels about="borrowing" chapter="01" />
-          <h2 className={`${styles.heading} ${styles.headingRight} ${display.className}`}>
-            Post collateral. Borrow at the best rate.
-          </h2>
-          <p className={styles.noteRight}>
-            Your bitcoin goes in as collateral and stays yours. Each payment borrows exactly its amount in USDC, from the
-            cheapest lender Ardoise uses on Arc. Nothing is sold, swapped or bridged by hand.
-          </p>
-        </div>
-      </section>
 
-      <section className={`${styles.pinned} ${styles.pay}`} data-progress>
-        <div className={styles.pin}>
-          <ChapterLabels about="paying" chapter="02" />
-          <p className={`${styles.ghost} ${display.className}`} aria-hidden="true">
-            {rate ?? "USDC"}
-          </p>
-          <h2 className={`${styles.heading} ${styles.headingCenter} ${display.className}`}>
-            <Words text="One payment. One line on your slate." />
-          </h2>
-          <div className={styles.phoneWrap}>
+          <div className={styles.day}>
+            <ChapterLabels about="paying" chapter="02" />
+            <p className={`${styles.ghost} ${display.className}`} aria-hidden="true">
+              {rate ?? "USDC"}
+            </p>
+            <h2 className={`${styles.heading} ${styles.headingCenter} ${display.className}`}>
+              <Words text="One payment. One line on your slate." />
+            </h2>
             <div className={styles.phone}>
               <div className={styles.screen}>
-                <p className={styles.screenLabel}>Pay</p>
-                <p className={styles.amount}>
-                  24.00 <span>USDC</span>
+                <p className={styles.appBar}>
+                  <LogoMark size={16} />
+                  Ardoise
                 </p>
+                <div className={styles.cardSlot} />
                 <dl className={styles.rows}>
                   <div>
-                    <dt>To</dt>
-                    <dd>0x7c3f…a91e · Base</dd>
+                    <dt>Pay</dt>
+                    <dd>24.00 USDC · Base</dd>
                   </div>
                   <div>
                     <dt>Borrowed at</dt>
                     <dd>{rate ?? "best rate"}</dd>
                   </div>
-                  <div>
-                    <dt>Collateral</dt>
-                    <dd>cirBTC, untouched</dd>
-                  </div>
-                  <div>
-                    <dt>Margin after</dt>
-                    <dd className={styles.good}>2.31</dd>
-                  </div>
                 </dl>
                 <p className={styles.cta}>Pay 24.00 USDC</p>
               </div>
             </div>
+            <div className={styles.footnotes}>
+              <p>
+                <strong>Pick who you pay, on Arc or on Base.</strong> Ardoise borrows the amount against your collateral
+                and delivers it in seconds.
+              </p>
+              <p>
+                Every payment becomes one line you can repay whenever you want. Everything is in place on Arc mainnet.
+              </p>
+            </div>
           </div>
-          <div className={styles.footnotes}>
-            <p>
-              <strong>Pick who you pay, on Arc or on Base.</strong> Ardoise borrows the amount against your collateral
-              and delivers it in seconds.
-            </p>
-            <p>
-              Every payment becomes one line you can repay whenever you want. Everything is in place on Arc mainnet.
-            </p>
+
+          <div className={styles.solo}>
+            <SoloVaultCard rate={rate} />
           </div>
+        </div>
+
+        <div className={styles.chapterOne}>
+          <ChapterLabels about="borrowing" chapter="01" />
+          <h2 className={`${styles.heading} ${styles.headingStagger} ${display.className}`}>
+            <span>Post collateral.</span>
+            <span>Borrow at the</span>
+            <span>best rate.</span>
+          </h2>
+          <p className={styles.noteRight}>
+            Your bitcoin goes in as collateral and stays yours. Each payment borrows exactly its amount in USDC, from the
+            cheapest lender Ardoise uses on Arc. Nothing is sold, swapped or bridged by hand.
+          </p>
         </div>
       </section>
 
@@ -146,8 +143,8 @@ export function Intro({ rate }: { rate: string | null }) {
               </ul>
             </div>
             <div className={styles.phoneWrap}>
-              <div className={`${styles.phone} ${styles.phoneDark}`}>
-                <div className={styles.screen}>
+              <div className={`${styles.phone} ${styles.phoneTilt}`}>
+                <div className={`${styles.screen} ${styles.screenLight}`}>
                   <p className={styles.screenLabel}>Protection</p>
                   <div className={styles.gauge} aria-hidden="true">
                     <span />

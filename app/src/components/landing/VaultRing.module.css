@@ -17,7 +17,7 @@
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
-  transform: rotateX(-9deg) rotateZ(-5deg);
+  transform: rotateX(calc(-9deg * (1 - var(--fold, 0)))) rotateZ(calc(-5deg * (1 - var(--fold, 0))));
 }
 
 .ring {
@@ -40,7 +40,9 @@
   width: var(--card-w);
   height: var(--card-h);
   transform-style: preserve-3d;
-  transform: rotateY(var(--angle)) translateZ(var(--radius)) translateY(calc(var(--card-h) * var(--lift)));
+  /* `--fold` (0 to 1, set by the intro) gathers the cards into one stack. */
+  transform: rotateY(var(--angle)) translateZ(calc(var(--radius) * (1 - var(--fold, 0))))
+    translateY(calc(var(--card-h) * var(--lift) * (1 - var(--fold, 0))));
 }
 
 .card {

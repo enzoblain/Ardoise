@@ -13,18 +13,33 @@
   color: var(--chalk);
 }
 
-/* Slide 1 and 2: the ring, then the first chapter, on the same black stage. */
+/* Slides 1 to 3 share one pinned stage. `--p` runs from 0 to 1 over the
+   520vh the stage stays pinned; the variables below cut it into steps:
+   the ring folds, the first chapter scrolls past, the paying slide opens
+   from the centre, the card settles into the phone, and the next sheet
+   covers the stage. */
 .act {
+  --fold: clamp(0, calc(var(--p) * 10.4), 1);
+  --reveal: clamp(0, calc((var(--p) - 0.47) * 11), 1);
+  --dock: clamp(0, calc((var(--p) - 0.55) * 11), 1);
+  --covered: clamp(0, calc((var(--p) - 0.81) * 5.3), 1);
   position: relative;
-  height: 320vh;
+  height: 620vh;
 }
 
 .stage {
   position: sticky;
   top: 0;
+  z-index: 1;
   height: 100vh;
   height: 100svh;
-  z-index: 1;
+  overflow: hidden;
+}
+
+.night,
+.day {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
 }
 
@@ -37,8 +52,8 @@
   justify-content: space-between;
   gap: 1.5rem;
   padding: 1.25rem clamp(1.25rem, 3vw, 2.75rem);
-  opacity: calc(1 - var(--p) * 5);
-  transform: translateY(calc(var(--p) * -30vh));
+  opacity: calc(1 - var(--fold) * 1.4);
+  transform: translateY(calc(var(--fold) * -22vh));
 }
 
 .title {
@@ -63,32 +78,37 @@
   color: #a8a49b;
 }
 
-/* The ring folds towards the centre as the visitor starts to scroll... */
+/* The cards of the ring gather into one stack at the centre... */
 .ring {
   position: absolute;
   inset: 24vh 0 auto;
-  opacity: calc(1 - var(--p) * 4.5);
-  transform: scale(calc(1 - min(var(--p) * 3.2, 0.75)));
-  transform-origin: 50% 45%;
+  opacity: clamp(0, calc((1 - var(--fold)) * 9), 1);
+  transform: translateY(calc(var(--fold) * -11vh)) scale(calc(1 - var(--fold) * 0.25));
+  transform-origin: 50% 50%;
 }
 
-/* ...and leaves one card, which stays through the first chapter. */
+/* ...and leave one card, which stays through the first chapter and then
+   moves up into the phone of the paying slide. */
 .solo {
   position: absolute;
-  left: 30%;
-  top: 60%;
-  opacity: clamp(0, calc(var(--p) * 6 - 0.9), 1);
-  transform: translate(-50%, -50%) scale(calc(1.35 - min(var(--p) * 2, 0.35)))
-    rotate(calc((1 - min(var(--p) * 3, 1)) * -8deg));
+  left: 50%;
+  top: 58%;
+  z-index: 3;
+  opacity: clamp(0, calc((var(--fold) - 0.88) * 9), 1);
+  transform: translate(-50%, -50%) translateY(calc(var(--dock) * -11vh)) scale(calc(1 - var(--dock) * 0.28));
 }
 
+/* Chapter 01 scrolls over the pinned card. */
 .chapterOne {
   position: relative;
-  z-index: 4;
-  height: 160vh;
-  margin-top: 60vh;
+  z-index: 5;
+  height: 135vh;
+  margin-top: 55vh;
   padding: 0 clamp(1.25rem, 3vw, 2.75rem);
   pointer-events: none;
+  /* Chalk text would vanish over the chalk card it scrolls across: with
+     this blend it turns dark there and stays chalk on the black stage. */
+  mix-blend-mode: difference;
 }
 
 .labels {
@@ -102,22 +122,227 @@
 .heading {
   font-size: clamp(2.6rem, 6.4vw, 6.5rem);
   line-height: 0.92;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   text-transform: uppercase;
 }
 
-.headingRight {
-  max-width: 11em;
-  margin: 6vh 4vw 0 auto;
-  text-align: right;
+/* Three lines, each pushed a different distance from the right edge. */
+.headingStagger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-top: 5vh;
+}
+
+.headingStagger span:nth-child(1) {
+  margin-right: 2vw;
+}
+
+.headingStagger span:nth-child(2) {
+  margin-right: 14vw;
+}
+
+.headingStagger span:nth-child(3) {
+  margin-right: 6vw;
 }
 
 .noteRight {
   max-width: 25rem;
-  margin: 2.5rem 4vw 0 auto;
+  margin: 2.5rem 8vw 0 auto;
   font-size: 0.9rem;
   line-height: 1.5;
   color: #c9c5bc;
+}
+
+/* Slide 3: paying. The apricot layer opens from the card outwards. */
+.day {
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 clamp(1.25rem, 3vw, 2.75rem);
+  background: var(--apricot);
+  color: var(--ink);
+  clip-path: circle(calc(var(--reveal) * 125vmax) at 50% 52%);
+  filter: brightness(calc(1 - var(--covered) * 0.22));
+}
+
+.day .labels,
+.cover .labels {
+  align-self: stretch;
+}
+
+.ghost {
+  position: absolute;
+  inset: 32% 0 auto;
+  text-align: center;
+  font-size: clamp(8rem, 30vw, 34rem);
+  line-height: 1;
+  color: rgb(20 20 20 / 7%);
+  pointer-events: none;
+}
+
+.headingCenter {
+  position: relative;
+  max-width: 12em;
+  text-align: center;
+  font-size: clamp(2rem, 4.2vw, 4.25rem);
+}
+
+.word {
+  opacity: clamp(0.12, calc((var(--p) - 0.56) * 45 - var(--i) * 0.5 + 0.12), 1);
+}
+
+/* The phone forms around the card once the slide is open. */
+.day .phone {
+  position: absolute;
+  left: 50%;
+  top: 22vh;
+  height: 64vh;
+  opacity: var(--dock);
+  transform: translateX(-50%) translateY(calc((1 - var(--dock)) * 5vh)) scale(calc(1.08 - var(--dock) * 0.08));
+}
+
+.phone {
+  width: min(16rem, 62vw);
+  height: min(33rem, 62vh);
+  padding: 0.55rem;
+  border-radius: 2.5rem;
+  background: var(--ink);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 12%),
+    0 40px 80px -30px rgb(20 20 20 / 55%);
+}
+
+.phoneWrap {
+  display: flex;
+  justify-content: center;
+  perspective: 1400px;
+}
+
+.phoneTilt {
+  transform: rotateY(calc((1 - var(--enter)) * -30deg - 8deg)) rotateX(5deg);
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  height: 100%;
+  padding: 1.6rem 0.9rem 0.9rem;
+  border-radius: 2rem;
+  background: #1c1c1c;
+  color: var(--chalk);
+}
+
+.screenLight {
+  padding-top: 2.2rem;
+  background: var(--chalk);
+  color: var(--ink);
+}
+
+.appBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Left empty: the vault card of the stage comes to rest here. */
+.cardSlot {
+  flex: 1;
+}
+
+.screenLabel {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: 0.74rem;
+}
+
+.rows div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid color-mix(in srgb, currentcolor 14%, transparent);
+}
+
+.rows dt {
+  opacity: 0.6;
+}
+
+.rows dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.good {
+  color: #2c7a4b;
+}
+
+.cta {
+  border-radius: 999px;
+  padding: 0.7rem;
+  background: var(--orange);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.screenLight .cta {
+  margin-top: auto;
+  background: var(--ink);
+  color: var(--chalk);
+}
+
+.gauge {
+  position: relative;
+  height: 0.6rem;
+  margin-top: 0.5rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d1462f 0 22%, #e0b83a 22% 40%, #7f9c7a 40%);
+}
+
+.gauge span {
+  position: absolute;
+  top: -0.3rem;
+  left: 72%;
+  width: 0.25rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.gaugeNote {
+  font-size: 0.74rem;
+  opacity: 0.75;
+}
+
+.footnotes {
+  position: absolute;
+  inset: auto clamp(1.25rem, 3vw, 2.75rem) 5vh;
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  opacity: clamp(0, calc((var(--p) - 0.62) * 20), 1);
+}
+
+.footnotes p {
+  max-width: 20rem;
 }
 
 /* A pinned slide: it stays in place while the visitor scrolls through its
@@ -147,184 +372,6 @@
   border-radius: calc((1 - var(--enter)) * 2.5rem) calc((1 - var(--enter)) * 2.5rem) 0 0;
   transform: rotate(calc((1 - var(--enter)) * -7deg));
   transform-origin: 0 100%;
-}
-
-/* Slide 3: paying, on apricot. */
-.pay .pin {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  background: var(--apricot);
-  color: var(--ink);
-}
-
-.pay .labels,
-.cover .labels {
-  align-self: stretch;
-}
-
-.ghost {
-  position: absolute;
-  inset: 34% 0 auto;
-  text-align: center;
-  font-size: clamp(8rem, 30vw, 34rem);
-  line-height: 1;
-  color: rgb(20 20 20 / 7%);
-  pointer-events: none;
-}
-
-.headingCenter {
-  position: relative;
-  max-width: 12em;
-  text-align: center;
-  font-size: clamp(2.2rem, 4.6vw, 4.75rem);
-}
-
-.word {
-  opacity: clamp(0.14, calc(var(--p) * 16 - var(--i) * 0.55 + 0.14), 1);
-}
-
-.phoneWrap {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  margin-top: 3vh;
-  perspective: 1400px;
-}
-
-.pay .phoneWrap {
-  /* The phone rises into place while the slide scrolls in. */
-  transform: translateY(calc((1 - var(--enter)) * 45vh)) scale(calc(1.2 - var(--enter) * 0.2));
-}
-
-.phone {
-  width: min(16rem, 62vw);
-  height: min(33rem, 62vh);
-  padding: 0.55rem;
-  border-radius: 2.5rem;
-  background: var(--ink);
-  box-shadow: 0 40px 80px -30px rgb(20 20 20 / 55%);
-}
-
-.phoneDark {
-  box-shadow:
-    0 0 0 1px #333,
-    0 40px 80px -30px rgb(20 20 20 / 60%);
-  transform: rotateY(calc((1 - var(--enter)) * -30deg - 8deg)) rotateX(5deg);
-}
-
-.screen {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  height: 100%;
-  padding: 2.2rem 1rem 1rem;
-  border-radius: 2rem;
-  background: var(--chalk);
-  color: var(--ink);
-}
-
-.screenLabel {
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #6d6a63;
-}
-
-.amount {
-  font-size: 2.4rem;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1;
-}
-
-.amount span {
-  font-size: 0.85rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: #6d6a63;
-}
-
-.rows {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  font-size: 0.74rem;
-}
-
-.rows div {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.55rem 0;
-  border-top: 1px solid rgb(20 20 20 / 12%);
-}
-
-.rows dt {
-  color: #6d6a63;
-}
-
-.rows dd {
-  margin: 0;
-  font-weight: 600;
-  text-align: right;
-}
-
-.good {
-  color: #2c7a4b;
-}
-
-.cta {
-  margin-top: auto;
-  border-radius: 999px;
-  padding: 0.75rem;
-  background: var(--ink);
-  color: var(--chalk);
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-align: center;
-}
-
-.gauge {
-  position: relative;
-  height: 0.6rem;
-  margin-top: 0.5rem;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #d1462f 0 22%, #e0b83a 22% 40%, #7f9c7a 40%);
-}
-
-.gauge span {
-  position: absolute;
-  top: -0.3rem;
-  left: 72%;
-  width: 0.25rem;
-  height: 1.2rem;
-  border-radius: 999px;
-  background: var(--ink);
-}
-
-.gaugeNote {
-  font-size: 0.74rem;
-  color: #6d6a63;
-}
-
-.gaugeNote strong {
-  color: var(--ink);
-}
-
-.footnotes {
-  position: absolute;
-  inset: auto clamp(1.25rem, 3vw, 2.75rem) 5vh;
-  display: flex;
-  justify-content: space-between;
-  gap: 2rem;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  opacity: clamp(0, calc(var(--p) * 10 - 1.6), 1);
-}
-
-.footnotes p {
-  max-width: 22rem;
 }
 
 /* Slide 4: the reserve, on chalk. */
@@ -411,20 +458,74 @@
     display: none;
   }
 
-  .headingRight,
+  .headingStagger span:nth-child(n),
   .noteRight {
     margin-right: 0;
   }
 }
 
-/* With reduced motion nothing is pinned or tilted: plain stacked sections. */
+/* With reduced motion nothing is pinned, folded or tilted: the slides are
+   plain sections, in reading order. */
 @media (prefers-reduced-motion: reduce) {
-  .act,
+  .act {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+
+  .stage {
+    display: contents;
+  }
+
+  .night,
+  .day {
+    position: relative;
+    min-height: 100vh;
+  }
+
+  .night {
+    order: 1;
+  }
+
+  .chapterOne {
+    order: 2;
+    height: auto;
+    margin-top: 0;
+    padding-bottom: 6rem;
+  }
+
+  .day {
+    order: 3;
+    clip-path: none;
+    filter: none;
+  }
+
+  .solo {
+    display: none;
+  }
+
+  .header,
+  .ring,
+  .phoneTilt,
+  .sheet > * {
+    opacity: 1;
+    transform: none;
+  }
+
+  .day .phone {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+
+  .word,
+  .footnotes {
+    opacity: 1;
+  }
+
   .pinned {
     height: auto;
   }
 
-  .stage,
   .pin {
     position: relative;
     min-height: 100vh;
@@ -432,30 +533,5 @@
 
   .sheet {
     margin-top: 0;
-  }
-
-  .sheet > *,
-  .header,
-  .ring,
-  .phoneDark,
-  .pay .phoneWrap {
-    transform: none;
-  }
-
-  .header,
-  .ring,
-  .footnotes,
-  .word {
-    opacity: 1;
-  }
-
-  .solo {
-    display: none;
-  }
-
-  .chapterOne {
-    height: auto;
-    margin-top: 0;
-    padding-bottom: 6rem;
   }
 }
