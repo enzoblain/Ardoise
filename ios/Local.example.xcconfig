@@ -1,0 +1,8 @@
+// Copy to Local.xcconfig (ignored by git) and fill in.
+// Circle client key for Modular Wallets: public by design (a client key, not
+// an API key). It must be an iOS client key, created in the Circle Console for
+// the bundle ID com.enzoblain.ardoise, with ardoise-rust.vercel.app as its
+// passkey domain: the web app's key (an allowed domain, no bundle ID) is
+// refused with a 401, since the SDK sends the app's bundle ID.
+// xcconfig reads "//" as a comment, so write the key as is (it has no "//").
+CIRCLE_CLIENT_KEY =
