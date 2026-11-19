@@ -104,6 +104,59 @@ A user who keeps USDC in Circle Gateway on Base can let the keeper repay their d
 - **Why it is safe:** an order can only pay the account it names, and that account can only repay its owner's debt, so the keeper holds no key that can move user funds and a leaked order can do nothing but repay that debt. Gateway checks the signature (ERC-1271 for smart contract wallets).
 - **Cost:** on mainnet, Gateway quoted 0.0248 USDC for a 5 USDC order from Base to Arc (0.01 Gateway fee + 0.0148 forwarding).
 
+## CCTP-attested defense (D1)
+
+When a position stays under the guard's minimum after the sweep and the Gateway standing orders, the owner's funds on Base can repay the debt on Arc, but only on the strength of a message Circle attests: no keeper, admin or relayer decides it.
+
+| Contract | Chain | File |
+|----------|-------|------|
+| `DefenseAlarm` | Arc | [`contracts/src/defense/DefenseAlarm.sol`](../contracts/src/defense/DefenseAlarm.sol), ABI in [`IDefenseAlarm.sol`](../contracts/src/defense/interfaces/IDefenseAlarm.sol) |
+| `DefenseExecutor` | Base | [`contracts/src/defense/DefenseExecutor.sol`](../contracts/src/defense/DefenseExecutor.sol) |
+| Message body | both | [`contracts/src/defense/DefenseMessage.sol`](../contracts/src/defense/DefenseMessage.sol) |
+
+```mermaid
+sequenceDiagram
+    participant K as Anyone (keeper)
+    participant AL as DefenseAlarm (Arc)
+    participant G as Guard + venue (Arc)
+    participant MA as MessageTransmitterV2 (Arc)
+    participant I as Circle Iris (attestation)
+    participant MB as MessageTransmitterV2 (Base)
+    participant EX as DefenseExecutor (Base)
+    participant U as Uniswap V3 + Chainlink (Base)
+    participant TM as TokenMessengerV2 (Base)
+    participant A as Owner's ArdoiseAccount (Arc)
+    K->>AL: raise(owner)
+    AL->>G: simulatedHealth < minHealthFactor? debt, target
+    AL->>MA: sendMessage(6, executor, 0, 2000, alarm)
+    K->>I: GET /v2/messages/26?transactionHash=raise tx
+    I-->>K: message + attestation
+    K->>MB: receiveMessage(message, attestation)
+    MB->>EX: handleReceiveFinalizedMessage(26, alarm, 2000, body)
+    EX->>EX: owner's policy: USDC first, then WETH, within caps
+    EX->>U: sell WETH for USDC (min out from Chainlink and max slippage)
+    EX->>TM: depositForBurnWithHook(usdc, 26, account, maxFee, 1000, "cctp-forward")
+    TM-->>A: USDC minted on Arc by Circle's forwarder
+    K->>A: sweep()
+```
+
+**Message** (`DefenseMessage`): `abi.encode(address owner, address account, uint256 amountNeeded, uint64 nonce, uint64 expiry)`, 160 bytes, sent with `sendMessage(6, executor, bytes32(0), 2000, body)`; generic messages carry no CCTP fee.
+
+**`DefenseAlarm` (Arc)** — the ABI the keeper (D2) relays from:
+- `raise(owner) returns (uint64 nonce)`: permissionless. Reads the account (`factory.accountOf`), the guard and the venues from the factory on every call; uses the first venue whose `guard.simulatedHealth(venue, owner)` (the venue's own health factor when the guard has no simulation) is under `guard.minHealthFactor()`. `amountNeeded = debtUsd x (target - health) / target` in USDC, rounded up and capped at `venue.debtOf(owner)`: health factors scale with 1 / debt at constant collateral, so this restores `targetHealthFactor()`. Reverts with `ExecutorNotSet`, `NoAccount`, `GuardNotSet`, `CoolingDown(nextAllowed)` or `PositionHealthy`.
+- `event AlarmRaised(address indexed owner, address indexed account, uint256 amountNeeded, uint64 nonce, uint64 expiry)`; nonces count from 1 across all owners.
+- `cooldown(owner) returns (uint64)`: timestamp from which `raise(owner)` is allowed again (0 or a past time: now). `shortfall(owner) returns (IVenue, uint256)` is the same computation as `raise`, as a view.
+- Constructor: factory, MessageTransmitterV2, executor domain (6), cooldown (default 600 s), alarm TTL (default 3600 s). `setExecutor(address)` once, by the deployer, after the executor is deployed on Base.
+
+**`DefenseExecutor` (Base)**:
+- Acts only when `msg.sender` is the MessageTransmitterV2, `sourceDomain` is 26, `sender` is the alarm and `finalityThresholdExecuted >= 2000`; unfinalized messages always revert. Each alarm nonce is consumed once (`alarmUsed`).
+- **Owner policy:** `setPolicy(assets, caps, period, maxSlippageBps, maxFee)` by the owner on Base (same address as on Arc), plus plain ERC-20 approvals to the executor. Assets are USDC or the swap assets fixed at deployment (WETH, ETH/USD feed, 0.05% pool); caps are per asset per `period`, in the asset's units; slippage is at most 10%; `maxFee` is the CCTP fee the owner accepts (Base → Arc fast: 0.325 bps protocol fee plus about 0.017 USDC forwarding, see `GET https://iris-api.circle.com/v2/burn/USDC/fees/6/26?forward=true`). `clearPolicy()` stops future defenses.
+- **On an alarm:** gathers `amountNeeded + maxFee` USDC, in policy order, within caps, allowances and balances. WETH is sold with an exact-output swap when it can cover the rest (at most the Chainlink value plus the slippage bound) or an exact-input swap with a Chainlink minimum otherwise; a swap that fails gives the WETH back and moves on (`SwapFailed`). The USDC is burned with `depositForBurnWithHook(amount, 26, account, USDC, 0, maxFee, 1000, "cctp-forward")`: the only destination is the account named in the attested message, and Circle's forwarder mints it on Arc.
+- **Consumed without a burn** (`AlarmIgnored`): expired alarm, no policy, or funds that do not exceed `maxFee` (anything gathered goes back to the owner). **Reverts** (the message can be relayed again): wrong caller, source, sender or finality, replayed nonce, malformed body, stale or non-positive Chainlink price (older than `maxPriceAge`, default 3600 s).
+- No admin, no withdrawal, no arbitrary call. Funds only transit within the transaction.
+
+**Trust model.** The trigger is proven on Arc (the guard's minimum, read on chain) and carried by Circle's attestation; the executor trusts only the alarm's address on domain 26. The owner bounds the exposure on Base with approvals and per-period caps, and can clear the policy at any time. The relayer only pays gas. Limits: the alarm trusts the factory, guard and venues it reads (admin-set, see *Implementation notes*); a simulated drop on the guard (demo only) also triggers alarms; Permit2 is not used (plain approvals), which is the next step.
+
 ## App API: account history (`GET /api/account-events`)
 
 `GET /api/account-events?owner=<address>&account=<address>` returns the logs of an owner's Ardoise account since the factory's deployment, with the time of their blocks, as JSON (`AccountEventsJson`: block numbers as decimal strings). The statement reads it instead of scanning the chain from the browser, and scans by itself only if the route fails ([`app/src/app/api/account-events/route.ts`](../app/src/app/api/account-events/route.ts), [`app/src/lib/accountEvents.ts`](../app/src/lib/accountEvents.ts)).
