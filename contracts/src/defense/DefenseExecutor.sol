@@ -71,8 +71,7 @@ contract DefenseExecutor is IMessageHandlerV2 {
     enum IgnoreReason {
         Expired,
         NoPolicy,
-        NotEnoughFunds,
-        TooSoon
+        NotEnoughFunds
     }
 
     /// @notice Swap route and price feed of an asset the executor can sell for USDC.
@@ -100,9 +99,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// @param swapRouter Uniswap V3 SwapRouter02.
     /// @param burnFinality CCTP finality of the burn to Arc (1000 fast, 2000 standard).
     /// @param maxPriceAge Oldest Chainlink answer accepted, in seconds.
-    /// @param minDefenseInterval Minimum time between two burns for the same owner, in seconds:
-    /// longer than a burn can take to be minted on Arc, so that a new alarm raised before the
-    /// previous funds arrived cannot take the owner's funds again.
+    /// @param minDefenseInterval Minimum time between two burns for the same owner, in seconds
+    /// (15 minutes to 1 day): longer than a burn can take to be minted on Arc, so that a new alarm
+    /// raised before the previous funds arrived cannot take the owner's funds again.
     struct Config {
         address messageTransmitter;
         ITokenMessengerV2 tokenMessenger;
@@ -189,6 +188,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     error AlarmAlreadyUsed(uint64 nonce);
     /// @notice Thrown by `setPolicy` for an invalid policy.
     error InvalidPolicy();
+    /// @notice Thrown when an alarm arrives within `minDefenseInterval` of the owner's last burn;
+    /// the message can be relayed again from `nextAllowed` until the alarm expires.
+    error TooSoon(address owner, uint256 nextAllowed);
     /// @notice Thrown when a Chainlink answer is not positive or older than `maxPriceAge`.
     error StalePrice(address feed);
     /// @notice Thrown by the constructor for a zero address or an unusable swap asset.
@@ -223,6 +225,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
         swapRouter = config.swapRouter;
         burnFinality = config.burnFinality;
         maxPriceAge = config.maxPriceAge;
+        // 0 would let a second defense take funds while the first is in flight; more than a day
+        // would leave positions undefended for too long, with no admin to fix it.
+        if (config.minDefenseInterval < 15 minutes || config.minDefenseInterval > 1 days) revert InvalidConfig();
         minDefenseInterval = config.minDefenseInterval;
         for (uint256 i = 0; i < assets.length; ++i) {
             SwapAssetConfig memory c = assets[i];
@@ -300,8 +305,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// @inheritdoc IMessageHandlerV2
     /// @dev Reverts (so the message can be relayed again) for a wrong caller, source, sender,
     /// a replayed alarm or a malformed body. An expired alarm, a missing policy or funds that do
-    /// not cover the fee, or an alarm within `minDefenseInterval` of the owner's last burn (its
-    /// funds may still be on their way to Arc) consume the alarm without a burn (`AlarmIgnored`).
+    /// not cover the fee consume the alarm without a burn (`AlarmIgnored`). An alarm within
+    /// `minDefenseInterval` of the owner's last burn, whose funds may still be on their way to
+    /// Arc, reverts with `TooSoon` and can be relayed again later.
     function handleReceiveFinalizedMessage(
         uint32 sourceDomain,
         bytes32 sender,
@@ -346,8 +352,8 @@ contract DefenseExecutor is IMessageHandlerV2 {
         uint256 last = lastDefenseAt[a.owner];
         // forge-lint: disable-next-line(block-timestamp)
         if (last != 0 && block.timestamp < last + minDefenseInterval) {
-            emit AlarmIgnored(a.owner, a.nonce, IgnoreReason.TooSoon);
-            return;
+            // Revert rather than consume: the message can be relayed again until it expires.
+            revert TooSoon(a.owner, last + minDefenseInterval);
         }
         Policy storage p = _policies[a.owner];
         if (p.assets.length == 0) {

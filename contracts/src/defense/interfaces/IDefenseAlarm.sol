@@ -52,8 +52,9 @@ interface IDefenseAlarm {
     /// @dev Permissionless. Calls the account's public `sweep()` first, so USDC already on the
     /// account is applied before the shortfall is measured. If that sweep alone restores the
     /// position, `raise` reverts with `PositionHealthy` and the sweep is rolled back with it: a
-    /// relayer should then call `sweep()` on the account directly. Reverts with `ExecutorNotSet`, `NoAccount`, `GuardNotSet`,
-    /// `CoolingDown` or `PositionHealthy`. Emits `AlarmRaised`.
+    /// relayer should then call `sweep()` on the account directly. Reverts with `ExecutorNotSet`,
+    /// `NoAccount`, `GuardNotSet`, `CoolingDown`, `PositionHealthy` or `SweepOutOfGas`. Emits
+    /// `AlarmRaised`.
     /// @param owner Owner of the position.
     /// @return nonce Identifier of the alarm.
     function raise(address owner) external returns (uint64 nonce);

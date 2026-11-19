@@ -55,7 +55,7 @@ contract DefenseAlarm is IDefenseAlarm {
     /// @param messageTransmitter_ CCTP V2 MessageTransmitter on Arc.
     /// @param executorDomain_ CCTP domain of the executor's chain (6 for Base).
     /// @param cooldownPeriod_ Minimum time between two alarms for the same owner, in seconds; at
-    /// least `alarmTtl_`, and in practice also longer than the burn back to Arc takes.
+    /// least `alarmTtl_`. Funds in flight are covered by the executor's `minDefenseInterval`.
     /// @param alarmTtl_ Validity of an alarm on the executor's chain, in seconds.
     constructor(
         IArdoiseFactory factory_,
