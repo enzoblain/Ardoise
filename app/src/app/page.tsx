@@ -1,6 +1,9 @@
+import { Instrument_Serif } from "next/font/google";
 import Link from "next/link";
 import { LogoMark } from "@/components/LogoMark";
+import { PhoneShowcase } from "@/components/landing/PhoneShowcase";
 import { SlateScene } from "@/components/landing/SlateScene";
+import { VaultRing } from "@/components/landing/VaultRing";
 import { MAINNET_DEPLOYMENT } from "@/lib/contracts/deployments";
 import { formatBps } from "@/lib/format";
 import { readVenueRates } from "@/lib/venues";
@@ -8,6 +11,9 @@ import { readVenueRates } from "@/lib/venues";
 // Rates are read on Arc mainnet; refreshing them once a minute is enough for a
 // landing page and keeps it off the public RPC's rate limit.
 export const revalidate = 60;
+
+/** Display typeface of the landing page: the title and the section headings. */
+const display = Instrument_Serif({ subsets: ["latin"], weight: "400" });
 
 const GITHUB = "https://github.com/enzoblain/Ardoise";
 const EXPLORER = "https://explorer.arc.io";
@@ -42,6 +48,7 @@ export default async function Landing() {
   // the others (Morpho today) are shown as comparisons.
   const best = venues?.filter((v) => v.borrowable !== false).sort((a, b) => a.rateBps - b.rateBps)[0];
   const compared = venues?.find((v) => v.borrowable === false);
+  const rate = best ? formatBps(best.rateBps) : null;
   const stats = [
     best
       ? { label: "Borrow rate now", value: formatBps(best.rateBps), note: `${best.name}, used for payments` }
@@ -54,39 +61,39 @@ export default async function Landing() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa]">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Link href="/" className="flex items-center gap-2.5 text-lg font-semibold tracking-tight">
+    <div className="min-h-screen bg-black text-[#fafafa]">
+      <header className="mx-auto grid max-w-[110rem] grid-cols-[auto_1fr_auto] items-center gap-6 px-6 py-6 md:px-10">
+        <Link href="/" className="flex items-center gap-2.5 text-lg font-bold uppercase tracking-tight text-[#f7931a]">
           <LogoMark size={28} />
           Ardoise
         </Link>
-        <nav className="flex items-center gap-6 text-sm">
-          <a href="#how" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">How it works</a>
-          <a href={GITHUB} className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">GitHub</a>
-          <Link href="/app" className="rounded-full bg-[#fafafa] px-4 py-2 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">
-            Launch app
-          </Link>
-        </nav>
+        <p className="mx-auto hidden max-w-md text-center text-sm leading-snug text-[#a8a49b] md:block">
+          Post collateral, pay anyone in USDC, keep your assets. A bot guards the position on Arc mainnet.
+        </p>
+        <Link
+          href="/app"
+          className="col-start-3 rounded-full bg-[#ffd9a8] px-5 py-2.5 text-sm font-semibold text-[#141414] transition-opacity hover:opacity-85"
+        >
+          Launch app
+        </Link>
       </header>
 
       <main>
-        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pt-10 pb-24 md:grid-cols-[1.05fr_1fr] md:pt-20">
-          <div className="flex flex-col gap-7">
-            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[#262626] px-3 py-1 text-xs text-[#a1a1a1]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#f7931a]" />
-              Live on Arc mainnet
-            </span>
-            <h1 className="text-5xl font-semibold leading-[1.02] tracking-[-0.04em] sm:text-6xl">
-              Pay with your bitcoin.
-              <br />
-              <span className="text-[#6b6b6b]">Keep your bitcoin.</span>
-            </h1>
-            <p className="max-w-md text-lg leading-relaxed text-[#a1a1a1]">
-              Each payment borrows exactly its amount on Arc, at the best available rate, and delivers it on Arc or, through Circle&rsquo;s CCTP, on Base.
-              Your position is guarded against liquidation.
+        <section className="relative overflow-hidden">
+          <h1
+            className={`${display.className} relative z-10 px-4 text-center text-[23.5vw] uppercase leading-[0.8] tracking-[-0.02em] text-[#f3efe6]`}
+          >
+            Ardoise
+          </h1>
+          <div className="-mt-[7vw]">
+            <VaultRing rate={rate} />
+          </div>
+          <div className="relative z-10 mx-auto -mt-6 flex max-w-6xl flex-col items-center gap-4 px-6 pb-20 text-center">
+            <p className="max-w-xl text-lg leading-relaxed text-[#a8a49b]">
+              One slate, several vaults. Pay with your bitcoin today; ether and real-world assets are next.
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link href="/app" className="rounded-full bg-[#fafafa] px-6 py-3 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link href="/app" className="rounded-full bg-[#ffd9a8] px-6 py-3 font-semibold text-[#141414] transition-opacity hover:opacity-85">
                 Launch app →
               </Link>
               <a href="#how" className="rounded-full border border-[#262626] px-6 py-3 font-medium text-[#fafafa] transition-colors hover:border-[#4a4a4a]">
@@ -95,15 +102,14 @@ export default async function Landing() {
             </div>
             <p className="text-xs text-[#6b6b6b]">No wallet needed to try it: the app opens on a demo account.</p>
           </div>
-          <div className="flex justify-center py-6 md:py-0">
-            <SlateScene />
-          </div>
         </section>
+
+        <PhoneShowcase rate={rate} display={display.className} />
 
         <section className="border-y border-[#1c1c1c]">
           <dl className="mx-auto grid max-w-6xl grid-cols-2 gap-px bg-[#1c1c1c] md:grid-cols-4">
             {stats.map((s) => (
-              <div key={s.label} className="flex flex-col gap-1 bg-[#0a0a0a] px-6 py-7">
+              <div key={s.label} className="flex flex-col gap-1 bg-black px-6 py-7">
                 <dt className="text-xs uppercase tracking-[0.12em] text-[#6b6b6b]">{s.label}</dt>
                 <dd className="text-3xl font-semibold tracking-tight">{s.value}</dd>
                 <dd className="text-xs text-[#6b6b6b]">{s.note}</dd>
@@ -113,10 +119,13 @@ export default async function Landing() {
         </section>
 
         <section id="how" className="mx-auto max-w-6xl scroll-mt-8 px-6 py-24">
-          <h2 className="mb-12 max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">One payment, one line on the slate.</h2>
+          <div className="mb-12 flex flex-col items-center justify-between gap-10 md:flex-row">
+            <h2 className="max-w-xl text-3xl font-semibold tracking-tight sm:text-4xl">One payment, one line on the slate.</h2>
+            <SlateScene />
+          </div>
           <ol className="grid gap-px overflow-hidden rounded-2xl border border-[#1c1c1c] bg-[#1c1c1c] md:grid-cols-3">
             {STEPS.map((step, i) => (
-              <li key={step.title} className="flex flex-col gap-3 bg-[#0a0a0a] p-7">
+              <li key={step.title} className="flex flex-col gap-3 bg-black p-7">
                 <span className="font-mono text-sm text-[#f7931a]">0{i + 1}</span>
                 <h3 className="text-lg font-semibold">{step.title}</h3>
                 <p className="text-sm leading-relaxed text-[#a1a1a1]">{step.text}</p>

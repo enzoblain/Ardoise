@@ -1,0 +1,168 @@
+/* Rotating ring of vault cards. Sizes follow the viewport so the ring fills
+   the hero on a phone as well as on a wide screen. */
+.stage {
+  --card-w: clamp(132px, 15vw, 236px);
+  --card-h: calc(var(--card-w) * 1.42);
+  --radius: clamp(210px, 33vw, 560px);
+  position: relative;
+  height: calc(var(--card-h) * 2.5);
+  perspective: 1500px;
+  perspective-origin: 50% 35%;
+  overflow: hidden;
+  /* Fades the far cards into the page at the top and the bottom. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 86%, transparent 100%);
+}
+
+.tilt {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(-9deg) rotateZ(-5deg);
+}
+
+.ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transform-style: preserve-3d;
+  animation: spin 48s linear infinite;
+}
+
+.slot {
+  position: absolute;
+  left: calc(var(--card-w) / -2);
+  top: calc(var(--card-h) / -2);
+  width: var(--card-w);
+  height: var(--card-h);
+  transform-style: preserve-3d;
+  transform: rotateY(var(--angle)) translateZ(var(--radius)) translateY(calc(var(--card-h) * var(--lift)));
+}
+
+.card {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--card-w) * 0.055);
+  backface-visibility: hidden;
+  overflow: hidden;
+}
+
+.back {
+  transform: rotateY(180deg);
+  filter: brightness(0.5);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--card-w) * 0.035);
+  padding: calc(var(--card-w) * 0.075);
+  color: #141414;
+  background: linear-gradient(180deg, #f6f2e9 0%, #dcd8cf 62%, #f6f2e9 100%);
+}
+
+.crest {
+  width: calc(var(--card-w) * 0.17);
+  height: calc(var(--card-w) * 0.2);
+  border-radius: 3px 3px 45% 45%;
+  flex: none;
+}
+
+.family {
+  font-size: calc(var(--card-w) * 0.052);
+  color: #55524c;
+}
+
+.headline {
+  font-size: calc(var(--card-w) * 0.108);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+}
+
+.text {
+  font-size: calc(var(--card-w) * 0.056);
+  line-height: 1.3;
+  color: #33312d;
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--card-w) * 0.03);
+  margin-top: auto;
+  padding-top: calc(var(--card-w) * 0.04);
+  border-top: 1px solid rgb(20 20 20 / 14%);
+  font-size: calc(var(--card-w) * 0.05);
+  color: #55524c;
+}
+
+.live,
+.soon {
+  border-radius: 999px;
+  padding: 0.2em 0.7em;
+  font-weight: 600;
+}
+
+.live {
+  background: #f7931a;
+  color: #141414;
+}
+
+.soon {
+  border: 1px solid rgb(20 20 20 / 30%);
+}
+
+/* Patterns, drawn with gradients so the page ships no image. */
+.checker {
+  background: conic-gradient(#d1462f 25%, #e9c46a 0 50%, #d1462f 0 75%, #e9c46a 0) 0 0 / 34% 24%;
+}
+
+.scallop {
+  background:
+    radial-gradient(circle at 50% 0, #e0b83a 0 68%, transparent 70%) 0 0 / 25% 16%,
+    #4a463c;
+}
+
+.waves {
+  background:
+    radial-gradient(circle at 50% 100%, transparent 0 46%, #9cc3d5 48% 62%, transparent 64%) 0 0 / 25% 12%,
+    linear-gradient(#9cc3d5 0 42%, #2452b8 42%);
+}
+
+.stripes {
+  background: repeating-linear-gradient(135deg, #f7931a 0 9%, #1c1c1c 9% 18%);
+}
+
+.dots {
+  background:
+    radial-gradient(circle, #f3efe6 0 22%, transparent 24%) 0 0 / 25% 17.6%,
+    #7f9c7a;
+}
+
+.cross {
+  background:
+    linear-gradient(#d1462f, #d1462f) 50% 50% / 26% 100% no-repeat,
+    linear-gradient(#d1462f, #d1462f) 50% 50% / 100% 20% no-repeat,
+    #f3efe6;
+}
+
+@keyframes spin {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring {
+    animation: none;
+  }
+}
