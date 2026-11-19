@@ -16,6 +16,7 @@ import {
   WAD,
   payeeToBytes32,
   usdToUsdc,
+  venueUsable,
   usdcToUsd,
   type ArdoiseClient,
   type DebtLine,
@@ -23,6 +24,7 @@ import {
   type PaymentQuote,
   type PaymentRequest,
   type Venue,
+  type VenueOption,
 } from "@/lib/ardoise";
 
 /** The user's collateral position on one venue. */
@@ -117,22 +119,49 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     return p;
   }
 
+  // IGuard.checkMargin(user, venue, borrow): the largest borrow on this venue
+  // that keeps the minimum health factor.
+  function allowedOn(position: MockPosition): bigint {
+    const maxDebt = (position.collateralUsd * position.liquidationThreshold) / options.minHealthFactor;
+    return maxDebt > position.debtUsd ? usdToUsdc(maxDebt - position.debtUsd) : 0n;
+  }
+
   function quote(request: PaymentRequest): PaymentQuote {
     const borrow = request.amount + request.maxFee;
-    // IArdoise.bestVenue: lowest rate among the venues that can lend `borrow`.
-    const venue = venues
-      .filter((v) => v.borrowable !== false && positions.has(v.id) && v.available >= borrow)
-      .sort((a, b) => a.rateBps - b.rateBps)[0];
-    const position = venue && positionOf(venue.id);
+    // A venue without a position is still offered; the guard allows nothing there.
+    const venueOptions: VenueOption[] = venues
+      .filter((v) => v.borrowable !== false)
+      .map((venue) => {
+        const position = positions.get(venue.id);
+        return {
+          venue,
+          liquidityOk: venue.available >= borrow,
+          allowed: position ? allowedOn(position) : 0n,
+          healthBefore: position && health(venue.id),
+          healthAfter: position && healthFactor(position, position.debtUsd + usdcToUsd(borrow)),
+        };
+      });
+    // IArdoise.bestVenue: lowest rate among the venues that can lend all of `borrow`,
+    // else the one allowing the most.
+    const byRate = venueOptions.filter((o) => o.liquidityOk).sort((a, b) => a.venue.rateBps - b.venue.rateBps);
+    const recommended = (
+      byRate.find((o) => venueUsable(o, borrow)) ??
+      byRate.reduce<VenueOption | undefined>((best, o) => (!best || (o.allowed ?? 0n) > (best.allowed ?? 0n) ? o : best), undefined)
+    )?.venue;
+    const chosen = request.venueId === undefined ? recommended : venueOptions.find((o) => o.venue.id === request.venueId)?.venue;
+    const option = chosen && venueOptions.find((o) => o.venue.id === chosen.id);
     const base: PaymentQuote = {
       borrow,
-      venue,
-      healthBefore: venue && health(venue.id),
-      healthAfter: position && healthFactor(position, position.debtUsd + usdcToUsd(borrow)),
+      venue: chosen,
+      recommended,
+      options: venueOptions,
+      healthBefore: option?.healthBefore,
+      healthAfter: option?.healthAfter,
       minHealthFactor: options.minHealthFactor,
     };
 
-    // Errors in the order pay() checks them.
+    // Errors in the order pay() and payVia() check them.
+    if (request.venueId !== undefined && !chosen) return { ...base, error: { code: "UnknownVenue" } };
     if (request.amount === 0n) return { ...base, error: { code: "ZeroAmount" } };
     if (request.destinationDomain === ARC_DOMAIN && request.maxFee > 0n) return { ...base, error: { code: "FeeOnArc" } };
     if (!isAddress(request.payee) || request.payee === zeroAddress) {
@@ -142,12 +171,8 @@ export function createMockArdoise(venues: Venue[], options: MockOptions = DEFAUL
     if (borrow > remaining) {
       return { ...base, error: { code: "CapExceeded", remaining: remaining > 0n ? remaining : 0n } };
     }
-    if (!venue || !position) return { ...base, error: { code: "NoVenueAvailable" } };
-
-    // IGuard.checkMargin(user, venue, borrow): the largest borrow on this
-    // venue that keeps the minimum health factor.
-    const maxDebt = (position.collateralUsd * position.liquidationThreshold) / options.minHealthFactor;
-    const allowed = maxDebt > position.debtUsd ? usdToUsdc(maxDebt - position.debtUsd) : 0n;
+    if (!option || !option.liquidityOk) return { ...base, error: { code: "NoVenueAvailable" } };
+    const allowed = option.allowed ?? 0n;
     if (allowed < borrow) return { ...base, error: { code: "PaymentRefused", allowed } };
     return base;
   }

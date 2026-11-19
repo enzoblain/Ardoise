@@ -166,6 +166,40 @@ contract ArdoiseAccountTest is Test {
         assertEq(address(account.bestVenue(10 * USDC)), address(aave));
     }
 
+    function test_bestVenue_passesOverACheaperVenueTheGuardRefuses() public {
+        // No position on the cheaper venue: the guard allows nothing there.
+        guard.setVenueCap(aave, 0);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        vm.prank(owner);
+        account.pay(10 * USDC, ARC, _b(payee), 0, "");
+        assertEq(usdc.balanceOf(payee), 10 * USDC);
+        assertEq(morpho.debtOf(owner), 10 * USDC);
+        assertEq(aave.debtOf(owner), 0);
+    }
+
+    function test_bestVenue_partialAllowanceElsewhereLosesToAFullOne() public {
+        guard.setVenueCap(aave, 4 * USDC);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        assertEq(address(account.bestVenue(4 * USDC)), address(aave));
+    }
+
+    function test_pay_refusedEverywhereReportsTheMostAnyVenueAllows() public {
+        guard.setVenueCap(aave, 3 * USDC);
+        guard.setVenueCap(morpho, 6 * USDC);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.PaymentRefused.selector, 10 * USDC, 6 * USDC));
+        vm.prank(owner);
+        account.pay(10 * USDC, ARC, _b(payee), 0, "");
+    }
+
+    function test_bestVenue_skipsVenueWhoseGuardCheckReverts() public {
+        guard.setBroken(aave, true);
+        assertEq(address(account.bestVenue(10 * USDC)), address(morpho));
+        guard.setBroken(morpho, true);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.NoVenueAvailable.selector, 10 * USDC));
+        account.bestVenue(10 * USDC);
+    }
+
     function test_pay_revertsWhenNoVenueHasLiquidity() public {
         aave.setMarket(310, 1 * USDC);
         morpho.setMarket(450, 1 * USDC);
@@ -188,6 +222,82 @@ contract ArdoiseAccountTest is Test {
         vm.expectRevert(ArdoiseAccount.GuardNotSet.selector);
         vm.prank(owner);
         account.pay(1 * USDC, ARC, _b(payee), 0, "");
+    }
+
+    // ----- payVia: the owner's choice -----
+
+    function test_payVia_borrowsOnTheChosenVenueEvenWhenAnotherIsCheaper() public {
+        assertEq(address(account.bestVenue(2 * USDC)), address(aave));
+        vm.expectEmit(address(account));
+        emit IArdoise.Paid(1, morpho, 2 * USDC, 0, 2 * USDC, 450, ARC, _b(payee), "picked");
+        vm.prank(owner);
+        uint256 lineId = account.payVia(morpho, 2 * USDC, ARC, _b(payee), 0, "picked");
+        assertEq(lineId, 1);
+        assertEq(usdc.balanceOf(payee), 2 * USDC);
+        assertEq(morpho.debtOf(owner), 2 * USDC);
+        assertEq(aave.debtOf(owner), 0);
+        assertEq(address(account.line(1).venue), address(morpho));
+        assertEq(account.line(1).rateBps, 450);
+    }
+
+    function test_payVia_revertsForAVenueOutsideTheFactoryList() public {
+        TokenVenue rogue = new TokenVenue(factory, usdc, 1, 1_000_000 * USDC);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.UnknownVenue.selector, rogue));
+        vm.prank(owner);
+        account.payVia(rogue, 1 * USDC, ARC, _b(payee), 0, "");
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.UnknownVenue.selector, IVenue(address(0))));
+        vm.prank(owner);
+        account.payVia(IVenue(address(0)), 1 * USDC, ARC, _b(payee), 0, "");
+        assertEq(rogue.borrowCount(), 0);
+    }
+
+    function test_payVia_guardRefusalOnTheChosenVenueIsFinal() public {
+        // Aave would allow the payment, but the owner chose Morpho: no fallback.
+        guard.setVenueCap(morpho, 0.5e6);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.PaymentRefused.selector, 1.06e6, 0.5e6));
+        vm.prank(owner);
+        account.payVia(morpho, 1 * USDC, BASE, _b(payee), 0.06e6, "");
+        assertEq(morpho.borrowCount(), 0);
+        assertEq(aave.borrowCount(), 0);
+        (,, uint256 spentToday) = account.caps();
+        assertEq(spentToday, 0);
+    }
+
+    function test_payVia_revertsWhenTheChosenVenueLacksLiquidity() public {
+        morpho.setMarket(450, 1 * USDC);
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.NoVenueAvailable.selector, 2 * USDC));
+        vm.prank(owner);
+        account.payVia(morpho, 2 * USDC, ARC, _b(payee), 0, "");
+    }
+
+    function test_payVia_appliesTheSameCapsAndOwnerCheck() public {
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.NotOwner.selector, stranger));
+        vm.prank(stranger);
+        account.payVia(morpho, 1 * USDC, ARC, _b(payee), 0, "");
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.CapExceeded.selector, 101 * USDC, 100 * USDC));
+        vm.prank(owner);
+        account.payVia(morpho, 101 * USDC, ARC, _b(payee), 0, "");
+    }
+
+    function test_payVia_revertsWithoutGuard() public {
+        vm.prank(admin);
+        factory.setGuard(IGuard(address(0)));
+        vm.expectRevert(ArdoiseAccount.GuardNotSet.selector);
+        vm.prank(owner);
+        account.payVia(aave, 1 * USDC, ARC, _b(payee), 0, "");
+    }
+
+    function test_sweep_repaysEachLineOnItsOwnVenue() public {
+        vm.startPrank(owner);
+        account.payVia(morpho, 3 * USDC, ARC, _b(payee), 0, "");
+        account.pay(2 * USDC, ARC, _b(payee), 0, "");
+        vm.stopPrank();
+        assertEq(morpho.debtOf(owner), 3 * USDC);
+        assertEq(aave.debtOf(owner), 2 * USDC);
+        usdc.mint(address(account), 5 * USDC);
+        account.sweep();
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(aave.debtOf(owner), 0);
     }
 
     // ----- pay: delivery and ledger -----
@@ -468,6 +578,56 @@ contract ArdoiseAccountTest is Test {
         assertEq(morpho.debtOf(owner), 0);
         assertEq(usdc.allowance(address(account), address(aave)), 0);
         assertEq(usdc.balanceOf(address(account)), 2 * USDC);
+    }
+
+    function test_sweep_repaysTheVenueClosestToLiquidationFirst() public {
+        vm.startPrank(owner);
+        account.pay(2 * USDC, ARC, _b(payee), 0, ""); // line 1, Aave, the oldest
+        account.payVia(morpho, 3 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho
+        vm.stopPrank();
+        // Morpho is the position in danger: the balance goes there, not to the older Aave line.
+        morpho.setHealth(1.1e18);
+        aave.setHealth(1.8e18);
+        usdc.mint(address(account), 3 * USDC);
+        assertEq(account.sweep(), 3 * USDC);
+        assertTrue(account.closed(2));
+        assertFalse(account.closed(1));
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(aave.debtOf(owner), 2 * USDC);
+    }
+
+    function test_sweep_servesVenueDebtBeforeMovingToTheNextVenue() public {
+        _payArc(1 * USDC); // Aave
+        morpho.setDebt(owner, 1 * USDC); // opened outside Ardoise
+        aave.setHealth(1.9e18);
+        morpho.setHealth(1.2e18);
+        usdc.mint(address(account), 1 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(aave.debtOf(owner), 1 * USDC);
+    }
+
+    function test_sweep_putsAVenueThatCannotReportHealthLast() public {
+        vm.startPrank(owner);
+        account.pay(1 * USDC, ARC, _b(payee), 0, ""); // Aave
+        account.payVia(morpho, 1 * USDC, ARC, _b(payee), 0, ""); // Morpho
+        vm.stopPrank();
+        aave.setHealth(1.01e18);
+        // A broken Morpho health read must not block the sweep nor jump the queue.
+        vm.mockCallRevert(address(morpho), abi.encodeWithSelector(IVenue.health.selector), "down");
+        usdc.mint(address(account), 1 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertEq(aave.debtOf(owner), 0);
+        assertEq(morpho.debtOf(owner), 1 * USDC);
+    }
+
+    function test_sweep_stillRepaysLinesOnAVenueTheFactoryDropped() public {
+        _payArc(1 * USDC); // line 1 on Aave
+        _setVenues(morpho, morpho);
+        usdc.mint(address(account), 1 * USDC);
+        assertEq(account.sweep(), 1 * USDC);
+        assertTrue(account.closed(1));
+        assertEq(aave.debtOf(owner), 0);
     }
 
     function test_repay_bubblesVenueRevert() public {

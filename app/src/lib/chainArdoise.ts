@@ -25,6 +25,7 @@ import {
   type PaymentQuote,
   type PaymentRequest,
   type Venue,
+  type VenueOption,
 } from "@/lib/ardoise";
 import { eventsFromJson, type AccountEventsJson } from "@/lib/accountEvents";
 import { accountAbi, guardAbi, venueAbi } from "@/lib/contracts/abis";
@@ -46,7 +47,7 @@ export interface ChainArdoiseOptions {
   owner: Address;
   /** The owner's `ArdoiseAccount`. */
   account: Address;
-  /** Known venues, to name them; the account decides where it borrows. */
+  /** Known venues: named in the statement, and the borrowable ones offered for `payVia`. */
   venues: Venue[];
   /** First block to read the account's logs from (the factory's deployment). */
   fromBlock: bigint;
@@ -64,9 +65,12 @@ export interface ChainArdoiseOptions {
 
 /**
  * `ArdoiseClient` backed by the deployed contracts: reads the account, its
- * venues and the guard, and sends `pay()` from the owner's wallet.
+ * venues and the guard, and sends `pay()` or `payVia()` from the owner's
+ * wallet.
  *
- * Quotes follow `pay()`'s own checks, then simulate the call itself, so any
+ * Quotes read every borrowable venue (liquidity, guard, health after) and
+ * `bestVenue`, follow the contract's own checks on the chosen one, then
+ * simulate the call itself, so any
  * revert the reads cannot foresee (a missing Aave allowance, for example)
  * shows before the user signs.
  *
@@ -117,15 +121,52 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     return { healthFactor: simulated, collateralUsd: (collateralUsd * (BPS - dropBps)) / BPS, debtUsd };
   }
 
+  // One venue's figures for `borrow`. A failed read is reported as such, never
+  // as a guard refusal.
+  async function venueOption(venue: Venue, borrow: bigint, guard: Address | null, dropBps: bigint): Promise<VenueOption> {
+    const liquidityOk = venue.available >= borrow;
+    try {
+      const [healthBefore, rawAfter, allowed] = await Promise.all([
+        health(venue, guard, dropBps),
+        read<bigint>(venue.address, venueAbi, "healthAfter", [owner, borrow]),
+        guard === null ? Promise.resolve(null) : read<bigint>(guard, guardAbi, "checkMargin", [owner, venue.address, borrow]),
+      ]);
+      const healthAfter = guard === null || dropBps === 0n ? rawAfter : (rawAfter * (BPS - dropBps)) / BPS;
+      return { venue, liquidityOk, allowed, healthBefore, healthAfter };
+    } catch (error) {
+      return { venue, liquidityOk, allowed: guard === null ? null : 0n, readError: (error as Error).message.split("\n")[0] };
+    }
+  }
+
   async function quote(request: PaymentRequest): Promise<PaymentQuote> {
     const borrow = request.amount + request.maxFee;
+    const borrowable = venues.filter((v) => v.borrowable !== false);
+    // payVia checks the venue before anything else.
+    if (request.venueId !== undefined && !borrowable.some((v) => v.id === request.venueId)) {
+      return { borrow, minHealthFactor: null, options: [], error: { code: "UnknownVenue" } };
+    }
     const guard = await guardAddress();
     const [dropBps, minHealthFactor] = await Promise.all([
       simulatedDropBps(guard),
       guard === null ? Promise.resolve(null) : read<bigint>(guard, guardAbi, "minHealthFactor"),
     ]);
-    const base: PaymentQuote = { borrow, minHealthFactor };
+    const [options, recommended] = await Promise.all([
+      Promise.all(borrowable.map((v) => venueOption(v, borrow, guard, dropBps))),
+      read<Address>(account, accountAbi, "bestVenue", [borrow]).then(venueByAddress, () => undefined),
+    ]);
+    const chosen = request.venueId === undefined ? recommended : borrowable.find((v) => v.id === request.venueId);
+    const option = chosen && options.find((o) => o.venue.id === chosen.id);
+    const base: PaymentQuote = {
+      borrow,
+      minHealthFactor,
+      options,
+      recommended,
+      venue: chosen,
+      healthBefore: option?.healthBefore,
+      healthAfter: option?.healthAfter,
+    };
 
+    // Errors in the order pay() and payVia() check them.
     if (request.amount === 0n) return { ...base, error: { code: "ZeroAmount" } };
     if (request.destinationDomain === network.arc.cctpDomain && request.maxFee > 0n) {
       return { ...base, error: { code: "FeeOnArc" } };
@@ -137,37 +178,46 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
     const remaining = perPayment < daily - spentToday ? perPayment : daily > spentToday ? daily - spentToday : 0n;
     if (borrow > remaining) return { ...base, error: { code: "CapExceeded", remaining } };
 
-    let venue: Venue;
-    try {
-      venue = venueByAddress(await read<Address>(account, accountAbi, "bestVenue", [borrow]));
-    } catch {
-      return { ...base, error: { code: "NoVenueAvailable" } };
+    if (!chosen) return { ...base, error: { code: "NoVenueAvailable" } };
+    if (!option) return { ...base, error: { code: "UnknownVenue" } };
+    // The chosen venue could not be read: that is a read failure, not a refusal.
+    if (option.readError !== undefined) throw new Error(`Could not read ${option.venue.name}: ${option.readError}`);
+    if (!option.liquidityOk) return { ...base, error: { code: "NoVenueAvailable" } };
+    if (guard === null) return { ...base, error: { code: "GuardNotSet" } };
+    if (option.allowed !== null && option.allowed < borrow) {
+      return { ...base, error: { code: "PaymentRefused", allowed: option.allowed } };
     }
-    const [healthBefore, rawAfter] = await Promise.all([
-      health(venue, guard, dropBps),
-      read<bigint>(venue.address, venueAbi, "healthAfter", [owner, borrow]),
-    ]);
-    const healthAfter = guard === null || dropBps === 0n ? rawAfter : (rawAfter * (BPS - dropBps)) / BPS;
-    const withVenue = { ...base, venue, healthBefore, healthAfter };
 
-    if (guard === null) return { ...withVenue, error: { code: "GuardNotSet" } };
-    const allowed = await read<bigint>(guard, guardAbi, "checkMargin", [owner, venue.address, borrow]);
-    if (allowed < borrow) return { ...withVenue, error: { code: "PaymentRefused", allowed } };
-
-    // The reads cover pay()'s own checks; simulating the call catches the
-    // rest (venue allowance, CCTP), as it would revert on chain.
+    // The reads cover the contract's own checks; simulating the call catches
+    // the rest (venue allowance, CCTP), as it would revert on chain.
     try {
-      await publicClient.simulateContract({
-        address: account,
-        abi: accountAbi,
-        functionName: "pay",
-        args: payArgs(request),
-        account: owner,
-      });
+      const call = payCall(request);
+      // One call per function, so viem types each one's arguments.
+      if (call.functionName === "pay") await publicClient.simulateContract({ ...call, account: owner });
+      else await publicClient.simulateContract({ ...call, account: owner });
     } catch (error) {
-      return { ...withVenue, error: toPaymentError(error) };
+      return { ...base, error: toPaymentError(error) };
     }
-    return withVenue;
+    return base;
+  }
+
+  function venueAddress(id: string): Address {
+    const venue = venues.find((v) => v.id === id && v.borrowable !== false);
+    if (!venue) throw new PaymentFailed({ code: "UnknownVenue" });
+    return venue.address;
+  }
+
+  // `payVia` on the chosen venue, or `pay()` when the request names none.
+  function payCall(request: PaymentRequest) {
+    const args = payArgs(request);
+    return request.venueId === undefined
+      ? ({ address: account, abi: accountAbi, functionName: "pay", args } as const)
+      : ({
+          address: account,
+          abi: accountAbi,
+          functionName: "payVia",
+          args: [venueAddress(request.venueId), ...args],
+        } as const);
   }
 
   function toLine(raw: RawLine, transactionHash?: Hex): DebtLine {
@@ -248,18 +298,12 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       await options.ensureArc?.();
       let sent: Hex;
       try {
-        sent = smartAccount
-          ? await smartAccount.submit([
-              { to: account, data: encodeFunctionData({ abi: accountAbi, functionName: "pay", args: payArgs(request) }) },
-            ])
-          : await walletClient!.writeContract({
-              address: account,
-              abi: accountAbi,
-              functionName: "pay",
-              args: payArgs(request),
-              account: walletClient!.account,
-              chain: walletClient!.chain,
-            });
+        const call = payCall(request);
+        const signer = { account: walletClient!.account, chain: walletClient!.chain };
+        if (smartAccount) sent = await smartAccount.submit([{ to: account, data: encodeFunctionData(call) }]);
+        // One call per function, so viem types each one's arguments.
+        else if (call.functionName === "pay") sent = await walletClient!.writeContract({ ...call, ...signer });
+        else sent = await walletClient!.writeContract({ ...call, ...signer });
       } catch (error) {
         const reason = toPaymentError(error);
         if (reason.code !== "Reverted") throw new PaymentFailed(reason);
@@ -362,6 +406,8 @@ export function toPaymentError(error: unknown): PaymentError {
         return { code: "CapExceeded", remaining: args[1] as bigint };
       case "NoVenueAvailable":
         return { code: "NoVenueAvailable" };
+      case "UnknownVenue":
+        return { code: "UnknownVenue" };
       case "PaymentRefused":
         return { code: "PaymentRefused", allowed: args[1] as bigint };
       case "GuardNotSet":

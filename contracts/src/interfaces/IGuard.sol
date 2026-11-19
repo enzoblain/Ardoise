@@ -5,8 +5,8 @@ import {IVenue} from "./IVenue.sol";
 
 /// @title IGuard
 /// @notice Position guard: decides how much a user may borrow for a payment without pushing
-/// the position below the margin threshold. `IArdoise.pay()` calls `checkMargin` before
-/// every borrow and refuses the payment when the answer is lower than the requested amount.
+/// the position below the margin threshold. `IArdoise.pay()` and `payVia()` call `checkMargin` before
+/// every borrow and refuse the payment when the answer is lower than the requested amount.
 /// @dev Health factors are WAD (1e18 = 1.0). Repayments that restore the margin go through
 /// `IArdoise.sweep()` and `IArdoise.repay()`, so the keeper never needs more than repay rights.
 interface IGuard {

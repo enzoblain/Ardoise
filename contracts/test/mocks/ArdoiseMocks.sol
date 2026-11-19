@@ -19,6 +19,8 @@ contract TokenVenue is IVenue {
     uint256 public rateBps;
     /// @notice Liquidity returned by `available()`.
     uint256 public liquidity;
+    /// @notice Health factor returned by `health`.
+    uint256 public currentHealth = 2e18;
     /// @notice Health factor returned by `healthAfter`, whatever the amount.
     uint256 public projectedHealth = type(uint256).max;
     /// @notice When true, `available()` reverts.
@@ -51,6 +53,11 @@ contract TokenVenue is IVenue {
     function setMarket(uint256 rateBps_, uint256 liquidity_) external {
         rateBps = rateBps_;
         liquidity = liquidity_;
+    }
+
+    /// @notice Sets the health factor `health` returns.
+    function setHealth(uint256 healthFactor) external {
+        currentHealth = healthFactor;
     }
 
     /// @notice Sets the misbehaviours.
@@ -97,8 +104,8 @@ contract TokenVenue is IVenue {
     }
 
     /// @inheritdoc IVenue
-    function health(address) external pure returns (uint256, uint256, uint256) {
-        return (2e18, 100e18, 50e18);
+    function health(address) external view returns (uint256, uint256, uint256) {
+        return (currentHealth, 100e18, 50e18);
     }
 
     /// @inheritdoc IVenue
@@ -144,14 +151,34 @@ contract MockGuard is IGuard {
     /// @notice Venue of the last `checkMargin` call.
     IVenue public lastVenue;
 
+    /// @notice Per-venue caps set with `setVenueCap`, which override `cap` for that venue.
+    mapping(IVenue => uint256) public venueCap;
+    mapping(IVenue => bool) public hasVenueCap;
+    /// @notice Venues whose check reverts.
+    mapping(IVenue => bool) public broken;
+
     /// @notice Sets the largest amount allowed.
     function setCap(uint256 cap_) external {
         cap = cap_;
     }
 
+    /// @notice Sets the largest amount allowed on one venue, as when the owner's position there
+    /// is smaller or missing.
+    function setVenueCap(IVenue venue, uint256 cap_) external {
+        venueCap[venue] = cap_;
+        hasVenueCap[venue] = true;
+    }
+
+    /// @notice Makes the check revert for one venue.
+    function setBroken(IVenue venue, bool broken_) external {
+        broken[venue] = broken_;
+    }
+
     /// @inheritdoc IGuard
-    function checkMargin(address, IVenue, uint256 amount) external view returns (uint256) {
-        return amount < cap ? amount : cap;
+    function checkMargin(address, IVenue venue, uint256 amount) external view returns (uint256) {
+        require(!broken[venue], "guard: venue unreadable");
+        uint256 limit = hasVenueCap[venue] ? venueCap[venue] : cap;
+        return amount < limit ? amount : limit;
     }
 
     /// @inheritdoc IGuard

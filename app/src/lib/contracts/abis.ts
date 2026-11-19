@@ -19,6 +19,7 @@ export const accountAbi = [
   {"type": "function", "name": "minFinalityThreshold", "inputs": [], "outputs": [{"name": "", "type": "uint32", "internalType": "uint32"}], "stateMutability": "view"},
   {"type": "function", "name": "owner", "inputs": [], "outputs": [{"name": "", "type": "address", "internalType": "address"}], "stateMutability": "view"},
   {"type": "function", "name": "pay", "inputs": [{"name": "amount", "type": "uint256", "internalType": "uint256"}, {"name": "destinationDomain", "type": "uint32", "internalType": "uint32"}, {"name": "payee", "type": "bytes32", "internalType": "bytes32"}, {"name": "maxFee", "type": "uint256", "internalType": "uint256"}, {"name": "memo", "type": "string", "internalType": "string"}], "outputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
+  {"type": "function", "name": "payVia", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}, {"name": "amount", "type": "uint256", "internalType": "uint256"}, {"name": "destinationDomain", "type": "uint32", "internalType": "uint32"}, {"name": "payee", "type": "bytes32", "internalType": "bytes32"}, {"name": "maxFee", "type": "uint256", "internalType": "uint256"}, {"name": "memo", "type": "string", "internalType": "string"}], "outputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
   {"type": "function", "name": "repay", "inputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}, {"name": "amount", "type": "uint256", "internalType": "uint256"}], "outputs": [{"name": "repaid", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
   {"type": "function", "name": "setCaps", "inputs": [{"name": "perPayment", "type": "uint256", "internalType": "uint256"}, {"name": "daily", "type": "uint256", "internalType": "uint256"}], "outputs": [], "stateMutability": "nonpayable"},
   {"type": "function", "name": "sweep", "inputs": [], "outputs": [{"name": "repaid", "type": "uint256", "internalType": "uint256"}], "stateMutability": "nonpayable"},
@@ -40,6 +41,7 @@ export const accountAbi = [
   {"type": "error", "name": "Reentrancy", "inputs": []},
   {"type": "error", "name": "TokenCallFailed", "inputs": []},
   {"type": "error", "name": "UnknownLine", "inputs": [{"name": "lineId", "type": "uint256", "internalType": "uint256"}]},
+  {"type": "error", "name": "UnknownVenue", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}]},
   {"type": "error", "name": "ZeroAmount", "inputs": []},
 ] as const;
 

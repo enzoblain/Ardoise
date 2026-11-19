@@ -34,8 +34,9 @@ const mainnetClient =
  * Reads the live USDC borrow rate and liquidity of each venue on Arc mainnet.
  *
  * Aave V4 is read through the deployed `AaveV4Adapter` (`IVenue.rate()` and
- * `available()`), the venue accounts borrow from. Morpho has no adapter yet
- * (R5): it is read directly and marked as not borrowable, for comparison.
+ * `available()`). Morpho is read the same way through `MorphoAdapter` once the
+ * deployment has one; until then it is read directly and marked as not
+ * borrowable, for comparison.
  *
  * @returns Aave V4 and Morpho, with their yearly rate (APR) in basis points.
  * @throws If Arc mainnet cannot be read.
@@ -58,6 +59,16 @@ async function readAave(): Promise<Venue> {
 }
 
 async function readMorpho(): Promise<Venue> {
+  const morphoAdapter = MAINNET_DEPLOYMENT.morphoAdapter;
+  if (morphoAdapter) {
+    // The adapter's rate() and available() are what bestVenue() compares.
+    const adapter = { address: morphoAdapter, abi: venueAbi } as const;
+    const [rateBps, available] = await Promise.all([
+      mainnetClient.readContract({ ...adapter, functionName: "rate" }),
+      mainnetClient.readContract({ ...adapter, functionName: "available" }),
+    ]);
+    return { id: "morpho", address: morphoAdapter, name: "Morpho", rateBps: Number(rateBps), available };
+  }
   const [params, market] = await Promise.all([
     mainnetClient.readContract({ address: MORPHO, abi: morphoAbi, functionName: "idToMarketParams", args: [MORPHO_CIRBTC_USDC] }),
     mainnetClient.readContract({ address: MORPHO, abi: morphoAbi, functionName: "market", args: [MORPHO_CIRBTC_USDC] }),
@@ -77,7 +88,7 @@ async function readMorpho(): Promise<Venue> {
   // so it compares with Aave's.
   return {
     id: "morpho",
-    // No Morpho adapter yet (R5): shown for comparison, never borrowed from.
+    // No Morpho adapter in this deployment: shown for comparison, never borrowed from.
     address: MORPHO,
     borrowable: false,
     name: "Morpho",

@@ -4,6 +4,37 @@ Addresses of the Ardoise contracts. The app (C4) and the keeper (B2) read them f
 
 ## Arc mainnet (chain id 5042)
 
+### Current: factory with the Morpho venue (PR #39)
+
+Deployed on 2026-11-19 from the `feat/morpho-venue` branch ([PR #39](https://github.com/enzoblain/Ardoise/pull/39), main merged in) with [`script/Deploy.s.sol`](script/Deploy.s.sol) and `ARDOISE_GUARD` set to the existing guard, in block [31976642](https://explorer.arc.io/block/31976642), by the project wallet (factory admin). Same constructor arguments as below (caps 10 / 20 USDC, finality 2000); the factory lists two venues, Aave V4 then Morpho, and accounts created here have `payVia(venue, …)`. Accounts of the previous factory keep working but are not the ones the app and the keeper read. Gas: 0.162 USDC.
+
+| Contract | Address | Source verification |
+|----------|---------|---------------------|
+| `ArdoiseFactory` | [`0xB4476B617B750B9f48786c60930bc499343BB4a8`](https://explorer.arc.io/address/0xB4476B617B750B9f48786c60930bc499343BB4a8) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xB4476B617B750B9f48786c60930bc499343BB4a8) |
+| `AaveV4Adapter` (USDC on the Aave V4 Main Spoke, reserve 0) | [`0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F`](https://explorer.arc.io/address/0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xCB907D5E3bb0dd01aE564aA38ef4Fce089F3e18F) |
+| `MorphoAdapter` (cirBTC/USDC market `0xc2db905f…5815d` on Morpho `0x34CD0407…7fCD`) | [`0x48BbdF2Fda17FC197909C82dE1d95242659e80a5`](https://explorer.arc.io/address/0x48BbdF2Fda17FC197909C82dE1d95242659e80a5) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0x48BbdF2Fda17FC197909C82dE1d95242659e80a5) |
+| `MarginGuard` (unchanged, see below) | [`0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080`](https://explorer.arc.io/address/0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0xEBAC5C07DC0983C01f55AbEAD77a3FcC7a4cf080) |
+
+| Transaction | Hash |
+|-------------|------|
+| Deploy `ArdoiseFactory` | [`0x1ebcb728…`](https://explorer.arc.io/tx/0x1ebcb728121f0f79202693b4e1866cf26139959de02a16e95fa3c555fcbdd790) |
+| Deploy `AaveV4Adapter` | [`0xdde0b791…`](https://explorer.arc.io/tx/0xdde0b7910bc570b6578a6f0aaa6fdcaaacffd71c3c8ae9fb857ef92c8a0999e9) |
+| Deploy `MorphoAdapter` | [`0x133b159a…`](https://explorer.arc.io/tx/0x133b159a578adf10e2a86acd199bfa4ce0a07c8a64cc6f806cb26ad788008321) |
+| `setVenues([AaveV4Adapter, MorphoAdapter])` | [`0x44bd18ba…`](https://explorer.arc.io/tx/0x44bd18ba4a63d6e5e40a6ca63dd22563f2eb7eb4e0bd1e68f0c41903c0a637e7) |
+| `setGuard(MarginGuard)` | [`0xb705a9ae…`](https://explorer.arc.io/tx/0xb705a9aeda83d35a55519029672efcf40136d8350b0dbaa8a9731f228a0cad13) |
+
+Checked after mining: `factory.venues()` returns both adapters in that order and `factory.guard()` returns the guard. `MorphoAdapter(factory, morpho, marketId)` was verified with constructor arguments `(0xB4476B61…B4a8, 0x34CD04070dD72b14E241112F6d83812Df5Af7fCD, 0xc2db905f174e5defcce01d321b09f15f78856a36a21b90cc7e1abbc29225815d)`. The broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadcast/Deploy.s.sol/5042/run-latest.json).
+
+**Demo wallet on this factory.** The project wallet's account is [`0x4d298b39F3676B07335206E7b7F042D51e787a49`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49). Its Aave V4 position (cirBTC collateral, earlier debt) is the same one the previous account borrowed against: the position belongs to the owner, not to the account. Setup on 2026-11-19: `createAccount()` [`0x6ed86354…`](https://explorer.arc.io/tx/0x6ed863546fd9069646476d1f30878b05e6f1337bb0816d764f5894b88195365f); `approveBorrow(MainSpoke, 0, AaveV4Adapter, 60 USDC)` [`0x74c9bf1e…`](https://explorer.arc.io/tx/0x74c9bf1ef5bfc875121b32597a190b7578b751f52f1752d8de4d82654b0c7816); 2,500 sats of cirBTC withdrawn from Aave V4 [`0x36c8b626…`](https://explorer.arc.io/tx/0x36c8b6264a33385a0e5ff54822a319c84938901d7ffe0903dcf872f26628233b), approved [`0xb8e89faf…`](https://explorer.arc.io/tx/0xb8e89faf330a20d41bd0eccfe201d3f03c74abc4f34c0d3f4d2104a3c64d5535) and supplied as collateral on Morpho [`0x0c56da58…`](https://explorer.arc.io/tx/0x0c56da5808227e97e33f1720293714269148d327ab38b9807d52d856e98c25e2); `Morpho.setAuthorization(MorphoAdapter, true)` [`0xa37ebe5b…`](https://explorer.arc.io/tx/0xa37ebe5b6883fe699904dd90ef0921ef995e366d2342e3e266e10d49a8948c8f).
+
+**`payVia` on mainnet.** With Aave V4 at 3.11% and Morpho at 4.04%, `bestVenue(0.10 USDC)` returns the Aave V4 adapter. Two payments of 0.10 USDC on Arc to the owner, one per venue: `payVia(AaveV4Adapter, …)` opened line #1 [`0xd644175e…`](https://explorer.arc.io/tx/0xd644175e6ff3de535a4db46248ffbdd8dbf0eec4ac88aaaf0f26dddcffe7e1aa) (Aave V4 health factor 3.009 → 2.586), `payVia(MorphoAdapter, …)` opened line #2 [`0x22c73905…`](https://explorer.arc.io/tx/0x22c7390583ce2d2d66c9a594775bdc9af4e5c654c2840e4fcd1daf5af682ca14) on the venue that is not the cheapest (Morpho debt 0.100001 USDC, health factor 13.47).
+
+The defense alarm reads its factory as an immutable: an alarm deployed against the previous factory does not see accounts of this one, so the defense must be deployed against this factory.
+
+The Gateway standing orders recorded in the B3 run were signed for the previous account (`0xdcB201E7…`), and the keeper only submits an order whose recipient is the account it defends. The automatic Gateway repayment therefore needs new standing orders signed for `0x4d298b39…` before it can run again on this factory.
+
+### Previous factory (Aave V4 only)
+
 Deployed on 2026-11-17 from commit [`37d9fe4`](https://github.com/enzoblain/Ardoise/commit/37d9fe4) (branch `chore/deploy-mainnet`, [PR #14](https://github.com/enzoblain/Ardoise/pull/14)) with [`script/Deploy.s.sol`](script/Deploy.s.sol), in block [31777009](https://explorer.arc.io/block/31777009). Deployer and factory admin: the dedicated project wallet [`0x54e1714a0ffae58d3AA227C80FD48668e11f18d7`](https://explorer.arc.io/address/0x54e1714a0ffae58d3AA227C80FD48668e11f18d7).
 
 | Contract | Address | Source verification |
@@ -22,7 +53,7 @@ Accounts (`ArdoiseAccount`) are deployed by the factory through `createAccount()
 | Deploy `AaveV4Adapter` | [`0x21965436…`](https://explorer.arc.io/tx/0x21965436377db88b621f763b972da0b2fc3d7bb04fea2b7b7f9882e42698ad17) |
 | `setVenues([AaveV4Adapter])` | [`0x5ad5c9d7…`](https://explorer.arc.io/tx/0x5ad5c9d74fed75250c2a7f062a27b16c10057214505e0622e319b3782744eddb) |
 
-The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json`](broadcast/Deploy.s.sol/5042/run-latest.json).
+The full broadcast is in [`broadcast/Deploy.s.sol/5042/run-latest.json` at commit `37d9fe4`](https://github.com/enzoblain/Ardoise/blob/37d9fe4/contracts/broadcast/Deploy.s.sol/5042/run-latest.json) (the current file holds the Morpho factory's broadcast).
 
 ### Constructor arguments
 
@@ -77,7 +108,7 @@ The keeper (tasks B2 and B5) runs off chain, on the machine of whoever operates 
 | Item | Value |
 |------|-------|
 | Keeper wallet | [`0xfA1Fd59bD90961d68AB60f66EE242e1Dd7c45541`](https://explorer.arc.io/address/0xfA1Fd59bD90961d68AB60f66EE242e1Dd7c45541), a dedicated wallet created for the keeper, funded with 1 USDC for gas on 2026-11-18 |
-| Factory watched | `0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD`, accounts read from block `31777009` |
+| Factory watched | `0xB4476B617B750B9f48786c60930bc499343BB4a8` (the Morpho factory), accounts read from block `31976642`; until 2026-11-19, the first factory `0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD` from block `31777009` |
 | RPC | `https://rpc.mainnet.arc.io` (the default when `ARC_RPC_URL` is empty) |
 
 ### Configuration
@@ -87,8 +118,8 @@ In the repo-root `.env` (gitignored; the variables are described in [`.env.examp
 ```sh
 ARC_RPC_URL=                                                        # empty: public Arc mainnet RPC
 KEEPER_PRIVATE_KEY=                                                 # key of the keeper wallet, never committed or printed
-ARDOISE_FACTORY_ADDRESS=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD
-ARDOISE_FACTORY_DEPLOY_BLOCK=31777009
+ARDOISE_FACTORY_ADDRESS=0xB4476B617B750B9f48786c60930bc499343BB4a8
+ARDOISE_FACTORY_DEPLOY_BLOCK=31976642
 ```
 
 Leave `ARC_RPC_URL` empty or point it to Arc mainnet: on Arc Testnet the keeper would watch the mainnet factory address and silently find no account. Without `KEEPER_PRIVATE_KEY` the keeper runs dry: it logs its decisions and sends nothing. To replace the wallet, create one with `cast wallet new`, put its key in `.env` only and send it about 1 USDC on Arc.
@@ -170,7 +201,7 @@ From `contracts/`, with the factory admin's key in the environment (the alarm on
 ```sh
 set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
 # 1. Arc: the alarm, for the current factory (never hard-coded: pass it)
-DEFENSE_FACTORY=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD \
+DEFENSE_FACTORY=0xB4476B617B750B9f48786c60930bc499343BB4a8 \
   forge script script/DeployDefense.s.sol:DeployDefenseAlarm --rpc-url https://rpc.mainnet.arc.io --broadcast
 # 2. Base: the executor, trusting that alarm
 DEFENSE_ALARM_ADDRESS=<alarm> \
@@ -181,7 +212,7 @@ DEFENSE_ALARM_ADDRESS=<alarm> DEFENSE_EXECUTOR_ADDRESS=<executor> \
 # Sources (Sourcify supports both chains)
 forge verify-contract <alarm> src/defense/DefenseAlarm.sol:DefenseAlarm --chain-id 5042 --verifier sourcify \
   --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64)" \
-    0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900)
+    0xB4476B617B750B9f48786c60930bc499343BB4a8 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900)
 forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor --chain-id 8453 --verifier sourcify \
   --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256,uint256),(address,address,uint24)[])" \
     "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500,2400)" \

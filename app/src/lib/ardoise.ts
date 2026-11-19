@@ -16,7 +16,7 @@ export interface Venue {
   id: string;
   /**
    * Address `Paid` events carry as `venue`: the `IVenue` adapter. A venue
-   * with no adapter yet (Morpho, R5) uses its protocol contract and is shown
+   * with no adapter in the deployment (Morpho, until it has one) uses its protocol contract and is shown
    * for comparison only.
    */
   address: Address;
@@ -59,13 +59,21 @@ export interface DebtLine {
   transactionHash?: Hex;
 }
 
-/** Arguments of `IArdoise.pay()`, with the payee as an EVM address. */
+/**
+ * Arguments of `IArdoise.pay()` / `payVia()`, with the payee as an EVM
+ * address and the venue by id.
+ */
 export interface PaymentRequest {
   amount: bigint;
   destinationDomain: number;
   payee: Address;
   maxFee: bigint;
   memo: string;
+  /**
+   * Venue the user chose: the payment calls `payVia(venue, ...)` and borrows
+   * there only. Omitted, it calls `pay()`, which borrows on `bestVenue`.
+   */
+  venueId?: string;
 }
 
 /** Contract errors `pay()` can revert with, by name. */
@@ -73,6 +81,8 @@ export type PaymentError =
   | { code: "InvalidPayee" }
   | { code: "CapExceeded"; remaining: bigint }
   | { code: "NoVenueAvailable" }
+  /** `payVia` with a venue the factory does not list. */
+  | { code: "UnknownVenue" }
   | { code: "PaymentRefused"; allowed: bigint }
   /** No guard is set on the factory yet, so every payment reverts. */
   | { code: "GuardNotSet" }
@@ -82,13 +92,47 @@ export type PaymentError =
   /** Any other revert (a missing Aave allowance, for example), with its message. */
   | { code: "Reverted"; message: string };
 
-/** What `pay()` would do, computed before sending it. */
+/** One venue the payment could borrow from, as the guard sees it. */
+export interface VenueOption {
+  venue: Venue;
+  /** Whether `available()` covers the borrow. */
+  liquidityOk: boolean;
+  /** `IGuard.checkMargin(owner, venue, borrow)`; `null` without a guard. */
+  allowed: bigint | null;
+  /**
+   * Why this venue's figures could not be read (an RPC failure, a reverted
+   * read), if they could not. Never a refusal: the guard was not heard.
+   */
+  readError?: string;
+  /** `health(venue)` before the payment. */
+  healthBefore?: Health;
+  /** Health factor on this venue after borrowing the full amount. */
+  healthAfter?: bigint;
+}
+
+/**
+ * Whether the payment can borrow its full amount on this venue: enough
+ * liquidity and, when a guard is set, a guard that allows all of it.
+ *
+ * @param option The venue's figures.
+ * @param borrow Amount to borrow, fees included.
+ * @returns True when the venue can take the payment.
+ */
+export function venueUsable(option: VenueOption, borrow: bigint): boolean {
+  return option.readError === undefined && option.liquidityOk && (option.allowed === null || option.allowed >= borrow);
+}
+
+/** What `pay()` / `payVia()` would do, computed before sending it. */
 export interface PaymentQuote {
   /** `amount + maxFee`: what the account borrows. */
   borrow: bigint;
-  /** `bestVenue(borrow)`, when one qualifies. */
+  /** Venue the payment borrows from: the one chosen, or `recommended`. */
   venue?: Venue;
-  /** `health(venue)`: the position on the chosen venue before the payment. */
+  /** `bestVenue(borrow)`: the cheapest venue the guard allows, when one qualifies. */
+  recommended?: Venue;
+  /** Every venue the account can borrow from, with its liquidity and guard answer. */
+  options: VenueOption[];
+  /** `health(venue)`: the position on `venue` before the payment. */
   healthBefore?: Health;
   /** Health factor on `venue` after borrowing `borrow`. */
   healthAfter?: bigint;
@@ -132,7 +176,7 @@ export interface ArdoiseClient {
    */
   events(): Promise<{ account: Address; logs: Log[]; blockTimes: Map<bigint, number> }>;
   /**
-   * Sends the payment.
+   * Sends the payment: `payVia` on `request.venueId` when set, else `pay()`.
    * @returns The debt line it opened (`IArdoise.line(lineId)`), with the
    *   payment's transaction when it was sent on chain.
    * @throws {PaymentFailed} With the contract error that refused it.

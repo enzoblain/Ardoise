@@ -44,14 +44,32 @@ describe("mock Ardoise account", () => {
     expect((await account.health("morpho")).debtUsd).toBe(0n);
   });
 
-  it("refuses a payment the guard does not allow on the chosen venue", async () => {
+  it("recommends the next venue when the guard refuses the cheapest, like bestVenue", async () => {
     const account = createMockArdoise([AAVE, MORPHO]);
     // Aave: $195 of borrowing power / 1.25 = $156 max debt, $100 already borrowed.
     const quote = await account.quote(request(60));
+    expect(quote.recommended?.id).toBe("morpho");
+    expect(quote.venue?.id).toBe("morpho");
+    expect(quote.error).toBeUndefined();
+    expect(quote.options.find((o) => o.venue.id === "aave-v4")?.allowed).toBe(56_000_000n);
+  });
+
+  it("refuses a payment the guard does not allow on the venue the user chose", async () => {
+    const account = createMockArdoise([AAVE, MORPHO]);
+    const quote = await account.quote(request(60, { venueId: "aave-v4" }));
     expect(quote.venue?.id).toBe("aave-v4");
+    expect(quote.recommended?.id).toBe("morpho");
     expect(quote.error).toEqual({ code: "PaymentRefused", allowed: 56_000_000n });
-    await expect(account.pay(request(60))).rejects.toBeInstanceOf(PaymentFailed);
+    await expect(account.pay(request(60, { venueId: "aave-v4" }))).rejects.toBeInstanceOf(PaymentFailed);
     expect(await account.lines()).toHaveLength(2);
+  });
+
+  it("borrows on the venue the user chose even when another is cheaper", async () => {
+    const account = createMockArdoise([AAVE, MORPHO]);
+    const line = await account.pay(request(10, { venueId: "morpho" }));
+    expect(line.venue.id).toBe("morpho");
+    expect(line.rateBps).toBe(398);
+    expect((await account.health("morpho")).debtUsd).toBeGreaterThan(0n);
   });
 
   it("enforces the per-payment and daily caps", async () => {

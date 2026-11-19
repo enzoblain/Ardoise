@@ -10,8 +10,8 @@ import {IGuard} from "./interfaces/IGuard.sol";
 import {IVenue} from "./interfaces/IVenue.sol";
 
 /// @title ArdoiseAccount
-/// @notice A user's Ardoise account: each `pay()` borrows exactly what the payment needs on the
-/// cheapest venue, once the guard has checked the margin, delivers it on Arc or through CCTP
+/// @notice A user's Ardoise account: each payment borrows exactly what it needs on the venue the
+/// owner picks (`payVia`) or the cheapest one (`pay`), once the guard has checked the margin, delivers it on Arc or through CCTP
 /// with Circle's Forwarding Service, and records one debt line.
 /// @dev Deployed by `ArdoiseFactory`, one per owner. The collateral position stays in the owner's
 /// wallet; the account only borrows within the allowances the owner granted to each venue
@@ -150,21 +150,51 @@ contract ArdoiseAccount is IArdoise {
     // is treated as unavailable rather than blocking payments.
     // forge-lint: disable-next-item(calls-loop)
     /// @inheritdoc IArdoise
-    /// @dev Venues whose `available()` or `rate()` reverts are skipped; ties go to the first
-    /// venue in the factory's list.
+    /// @dev Venues whose `available()` or `rate()` reverts are skipped, and so is a venue whose
+    /// guard check reverts; ties go to the first venue in the factory's list. The guard is asked
+    /// in order of rate and the first venue it allows in full wins, so a cheaper venue where the
+    /// owner has no position (or not enough margin) never blocks a payment another venue can
+    /// make. When no venue is allowed in full, the one allowing the most is returned, and
+    /// `pay()` then reverts with `PaymentRefused` and that amount. Without a guard, the cheapest
+    /// venue with enough liquidity is returned. A guard check that reverts on every venue ends in
+    /// `NoVenueAvailable`, which hides the guard's own error. Cost: a venue the guard allows only
+    /// in part costs its full search (about 25 `healthAfter` calls), and `pay()` asks the guard
+    /// again for the chosen venue; acceptable with the factory's two venues.
     function bestVenue(uint256 amount) public view returns (IVenue venue) {
         IVenue[] memory list = venues();
-        uint256 bestRate = type(uint256).max;
-        for (uint256 i = 0; i < list.length; ++i) {
+        uint256 n = list.length;
+        uint256[] memory rates = new uint256[](n);
+        bool[] memory candidate = new bool[](n);
+        for (uint256 i = 0; i < n; ++i) {
             try list[i].available() returns (uint256 liquidity) {
                 if (liquidity < amount) continue;
             } catch {
                 continue;
             }
             try list[i].rate() returns (uint256 rateBps) {
-                if (rateBps < bestRate) {
-                    bestRate = rateBps;
-                    venue = list[i];
+                rates[i] = rateBps;
+                candidate[i] = true;
+            } catch {
+                continue;
+            }
+        }
+        IGuard currentGuard = guard();
+        uint256 mostAllowed = 0;
+        venue = IVenue(address(0));
+        for (uint256 k = 0; k < n; ++k) {
+            // Next candidate in order of rate, the earlier one on a tie.
+            uint256 next = n;
+            for (uint256 i = 0; i < n; ++i) {
+                if (candidate[i] && (next == n || rates[i] < rates[next])) next = i;
+            }
+            if (next == n) break;
+            candidate[next] = false;
+            if (address(currentGuard) == address(0)) return list[next];
+            try currentGuard.checkMargin(owner, list[next], amount) returns (uint256 allowed) {
+                if (allowed >= amount) return list[next];
+                if (address(venue) == address(0) || allowed > mostAllowed) {
+                    venue = list[next];
+                    mostAllowed = allowed;
                 }
             } catch {
                 continue;
@@ -173,30 +203,143 @@ contract ArdoiseAccount is IArdoise {
         if (address(venue) == address(0)) revert NoVenueAvailable(amount);
     }
 
-    // Every external call goes to the admin-set venue and guard, USDC or CCTP, inside the
-    // non-reentrant lock; the line can only be written once the venue has sent the tokens.
-    // forge-lint: disable-next-item(reentrancy-no-eth, reentrancy-events, unused-return)
     /// @inheritdoc IArdoise
-    /// @dev Also reverts with `GuardNotSet` while the factory has no guard, with `ZeroAmount`, with `FeeOnArc` when `maxFee` is not 0 for a payment
-    /// on Arc, and with `BorrowShortfall` if the venue sends less than `amount + maxFee`. Payees
-    /// on the known non-EVM CCTP domains (Noble 4, Solana 5, Sui 8, Aptos 9) may use all 32
-    /// bytes; every other domain needs a left-padded EVM address. A payment to another chain
-    /// burns `amount + maxFee` through CCTP with the Forwarding Service, which mints on the
-    /// destination without the payee paying gas; anything the venue sends beyond that stays in
-    /// the account for `sweep()`.
+    /// @dev Same checks, delivery and reverts as `payVia`, on the venue `bestVenue(amount + maxFee)`
+    /// returns; the caps are checked before the venue is chosen.
     function pay(uint256 amount, uint32 destinationDomain, bytes32 payee, uint256 maxFee, string calldata memo)
         external
         nonReentrant
         onlyOwner
         returns (uint256 lineId)
     {
+        return _pay(IVenue(address(0)), amount, destinationDomain, payee, maxFee, memo);
+    }
+
+    /// @inheritdoc IArdoise
+    /// @dev Reverts with `UnknownVenue` before the payment checks (after the owner check) when `venue` is not in the
+    /// factory's list, so the owner can never borrow through an adapter the admin did not add.
+    function payVia(
+        IVenue venue,
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 payee,
+        uint256 maxFee,
+        string calldata memo
+    ) external nonReentrant onlyOwner returns (uint256 lineId) {
+        if (address(venue) == address(0) || !_isVenue(venue)) revert UnknownVenue(venue);
+        return _pay(venue, amount, destinationDomain, payee, maxFee, memo);
+    }
+
+    // ----- Repayments -----
+
+    /// @inheritdoc IArdoise
+    /// @dev Repays through the line's venue on behalf of the owner; whatever the venue does not
+    /// pull goes back to the caller. The line also closes when the owner's debt on that venue
+    /// reaches 0, which covers debt repaid directly on the venue. Non-reentrant.
+    function repay(uint256 lineId, uint256 amount) external nonReentrant returns (uint256 repaid) {
+        Line storage l = _line(lineId);
+        if (l.closed) revert LineAlreadyRepaid(lineId);
+        (repaid,) = _repayLine(lineId, l, amount, msg.sender);
+    }
+
+    // Repays through each line's venue inside the non-reentrant lock.
+    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
+    /// @inheritdoc IArdoise
+    /// @dev Venues are served in order of health factor, lowest first (ties keep the factory's
+    /// order), so the balance goes to the position closest to liquidation: with Aave V4 and
+    /// Morpho as separate positions, repaying a line on the healthy one would leave the other in
+    /// danger. For each venue, its open lines are repaid oldest first, then whatever remains of
+    /// the owner's debt there: the line estimates use simple interest while venues compound, and
+    /// the owner may have debt opened outside Ardoise. Open lines on a venue the factory no longer
+    /// lists come last. Lines whose venue debt is already 0 are closed on the way at no cost; a
+    /// venue that refuses the repayment is skipped rather than blocking the sweep, so the keeper
+    /// is never stuck behind one line. Anything left after that stays in the account.
+    function sweep() external nonReentrant returns (uint256 repaid) {
+        uint256 balance = usdc.balanceOf(address(this));
+        uint256 count = _lines.length;
+        uint256 first = _firstOpen;
+        while (first < count && _lines[first].closed) ++first;
+        _firstOpen = first;
+        if (balance == 0) return 0;
+
+        IVenue[] memory order = _byHealth(venues());
+        uint256 done;
+        for (uint256 v = 0; v < order.length && balance > 0; ++v) {
+            (done, balance) = _sweepLines(order, order[v], first, balance);
+            repaid += done;
+            (bool ok, uint256 debt) = _debtOf(order[v]);
+            if (!ok || debt == 0 || balance == 0) continue;
+            (, uint256 venueRepaid, uint256 spent) = _venueRepay(order[v], _min(balance, debt), address(this));
+            repaid += venueRepaid;
+            balance -= spent;
+        }
+        (done,) = _sweepLines(order, IVenue(address(0)), first, balance);
+        repaid += done;
+    }
+
+    /// @notice Whether a debt line is closed: fully repaid by its own estimate, or its venue
+    /// debt reached 0.
+    /// @dev Not part of `IArdoise`: `DebtLine` has no closed flag, and a line closed because the
+    /// venue debt reached 0 may show `repaid` below `principal`. Reverts with `UnknownLine`.
+    /// @param lineId Debt line identifier.
+    /// @return True if `repay` would revert with `LineAlreadyRepaid`.
+    function closed(uint256 lineId) external view returns (bool) {
+        return _line(lineId).closed;
+    }
+
+    // ----- Views -----
+
+    /// @inheritdoc IArdoise
+    function lines() external view returns (DebtLine[] memory all) {
+        all = new DebtLine[](_lines.length);
+        for (uint256 i = 0; i < all.length; ++i) {
+            all[i] = _toDebtLine(i + 1, _lines[i]);
+        }
+    }
+
+    /// @inheritdoc IArdoise
+    function line(uint256 lineId) external view returns (DebtLine memory) {
+        return _toDebtLine(lineId, _line(lineId));
+    }
+
+    /// @inheritdoc IArdoise
+    function health(IVenue venue) external view returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd) {
+        return venue.health(owner);
+    }
+
+    // ----- Internals -----
+
+    // Every external call goes to the admin-set venue and guard, USDC or CCTP, inside the
+    // non-reentrant lock; the line can only be written once the venue has sent the tokens.
+    // forge-lint: disable-next-item(reentrancy-no-eth, reentrancy-events, unused-return)
+    /// @dev Shared by `pay` and `payVia`: `venue` is the zero address for `pay`, which then takes
+    /// `bestVenue`. Reverts with `ZeroAmount`, `FeeOnArc` when `maxFee` is not 0 for a payment on
+    /// Arc, `InvalidPayee`, `CapExceeded`, `NoVenueAvailable` (also when the chosen venue lacks
+    /// the liquidity), `GuardNotSet` while the factory has no guard, `PaymentRefused`, and
+    /// `BorrowShortfall` if the venue sends less than `amount + maxFee`. Payees on the known
+    /// non-EVM CCTP domains (Noble 4, Solana 5, Sui 8, Aptos 9) may use all 32 bytes; every other
+    /// domain needs a left-padded EVM address. A payment to another chain burns `amount + maxFee`
+    /// through CCTP with the Forwarding Service, which mints on the destination without the payee
+    /// paying gas; anything the venue sends beyond that stays in the account for `sweep()`.
+    function _pay(
+        IVenue venue,
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 payee,
+        uint256 maxFee,
+        string calldata memo
+    ) private returns (uint256 lineId) {
         if (amount == 0) revert ZeroAmount();
         if (destinationDomain == ARC && maxFee != 0) revert FeeOnArc(maxFee);
         _checkPayee(destinationDomain, payee);
         uint256 total = amount + maxFee;
         _spend(total);
 
-        IVenue venue = bestVenue(total);
+        if (address(venue) == address(0)) {
+            venue = bestVenue(total);
+        } else if (venue.available() < total) {
+            revert NoVenueAvailable(total);
+        }
         IGuard currentGuard = guard();
         if (address(currentGuard) == address(0)) revert GuardNotSet();
         uint256 allowed = currentGuard.checkMargin(owner, venue, total);
@@ -245,81 +388,10 @@ contract ArdoiseAccount is IArdoise {
         emit Paid(lineId, venue, amount, maxFee, borrowed, rateBps, destinationDomain, payee, memo);
     }
 
-    // ----- Repayments -----
-
-    /// @inheritdoc IArdoise
-    /// @dev Repays through the line's venue on behalf of the owner; whatever the venue does not
-    /// pull goes back to the caller. The line also closes when the owner's debt on that venue
-    /// reaches 0, which covers debt repaid directly on the venue. Non-reentrant.
-    function repay(uint256 lineId, uint256 amount) external nonReentrant returns (uint256 repaid) {
-        Line storage l = _line(lineId);
-        if (l.closed) revert LineAlreadyRepaid(lineId);
-        (repaid,) = _repayLine(lineId, l, amount, msg.sender);
+    /// @dev Whether `venue` is in the factory's venue list.
+    function _isVenue(IVenue venue) private view returns (bool) {
+        return _contains(venues(), venue);
     }
-
-    // Repays through each line's venue inside the non-reentrant lock.
-    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
-    /// @inheritdoc IArdoise
-    /// @dev Lines whose venue debt is already 0 are closed on the way at no cost. A line whose
-    /// venue refuses the repayment is skipped rather than blocking the sweep, so the keeper is
-    /// never stuck behind one line. What is left once the open lines are covered repays the
-    /// owner's remaining debt on each venue of the factory: the line estimates use simple
-    /// interest while venues compound, and the owner may have debt opened outside Ardoise.
-    /// Anything left after that stays in the account.
-    function sweep() external nonReentrant returns (uint256 repaid) {
-        uint256 balance = usdc.balanceOf(address(this));
-        uint256 count = _lines.length;
-        uint256 i = _firstOpen;
-        while (i < count && _lines[i].closed) ++i;
-        _firstOpen = i;
-        for (; i < count && balance > 0; ++i) {
-            Line storage l = _lines[i];
-            if (l.closed) continue;
-            (uint256 lineRepaid, uint256 spent) = _repayLine(i + 1, l, balance, address(this));
-            repaid += lineRepaid;
-            balance -= spent;
-        }
-        IVenue[] memory list = balance > 0 ? venues() : new IVenue[](0);
-        for (uint256 v = 0; v < list.length && balance > 0; ++v) {
-            (bool ok, uint256 debt) = _debtOf(list[v]);
-            if (!ok || debt == 0) continue;
-            (, uint256 venueRepaid, uint256 spent) = _venueRepay(list[v], _min(balance, debt), address(this));
-            repaid += venueRepaid;
-            balance -= spent;
-        }
-    }
-
-    /// @notice Whether a debt line is closed: fully repaid by its own estimate, or its venue
-    /// debt reached 0.
-    /// @dev Not part of `IArdoise`: `DebtLine` has no closed flag, and a line closed because the
-    /// venue debt reached 0 may show `repaid` below `principal`. Reverts with `UnknownLine`.
-    /// @param lineId Debt line identifier.
-    /// @return True if `repay` would revert with `LineAlreadyRepaid`.
-    function closed(uint256 lineId) external view returns (bool) {
-        return _line(lineId).closed;
-    }
-
-    // ----- Views -----
-
-    /// @inheritdoc IArdoise
-    function lines() external view returns (DebtLine[] memory all) {
-        all = new DebtLine[](_lines.length);
-        for (uint256 i = 0; i < all.length; ++i) {
-            all[i] = _toDebtLine(i + 1, _lines[i]);
-        }
-    }
-
-    /// @inheritdoc IArdoise
-    function line(uint256 lineId) external view returns (DebtLine memory) {
-        return _toDebtLine(lineId, _line(lineId));
-    }
-
-    /// @inheritdoc IArdoise
-    function health(IVenue venue) external view returns (uint256 healthFactor, uint256 collateralUsd, uint256 debtUsd) {
-        return venue.health(owner);
-    }
-
-    // ----- Internals -----
 
     // Only reached from `repay` and `sweep`, both non-reentrant.
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events, block-timestamp)
@@ -385,6 +457,63 @@ contract ArdoiseAccount is IArdoise {
             _call(usdc.approve(address(venue), 0));
             if (external_) _call(usdc.transfer(payer, amount - spent));
         }
+    }
+
+    // Only reached from `sweep`, which is non-reentrant.
+    // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events)
+    /// @dev Applies `balance` to the open lines on `venue`, oldest first, from index `first`. With
+    /// `venue` zero, it takes the open lines whose venue is not in `listed` instead. Returns the
+    /// debt repaid and the balance left.
+    function _sweepLines(IVenue[] memory listed, IVenue venue, uint256 first, uint256 balance)
+        private
+        returns (uint256 repaid, uint256 left)
+    {
+        left = balance;
+        uint256 count = _lines.length;
+        for (uint256 i = first; i < count && left > 0; ++i) {
+            Line storage l = _lines[i];
+            if (l.closed) continue;
+            if (address(venue) == address(0) ? _contains(listed, l.venue) : l.venue != venue) continue;
+            (uint256 lineRepaid, uint256 spent) = _repayLine(i + 1, l, left, address(this));
+            repaid += lineRepaid;
+            left -= spent;
+        }
+    }
+
+    // The venue list is admin-set and short.
+    // forge-lint: disable-next-item(calls-loop)
+    /// @dev `list` sorted by the owner's health factor on each venue, lowest first, keeping the
+    /// list's order on ties; a venue that cannot report its health goes last.
+    function _byHealth(IVenue[] memory list) private view returns (IVenue[] memory) {
+        uint256 n = list.length;
+        uint256[] memory hf = new uint256[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            hf[i] = type(uint256).max;
+            try list[i].health(owner) returns (uint256 h, uint256, uint256) {
+                hf[i] = h;
+            } catch {}
+        }
+        // Insertion sort, stable: the list holds a handful of venues.
+        for (uint256 i = 1; i < n; ++i) {
+            IVenue venue = list[i];
+            uint256 h = hf[i];
+            uint256 j = i;
+            while (j > 0 && hf[j - 1] > h) {
+                list[j] = list[j - 1];
+                hf[j] = hf[j - 1];
+                --j;
+            }
+            list[j] = venue;
+            hf[j] = h;
+        }
+        return list;
+    }
+
+    function _contains(IVenue[] memory list, IVenue venue) private pure returns (bool) {
+        for (uint256 i = 0; i < list.length; ++i) {
+            if (list[i] == venue) return true;
+        }
+        return false;
     }
 
     // forge-lint: disable-next-item(calls-loop)
