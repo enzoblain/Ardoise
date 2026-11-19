@@ -160,8 +160,8 @@ forge verify-contract <alarm> src/defense/DefenseAlarm.sol:DefenseAlarm --chain-
   --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64)" \
     0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 600)
 forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor --chain-id 8453 --verifier sourcify \
-  --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256),(address,address,uint24)[])" \
-    "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500)" \
+  --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256,uint256),(address,address,uint24)[])" \
+    "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500,3600)" \
     "[(0x4200000000000000000000000000000000000006,0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70,500)]")
 ```
 
