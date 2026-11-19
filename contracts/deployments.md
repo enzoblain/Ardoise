@@ -130,6 +130,50 @@ Simulated price-drop demo (B3), with the repayment funded from the owner's Gatew
 
 From the keeper's first simulated reading (23:11:40 UTC) to the confirmed `sweep()` (23:11:57 UTC): 17 seconds. After the run: debt 0.865389 USDC, simulated health factor 1.590 (above the 1.5 target, so the keeper stopped), real health factor 3.533 once the simulation was cleared. The Gateway reserve went from 0.824729 to 0.399422 USDC: 0.40 USDC drawn plus a 0.025307 USDC Gateway fee. It no longer covers the second standing order (0.40 USDC plus the fee); deposit about 0.1 USDC on Base before running the demo again.
 
+## CCTP-attested defense (D1)
+
+> [!WARNING]
+> **Not deployed yet.** The contracts, tests and scripts are in [`src/defense/`](src/defense/) and [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol); see *CCTP-attested defense* in [`docs/api.md`](../docs/api.md). Fill in the addresses below once deployed and set `DEFENSE_ALARM_ADDRESS` / `DEFENSE_EXECUTOR_ADDRESS` for the keeper.
+
+| Contract | Chain | Address | Source verification |
+|----------|-------|---------|---------------------|
+| `DefenseAlarm` | Arc mainnet | Pending | — |
+| `DefenseExecutor` | Base mainnet | Pending | — |
+
+### How to deploy
+
+From `contracts/`, with the factory admin's key in the environment (the alarm only reads the factory; `setExecutor` must come from the alarm's deployer). Simulated on 2026-11-19 against both chains from the project wallet: about 1.05M gas on Arc for the alarm (about 0.03 USDC) and 2.47M gas on Base for the executor (about 0.00003 ETH at 0.006 gwei).
+
+```sh
+set -a && source ../.env && set +a                       # DEPLOYER_PRIVATE_KEY
+# 1. Arc: the alarm, for the current factory (never hard-coded: pass it)
+DEFENSE_FACTORY=0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD \
+  forge script script/DeployDefense.s.sol:DeployDefenseAlarm --rpc-url https://rpc.mainnet.arc.io --broadcast
+# 2. Base: the executor, trusting that alarm
+DEFENSE_ALARM_ADDRESS=<alarm> \
+  forge script script/DeployDefense.s.sol:DeployDefenseExecutor --rpc-url https://mainnet.base.org --broadcast
+# 3. Arc: record the executor in the alarm (once)
+DEFENSE_ALARM_ADDRESS=<alarm> DEFENSE_EXECUTOR_ADDRESS=<executor> \
+  forge script script/DeployDefense.s.sol:SetDefenseExecutor --rpc-url https://rpc.mainnet.arc.io --broadcast
+# Sources (Sourcify supports both chains)
+forge verify-contract <alarm> src/defense/DefenseAlarm.sol:DefenseAlarm --chain-id 5042 --verifier sourcify \
+  --constructor-args $(cast abi-encode "f(address,address,uint32,uint64,uint64)" \
+    0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD 0x81D40F21F12A8F0E3252Bccb954D722d4c464B64 6 1800 900)
+forge verify-contract <executor> src/defense/DefenseExecutor.sol:DefenseExecutor --chain-id 8453 --verifier sourcify \
+  --constructor-args $(cast abi-encode "f((address,address,address,uint32,address,address,uint32,uint256,uint256),(address,address,uint24)[])" \
+    "(0x81D40F21F12A8F0E3252Bccb954D722d4c464B64,0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d,<alarm>,26,0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,0x2626664c2603336E57B271c5C0b26F421741e481,1000,1500,2400)" \
+    "[(0x4200000000000000000000000000000000000006,0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70,500)]")
+```
+
+A new factory (for example with a Morpho venue) needs a new alarm and a new executor, since the executor trusts one alarm address.
+
+### Mainnet proof (planned)
+
+1. On Base, from the demo owner: wrap a little ETH (`WETH.deposit`), `setPolicy([USDC, WETH], [0, 0.001e18], 86400, 100, 0.03e6)` (WETH only, to show the swap), `WETH.approve(executor, max)`.
+2. On Arc, the guard owner: `guard.setSimulatedDrop(5500)`; check `alarm.shortfall(owner)`.
+3. Anyone: `alarm.raise(owner)`; fetch the attestation from `https://iris-api.circle.com/v2/messages/26?transactionHash=<raise tx>`; call `receiveMessage(message, attestation)` on the Base MessageTransmitterV2.
+4. Check `DefenseExecuted` on Base, the forwarded mint on the demo account on Arc, then `sweep()` (keeper); clear the simulation with `setSimulatedDrop(0)`. Record every link here.
+
 ## How to deploy the guard
 
 From `contracts/`, simulate first from the admin address (no key needed, nothing is sent), then broadcast. Prefer a Foundry keystore (`cast wallet import`) to signing with a raw key: the repo-root `.env` is also read by the app and the keeper. A `DEPLOYER_PRIVATE_KEY` set in the shell takes precedence over `--account`, so `unset DEPLOYER_PRIVATE_KEY` first.
