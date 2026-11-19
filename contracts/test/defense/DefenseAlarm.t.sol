@@ -185,6 +185,16 @@ contract DefenseAlarmTest is Test {
         assertEq(transmitter.count(), 1);
     }
 
+    function test_raise_revertsUnderTheSweepGasFloor() public {
+        SweepingAccountMock swept = new SweepingAccountMock();
+        factory.setAccount(owner, address(swept));
+        venue.setPosition(owner, 4e18, 3e6);
+        // Enough for a cheap sweep and the message, under the floor once the sweep is reached.
+        vm.expectRevert(IDefenseAlarm.SweepOutOfGas.selector);
+        alarm.raise{gas: 450_000}(owner);
+        assertEq(swept.sweeps(), 0);
+    }
+
     function test_raise_revertsWhenSweepIsStarvedOfGas() public {
         GasHungryAccountMock hungry = new GasHungryAccountMock();
         factory.setAccount(owner, address(hungry));

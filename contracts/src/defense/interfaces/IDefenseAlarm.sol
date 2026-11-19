@@ -43,7 +43,8 @@ interface IDefenseAlarm {
     /// @notice Thrown by the constructor when the alarm TTL is zero or longer than the cooldown:
     /// two alarms for the same owner could then both be executed for one shortfall.
     error InvalidTiming(uint64 cooldownPeriod, uint64 alarmTtl);
-    /// @notice Thrown by `raise` when the account's sweep ran out of gas: retry with more gas.
+    /// @notice Thrown by `raise` when too little gas is left before the account's sweep, or the
+    /// sweep ran out of gas: retry with more gas.
     error SweepOutOfGas();
     /// @notice Thrown by the constructor when an address is zero.
     error ZeroAddress();

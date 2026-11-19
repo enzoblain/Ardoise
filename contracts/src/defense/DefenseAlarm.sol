@@ -30,6 +30,10 @@ contract DefenseAlarm is IDefenseAlarm {
     uint256 private constant WAD_PER_USDC_UNIT = 1e12;
     /// @dev Standard finality: Arc is final at once and Circle attests in about 0.5 s.
     uint32 private constant FINALITY = 2000;
+    /// @notice Gas that must be left before the sweep: several times what `sweep()` costs with no
+    /// balance (about 67k on Arc mainnet), enough to repay a few lines, so a caller cannot pick a
+    /// gas limit at which the sweep runs out of gas in a nested call and is skipped.
+    uint256 public constant MIN_SWEEP_GAS = 500_000;
 
     /// @notice Registry of Ardoise accounts, venues and guard.
     IArdoiseFactory public immutable factory;
@@ -136,10 +140,12 @@ contract DefenseAlarm is IDefenseAlarm {
         // reduce debt; a failing sweep must not block the alarm.
         if (account.code.length > 0) {
             uint256 gasBefore = gasleft();
+            // A caller must not skip the sweep by starving it of gas: the floor covers a sweep and
+            // the calls inside it, and the 63/64 check catches a sweep that ran out of gas in its
+            // own frame (it gets 63/64 of what is left, so under 1/64 remains).
+            if (gasBefore < MIN_SWEEP_GAS) revert SweepOutOfGas();
             try IArdoise(account).sweep() {}
             catch {
-                // A caller must not skip the sweep by starving it of gas: the call gets 63/64 of
-                // what is left, so an out-of-gas failure leaves less than 1/64 behind.
                 if (gasleft() <= gasBefore / 63) revert SweepOutOfGas();
             }
         }
