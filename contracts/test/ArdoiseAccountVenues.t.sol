@@ -17,6 +17,9 @@ import {MockToken} from "./venues/mocks/MockAaveV4.sol";
 contract ArdoiseAccountVenuesTest is Test {
     uint256 internal constant USDC = 1e6;
     uint32 internal constant ARC = 26;
+    /// @dev Timestamp of `setUp`. Later times are written from it rather than from
+    /// `block.timestamp`, which the IR pipeline may read only once per test.
+    uint256 internal constant START = 1_763_400_000;
 
     MockToken internal usdc;
     ArdoiseFactory internal factory;
@@ -33,7 +36,7 @@ contract ArdoiseAccountVenuesTest is Test {
     address internal thief = makeAddr("thief");
 
     function setUp() public {
-        vm.warp(1_763_400_000);
+        vm.warp(START);
         usdc = new MockToken(6);
         MockTokenMessenger messenger = new MockTokenMessenger();
         factory = new ArdoiseFactory(
@@ -317,7 +320,7 @@ contract ArdoiseAccountVenuesTest is Test {
         account.payVia(morpho, 2 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho, stays honest
         vm.prank(owner);
         account.revokeVenue(aave);
-        aave.setRepayUnderReported(true);
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.TakesAllReportsNothing);
         usdc.mint(address(account), 300 * USDC);
 
         uint256 owed = 1 * USDC; // no time has passed: the line's estimate is its principal
@@ -337,24 +340,174 @@ contract ArdoiseAccountVenuesTest is Test {
         _payArc(100 * USDC); // line 1, Aave, at 310 bps
         vm.prank(owner);
         account.revokeVenue(aave);
-        aave.setRepayUnderReported(true);
-        vm.warp(block.timestamp + 365 days);
-        uint256 owed = 103.1e6; // principal plus one year of simple interest at the recorded rate
-        usdc.mint(address(account), 300 * USDC);
-        for (uint256 i = 0; i < 20; ++i) {
-            // Partial amounts on the way, as when USDC arrives in several transfers.
-            account.sweep();
-            vm.warp(block.timestamp + 1);
-        }
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.TakesAllReportsNothing);
+        // USDC arrives in three transfers, a day apart, each followed by several sweeps.
+        vm.warp(START + 365 days);
+        usdc.mint(address(account), 40 * USDC);
+        _sweepTimes(5);
+        assertEq(usdc.balanceOf(address(aave)), 40 * USDC);
+        vm.warp(START + 366 days);
+        usdc.mint(address(account), 40 * USDC);
+        _sweepTimes(5);
+        assertEq(usdc.balanceOf(address(aave)), 80 * USDC);
+        assertFalse(account.closed(1));
+        vm.warp(START + 367 days);
+        usdc.mint(address(account), 220 * USDC);
+        _sweepTimes(5);
+
+        // Principal plus 367 days of simple interest at the recorded 3.10%, rounded down.
+        uint256 owed = 100 * USDC + (100 * USDC * 310 * 367 days) / (10_000 * 365 days);
         assertEq(usdc.balanceOf(address(aave)), owed);
         assertTrue(account.closed(1));
         assertEq(usdc.balanceOf(address(account)), 300 * USDC - owed);
+
+        vm.warp(START + 400 days);
+        _sweepTimes(5);
+        assertEq(usdc.balanceOf(address(aave)), owed);
+    }
+
+    /// A venue that takes 1 wei less than approved and reports nothing keeps its line open, so
+    /// interest keeps running; what it receives still follows the line's estimate.
+    function test_sweep_boundsAVenueThatKeepsItsLineOpen() public {
+        _payArc(1 * USDC); // line 1, Aave
+        vm.prank(owner);
+        account.payVia(morpho, 50 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho, stays honest
+        vm.prank(owner);
+        account.revokeVenue(aave);
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.TakesLessReportsNothing);
+        usdc.mint(address(account), 300 * USDC);
+
+        _sweepTimes(50);
+        assertEq(usdc.balanceOf(address(aave)), 1 * USDC - 1);
+        assertFalse(account.closed(1));
+        assertEq(account.line(1).repaid, 1 * USDC - 1);
+        assertEq(usdc.allowance(address(account), address(aave)), 0);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.balanceOf(address(account)), 249 * USDC + 1);
+    }
+
+    // ----- the rate recorded on a line -----
+
+    function test_pay_capsTheRateRecordedOnTheLine() public {
+        aave.setMarket(type(uint32).max, 1_000_000 * USDC);
+        morpho.setMarket(type(uint256).max, 1_000_000 * USDC);
+        vm.expectEmit(address(account));
+        emit IArdoise.Paid(1, aave, 1 * USDC, 0, 1 * USDC, 10_000, ARC, _b(payee), "");
+        _payArc(1 * USDC);
+        assertEq(account.MAX_LINE_RATE_BPS(), 10_000);
+        assertEq(account.line(1).rateBps, 10_000);
+
+        vm.warp(START + 365 days);
+        assertEq(account.line(1).accruedInterest, 1 * USDC); // 100% a year, not 429,496,729%
+    }
+
+    /// The second review's scenario: a venue records the highest rate it can, is revoked, then
+    /// keeps its line open by taking 1 wei less than approved on every sweep.
+    function test_sweep_rateCapBoundsWhatAHostileVenueCollectsOverTime() public {
+        aave.setMarket(type(uint32).max, 1_000_000 * USDC);
+        vm.prank(owner);
+        account.payVia(aave, 1 * USDC, ARC, _b(payee), 0, "");
+        vm.prank(owner);
+        account.revokeVenue(aave);
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.TakesLessReportsNothing);
+        usdc.mint(address(account), 300 * USDC);
+
+        for (uint256 hour = 1; hour <= 6; ++hour) {
+            vm.warp(START + hour * 1 hours);
+            _sweepTimes(3);
+        }
+        // Six hours at 100% a year add under 0.07% of the principal.
+        uint256 estimate = 1 * USDC + (1 * USDC * 10_000 * 6 hours) / (10_000 * 365 days);
+        assertEq(estimate, 1_000_684);
+        assertLt(usdc.balanceOf(address(aave)), estimate);
+        assertGt(usdc.balanceOf(address(account)), 298.999e6);
+
+        // A whole year of hourly sweeps: at most the principal again.
+        vm.warp(START + 365 days);
+        _sweepTimes(3);
+        assertLt(usdc.balanceOf(address(aave)), 2 * USDC);
+    }
+
+    // ----- a venue cannot block the sweep -----
+
+    function test_sweep_survivesAVenueSendingTokensDuringRepay() public {
+        _openHonestAndRevokedLines();
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.SendsDust);
+        assertEq(account.sweep(), 50 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.balanceOf(address(aave)), 0);
+        assertFalse(account.closed(1));
+        assertEq(usdc.allowance(address(account), address(aave)), 0);
+        assertEq(usdc.balanceOf(address(account)), 250 * USDC + 1);
+    }
+
+    function test_sweep_survivesAVenueReturningNoData() public {
+        _openHonestAndRevokedLines();
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.ReturnsNothing);
+        assertEq(account.sweep(), 51 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        // The tokens it took are what the line is credited with.
+        assertEq(usdc.balanceOf(address(aave)), 1 * USDC);
+        assertTrue(account.closed(1));
+        assertEq(usdc.balanceOf(address(account)), 249 * USDC);
+    }
+
+    function test_sweep_survivesAVenueReportingMaxOnAPartlyRepaidLine() public {
+        _openHonestAndRevokedLines();
+        usdc.mint(stranger, 0.4e6);
+        vm.startPrank(stranger);
+        usdc.approve(address(account), 0.4e6);
+        account.repay(1, 0.4e6);
+        vm.stopPrank();
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.ReportsMax);
+
+        // The report is capped at what the venue was approved for, here and in the total.
+        assertEq(account.sweep(), 50 * USDC + 0.6e6);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(account.line(1).repaid, 1 * USDC);
+        assertTrue(account.closed(1));
+        assertEq(usdc.balanceOf(address(aave)), 1 * USDC);
+    }
+
+    function test_sweep_survivesAnAcceptedVenueReportingMax() public {
+        _payArc(1 * USDC); // line 1, Aave
+        vm.prank(owner);
+        account.payVia(morpho, 50 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho
+        aave.setDebt(owner, 3 * USDC); // 2 USDC beyond the line
+        aave.setHealth(1.1e18); // served first, so its reports come before Morpho's in the total
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.ReportsMax);
+        usdc.mint(address(account), 300 * USDC);
+        assertEq(account.sweep(), 53 * USDC);
+        assertEq(aave.debtOf(owner), 0);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.balanceOf(address(account)), 247 * USDC);
+    }
+
+    function test_sweep_survivesMalformedDebtAndHealthAnswers() public {
+        _openHonestAndRevokedLines();
+        vm.mockCall(address(aave), abi.encodeWithSelector(IVenue.debtOf.selector), "");
+        vm.mockCall(address(morpho), abi.encodeWithSelector(IVenue.health.selector), hex"01");
+        assertEq(account.sweep(), 51 * USDC);
+        assertEq(morpho.debtOf(owner), 0);
+        assertTrue(account.closed(1)); // by its estimate: the venue's debt could not be read
+        assertEq(usdc.balanceOf(address(account)), 249 * USDC);
+    }
+
+    function test_repay_stillBubblesARevertOfARevokedVenue() public {
+        _openHonestAndRevokedLines();
+        aave.setRepayBroken(true);
+        usdc.mint(stranger, 1 * USDC);
+        vm.startPrank(stranger);
+        usdc.approve(address(account), 1 * USDC);
+        vm.expectRevert(bytes("repay refused"));
+        account.repay(1, 1 * USDC);
+        vm.stopPrank();
     }
 
     function test_sweep_boundsAnUnderReportingDelistedVenueToo() public {
         _payArc(1 * USDC); // line 1, Aave
         _list(_two(morpho, morpho));
-        aave.setRepayUnderReported(true);
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.TakesAllReportsNothing);
         usdc.mint(address(account), 300 * USDC);
         for (uint256 i = 0; i < 20; ++i) {
             account.sweep();
@@ -365,7 +518,7 @@ contract ArdoiseAccountVenuesTest is Test {
 
     function test_repay_creditsTheLineWithWhatTheVenueTook() public {
         _payArc(2 * USDC); // line 1, Aave
-        aave.setRepayUnderReported(true);
+        aave.setRepayQuirk(TokenVenue.RepayQuirk.TakesAllReportsNothing);
         usdc.mint(stranger, 5 * USDC);
         vm.startPrank(stranger);
         usdc.approve(address(account), 5 * USDC);
@@ -432,6 +585,24 @@ contract ArdoiseAccountVenuesTest is Test {
     }
 
     // ----- helpers -----
+
+    /// @dev A 1 USDC line on Aave, then revoked, next to an honest 50 USDC line on Morpho, with
+    /// 300 USDC waiting on the account.
+    function _openHonestAndRevokedLines() internal {
+        _payArc(1 * USDC); // line 1, Aave
+        vm.startPrank(owner);
+        account.payVia(morpho, 50 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho
+        account.revokeVenue(aave);
+        vm.stopPrank();
+        usdc.mint(address(account), 300 * USDC);
+    }
+
+    function _sweepTimes(uint256 times) internal {
+        for (uint256 i = 0; i < times; ++i) {
+            vm.prank(stranger);
+            account.sweep();
+        }
+    }
 
     function _list(IVenue[] memory list) internal {
         vm.prank(admin);

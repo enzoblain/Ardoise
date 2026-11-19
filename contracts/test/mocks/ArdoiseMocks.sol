@@ -10,6 +10,22 @@ import {MockToken} from "../venues/mocks/MockAaveV4.sol";
 /// debt, `repay` pulls at most the debt. Rate, liquidity and health are set by the test, and it
 /// can misbehave on demand (revert, send short, reenter the account).
 contract TokenVenue is IVenue {
+    /// @notice Ways `repay` can misbehave without reverting. Except for `ReportsMax`, no debt
+    /// is restored.
+    enum RepayQuirk {
+        None,
+        /// Takes the whole amount and returns 0.
+        TakesAllReportsNothing,
+        /// Takes the amount less 1 wei and returns 0.
+        TakesLessReportsNothing,
+        /// Takes nothing, sends 1 wei of the token to the caller and returns 0.
+        SendsDust,
+        /// Takes the whole amount and returns no data at all.
+        ReturnsNothing,
+        /// Repays honestly but returns `type(uint256).max`.
+        ReportsMax
+    }
+
     /// @inheritdoc IVenue
     IArdoiseFactory public immutable factory;
     /// @notice Token lent.
@@ -31,8 +47,8 @@ contract TokenVenue is IVenue {
     uint256 public surplus;
     /// @notice When true, `repay` reverts.
     bool public repayBroken;
-    /// @notice When true, `repay` takes the whole amount, restores no debt and returns 0.
-    bool public repayUnderReported;
+    /// @notice How `repay` misbehaves, if at all.
+    RepayQuirk public repayQuirk;
     /// @notice Call made back into `msg.sender` during `borrow`, if set.
     bytes public reentryCall;
     /// @notice Debt of each user.
@@ -74,9 +90,9 @@ contract TokenVenue is IVenue {
         repayBroken = broken_;
     }
 
-    /// @notice Makes `repay` take the tokens while reporting nothing repaid, or behave again.
-    function setRepayUnderReported(bool underReported) external {
-        repayUnderReported = underReported;
+    /// @notice Makes `repay` misbehave, or behave again with `RepayQuirk.None`.
+    function setRepayQuirk(RepayQuirk quirk) external {
+        repayQuirk = quirk;
     }
 
     /// @notice Sets the call made back into the borrower during `borrow`.
@@ -141,15 +157,31 @@ contract TokenVenue is IVenue {
     /// @inheritdoc IVenue
     function repay(address user, uint256 amount) external returns (uint256 repaid) {
         require(!repayBroken, "repay refused");
-        if (repayUnderReported) {
+        RepayQuirk quirk = repayQuirk;
+        if (quirk == RepayQuirk.TakesAllReportsNothing) {
             token.transferFrom(msg.sender, address(this), amount);
             return 0;
+        }
+        if (quirk == RepayQuirk.TakesLessReportsNothing) {
+            token.transferFrom(msg.sender, address(this), amount - 1);
+            return 0;
+        }
+        if (quirk == RepayQuirk.SendsDust) {
+            token.mint(msg.sender, 1);
+            return 0;
+        }
+        if (quirk == RepayQuirk.ReturnsNothing) {
+            token.transferFrom(msg.sender, address(this), amount);
+            assembly {
+                return(0, 0)
+            }
         }
         repaid = amount < debtOf[user] ? amount : debtOf[user];
         if (repaid == 0) return 0;
         token.transferFrom(msg.sender, address(this), repaid);
         debtOf[user] -= repaid;
         emit Repaid(user, msg.sender, repaid);
+        if (quirk == RepayQuirk.ReportsMax) return type(uint256).max;
     }
 }
 
