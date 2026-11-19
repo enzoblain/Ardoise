@@ -334,8 +334,10 @@ export class Keeper {
     // a later pass like any other balance.
     if (this.options.gateway !== undefined) {
       try {
-        // Capped at the debt left once the balance is applied: an account has
-        // no withdrawal, so USDC brought beyond the debt would stay on it.
+        // Capped at the debt left once the balance is applied: USDC brought
+        // beyond the debt would stay on the account, for good on accounts of
+        // earlier factories (no withdrawal) and until the owner withdraws it
+        // by hand on the current one.
         // Without a debt figure nothing is drawn, but the call is still made
         // so that transfers on their way are followed.
         const maxDraw = debtLeftToFund(state);
