@@ -110,7 +110,7 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
 
 function setUp(
   chain: FakeChain,
-  options: { wallet?: boolean; fromBlock?: bigint; gateway?: KeeperOptions["gateway"] } = {},
+  options: { wallet?: boolean; fromBlock?: bigint; gateway?: KeeperOptions["gateway"]; defense?: KeeperOptions["defense"] } = {},
 ) {
   const publicClient = createPublicClient({
     chain: arc,
@@ -201,6 +201,7 @@ function setUp(
     now: () => clock.now,
     receiptTimeoutMs: 20,
     gateway: options.gateway,
+    defense: options.defense,
   });
   return { keeper, logs, clock };
 }
@@ -433,7 +434,7 @@ test("judges at the real price, and says so once, when the simulated drop cannot
 test("asks Gateway for the shortfall of an account under the minimum with nothing to repay with", async () => {
   const chain = fakeChain({ debt: 6_500n, balance: 0n });
   const calls: [Address, Address, bigint][] = [];
-  const { keeper } = setUp(chain, { gateway: { fund: async (owner, account, shortfall) => void calls.push([owner, account, shortfall]) } });
+  const { keeper } = setUp(chain, { gateway: { fund: async (owner, account, shortfall) => void calls.push([owner, account, shortfall]), isCovering: () => false } });
   await keeper.tick();
   assert.equal(calls.length, 1);
   const [owner, account, shortfall] = calls[0];
@@ -446,7 +447,7 @@ test("asks Gateway for the shortfall of an account under the minimum with nothin
 test("still calls Gateway with no shortfall, so transfers on their way are followed", async () => {
   const chain = fakeChain({ debt: 4_000n, balance: 0n });
   const shortfalls: bigint[] = [];
-  const { keeper } = setUp(chain, { gateway: { fund: async (_owner, _account, shortfall) => void shortfalls.push(shortfall) } });
+  const { keeper } = setUp(chain, { gateway: { fund: async (_owner, _account, shortfall) => void shortfalls.push(shortfall), isCovering: () => false } });
   await keeper.tick();
   assert.deepEqual(shortfalls, [0n]);
 });
@@ -459,9 +460,43 @@ test("logs a Gateway failure without stopping the sweep", async () => {
       fund: async () => {
         throw new Error("Gateway unreachable");
       },
+      isCovering: () => false,
     },
   });
   await keeper.tick();
   assert.equal(chain.sent, 1);
   assert.ok(logs.some((line) => line.includes("Gateway funding failed: Gateway unreachable")));
+});
+
+test("raises a defense alarm only once Gateway cannot cover an account with nothing to repay with", async () => {
+  const chain = fakeChain({ debt: 6_500n, balance: 0n });
+  const defended: Address[] = [];
+  const gateway = { covering: true };
+  const { keeper } = setUp(chain, {
+    gateway: { fund: async () => {}, isCovering: () => gateway.covering },
+    defense: { defend: async (owner) => (defended.push(owner), "raised") },
+  });
+  await keeper.tick();
+  assert.equal(defended.length, 0, "Gateway is on it");
+  gateway.covering = false;
+  await keeper.tick();
+  assert.deepEqual(defended.map((owner) => owner.toLowerCase()), [OWNER]);
+});
+
+test("raises no defense alarm while the margin is fine or the account can still be swept", async () => {
+  const defended: Address[] = [];
+  const defense: KeeperOptions["defense"] = { defend: async (owner) => (defended.push(owner), "raised") };
+  await setUp(fakeChain({ debt: 4_000n, balance: 0n }), { defense }).keeper.tick();
+  await setUp(fakeChain({ debt: 6_500n, balance: 100n * USDC }), { defense }).keeper.tick();
+  assert.equal(defended.length, 0);
+  // Without standing orders configured, the alarm is the next step after the sweep.
+  await setUp(fakeChain({ debt: 6_500n, balance: 0n }), { defense }).keeper.tick();
+  assert.equal(defended.length, 1);
+});
+
+test("sweeps the account when the alarm finds the position healthy once its balance is applied", async () => {
+  const chain = fakeChain({ debt: 6_500n, balance: 0n });
+  const { keeper } = setUp(chain, { wallet: true, defense: { defend: async () => "sweep" } });
+  await keeper.tick();
+  assert.equal(chain.sent, 1);
 });
