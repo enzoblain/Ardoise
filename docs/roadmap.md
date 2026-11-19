@@ -123,7 +123,7 @@ When a position is under the guard's minimum and the Gateway standing orders can
 
 | # | Task | Who | When | Depends on | Done when | Status |
 |---|------|-----|------|------------|-----------|--------|
-| R1 | Rehearse the full demo path (pay on Base, statement, guard) | Enzo + Hugo | Thu 11/19 midday | C4, B3 | Three clean runs in a row | ⬜ |
+| R1 | Rehearse the full demo path (pay on Base, statement, guard) | Enzo + Hugo | Thu 11/19 midday | C4, B3 | Three clean runs in a row | ✅ rehearsed by Enzo and Hugo (reported on 2026-11-19) |
 | R2 | README: problem, solution, How it works (Mermaid), Built with Circle and Arc (with file links), Economic design and risk assumptions, contract addresses (from `contracts/deployments.md`), 2-minute test; branch `docs/readme` | Enzo · E | Thu 11/19 afternoon | R1 | A newcomer understands and tests it in under 2 minutes | ✅ written before R1 (branch `docs/readme`): demo transactions, How it works (Mermaid), Built with Circle and Arc, Economic design and risk assumptions, deployed contracts, Borrow Kit comparison, 2-minute test checked on a clean clone without `.env`; the live app and video links come with R3 and the deployment |
 | R3 | 2–3 min video (a real payment in the first 30 seconds) + backup video for the final | Enzo · E | Thu 11/19 evening | R1 | Video online, linked from the README | ⬜ |
 | R4 | Devpost text (criterion → evidence mapping) | Enzo · E | Thu 11/19 evening | R2 | Draft ready on Devpost | ⬜ |
