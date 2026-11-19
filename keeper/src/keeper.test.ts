@@ -29,17 +29,23 @@ const USDC = 10n ** 6n;
 const FACTORY: Address = "0x00000000000000000000000000000000000000f1";
 const GUARD: Address = "0x00000000000000000000000000000000000000f2";
 const VENUE: Address = "0x00000000000000000000000000000000000000f3";
+const SECOND_VENUE: Address = "0x00000000000000000000000000000000000000f4";
 const OWNER: Address = "0x00000000000000000000000000000000000000a1";
 const ACCOUNT: Address = "0x00000000000000000000000000000000000000a2";
 const KEEPER: Address = "0x00000000000000000000000000000000000000b1";
 const TX: Hash = `0x${"ab".repeat(32)}`;
 
-/** In-memory stand-in for Arc: one factory, one venue, one account created at `createdAt`. */
+/**
+ * In-memory stand-in for Arc: one factory, one venue (two with `secondVenueDebt`), one account
+ * created at `createdAt`.
+ */
 interface FakeChain {
   latest: bigint;
   createdAt: bigint;
   balance: bigint;
   debt: bigint;
+  /** Debt on a second venue (Morpho next to Aave V4), or `null` for a factory with one venue. */
+  secondVenueDebt: bigint | null;
   /** Amount `sweep()` reports in simulation. */
   sweepRepays: bigint;
   guardReverts: boolean;
@@ -62,6 +68,7 @@ function fakeChain(overrides: Partial<FakeChain> = {}): FakeChain {
     createdAt: 10_099n,
     balance: 100n * USDC,
     debt: 4_000n,
+    secondVenueDebt: null,
     sweepRepays: 100n * USDC,
     guardReverts: false,
     simulatedDropBps: 0n,
@@ -80,7 +87,11 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
     case FACTORY: {
       const { functionName } = decodeFunctionData({ abi: factoryAbi, data });
       return functionName === "venues"
-        ? encodeFunctionResult({ abi: factoryAbi, functionName: "venues", result: [VENUE] })
+        ? encodeFunctionResult({
+            abi: factoryAbi,
+            functionName: "venues",
+            result: chain.secondVenueDebt === null ? [VENUE] : [VENUE, SECOND_VENUE],
+          })
         : encodeFunctionResult({ abi: factoryAbi, functionName: "guard", result: GUARD });
     }
     case GUARD: {
@@ -93,8 +104,10 @@ function call(chain: FakeChain, to: Address, data: Hex): Hex {
       const result = functionName === "minHealthFactor" ? (125n * WAD) / 100n : (15n * WAD) / 10n;
       return encodeFunctionResult({ abi: guardAbi, functionName, result });
     }
-    case VENUE: {
-      const debtUsd = chain.debt * WAD;
+    case VENUE:
+    case SECOND_VENUE: {
+      // Both positions hold 7,800 USD of risk-adjusted collateral.
+      const debtUsd = (to.toLowerCase() === VENUE ? chain.debt : chain.secondVenueDebt!) * WAD;
       const health = debtUsd === 0n ? 2n ** 256n - 1n : (7_800n * WAD * WAD) / debtUsd;
       return encodeFunctionResult({ abi: venueAbi, functionName: "health", result: [health, 10_000n * WAD, debtUsd] });
     }
@@ -464,4 +477,23 @@ test("logs a Gateway failure without stopping the sweep", async () => {
   await keeper.tick();
   assert.equal(chain.sent, 1);
   assert.ok(logs.some((line) => line.includes("Gateway funding failed: Gateway unreachable")));
+});
+
+test("watches every venue: a Morpho position under the minimum needs Gateway even when Aave V4 is fine", async () => {
+  const chain = fakeChain({ debt: 0n, secondVenueDebt: 6_500n, balance: 0n });
+  const shortfalls: bigint[] = [];
+  const { keeper, logs } = setUp(chain, { gateway: { fund: async (_owner, _account, shortfall) => void shortfalls.push(shortfall) } });
+  await keeper.tick();
+  // 6,500 of debt at HF 1.2 back to 1.5: 6,500 - 7,800 / 1.5 = 1,300 USDC.
+  assert.deepEqual(shortfalls, [1_300n * USDC]);
+  assert.ok(logs.some((line) => line.includes("health factor 1.200") && line.includes("under the minimum")));
+});
+
+test("under a simulated drop, sweeps for the venue that falls under the minimum", async () => {
+  // Aave V4 at HF 3.9 stays above 1.25 after -40% (2.34); Morpho at 1.95 falls to 1.17.
+  const chain = fakeChain({ debt: 2_000n, secondVenueDebt: 4_000n, simulatedDropBps: 4_000n });
+  const { keeper, logs } = setUp(chain, { wallet: true });
+  await keeper.tick();
+  assert.ok(logs.some((line) => line.includes("[SIMULATION] health factor 1.170") && line.includes("under the minimum")));
+  assert.equal(chain.sent, 1);
 });
