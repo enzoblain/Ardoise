@@ -46,7 +46,10 @@ contract DefenseExecutorTest is Test {
                 usdc: IERC20(address(usdc)),
                 swapRouter: ISwapRouter02(address(router)),
                 burnFinality: 1000,
-                maxPriceAge: 1 hours
+                maxPriceAge: 1 hours,
+                // 0 here so that several alarms can be delivered in one test; the interval has its
+                // own test below.
+                minDefenseInterval: 0
             }),
             assets
         );
@@ -247,6 +250,41 @@ contract DefenseExecutorTest is Test {
         _deliver(_alarm(1 * USDC, 1));
         (uint256 amount,,,,,,,) = messenger.last();
         assertEq(amount, 0.6e6);
+    }
+
+    function test_defense_ignoresAlarmWithinMinIntervalOfLastBurn() public {
+        DefenseExecutor.SwapAssetConfig[] memory assets = new DefenseExecutor.SwapAssetConfig[](0);
+        executor = new DefenseExecutor(
+            DefenseExecutor.Config({
+                messageTransmitter: transmitter,
+                tokenMessenger: ITokenMessengerV2(address(messenger)),
+                alarm: alarm,
+                arcDomain: ARC,
+                usdc: IERC20(address(usdc)),
+                swapRouter: ISwapRouter02(address(router)),
+                burnFinality: 1000,
+                maxPriceAge: 1 hours,
+                minDefenseInterval: 1 hours
+            }),
+            assets
+        );
+        _policyUsdcOnly(10 * USDC);
+        _fund(usdc, 10 * USDC);
+        _deliver(_alarm(1 * USDC, 1));
+        assertEq(executor.lastDefenseAt(owner), vm.getBlockTimestamp());
+
+        // The first defense's funds may still be on their way to Arc: a second alarm is consumed
+        // without taking anything.
+        skip(30 minutes);
+        vm.expectEmit(address(executor));
+        emit DefenseExecutor.AlarmIgnored(owner, 2, DefenseExecutor.IgnoreReason.TooSoon);
+        _deliver(_alarm(1 * USDC, 2));
+        assertEq(messenger.burnCount(), 1);
+        assertEq(usdc.balanceOf(owner), 10 * USDC - 1.03e6);
+
+        skip(30 minutes);
+        _deliver(_alarm(1 * USDC, 3));
+        assertEq(messenger.burnCount(), 2);
     }
 
     // ----- Policy -----

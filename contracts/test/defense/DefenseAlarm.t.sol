@@ -11,7 +11,13 @@ import {IArdoiseFactory} from "../../src/interfaces/IArdoiseFactory.sol";
 import {IGuard} from "../../src/interfaces/IGuard.sol";
 import {IVenue} from "../../src/interfaces/IVenue.sol";
 import {MockVenue} from "../guard/MockVenue.sol";
-import {DefenseFactoryMock, MessageTransmitterMock, RevertingVenueMock, SweepingAccountMock} from "./DefenseMocks.sol";
+import {
+    DefenseFactoryMock,
+    MessageTransmitterMock,
+    GasHungryAccountMock,
+    RevertingVenueMock,
+    SweepingAccountMock
+} from "./DefenseMocks.sol";
 
 /// @notice Unit tests of `DefenseAlarm` with the real `MarginGuard`, a mock venue and a mock
 /// MessageTransmitter.
@@ -177,6 +183,15 @@ contract DefenseAlarmTest is Test {
         venue.setPosition(owner, 4e18, 3e6);
         alarm.raise(owner);
         assertEq(transmitter.count(), 1);
+    }
+
+    function test_raise_revertsWhenSweepIsStarvedOfGas() public {
+        GasHungryAccountMock hungry = new GasHungryAccountMock();
+        factory.setAccount(owner, address(hungry));
+        venue.setPosition(owner, 4e18, 3e6);
+        // Enough gas for the rest of raise, not for the sweep's loop.
+        vm.expectRevert(IDefenseAlarm.SweepOutOfGas.selector);
+        alarm.raise{gas: 300_000}(owner);
     }
 
     function test_shortfall_skipsVenueThatReverts() public {

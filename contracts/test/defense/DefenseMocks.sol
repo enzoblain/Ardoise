@@ -201,3 +201,16 @@ contract RevertingVenueMock {
         revert("venue down");
     }
 }
+
+/// @notice Account double whose `sweep()` burns all the gas it is given.
+contract GasHungryAccountMock {
+    uint256 internal sink;
+
+    /// @notice Loops until it runs out of gas.
+    function sweep() external returns (uint256) {
+        while (true) {
+            ++sink;
+        }
+        return 0;
+    }
+}

@@ -38,7 +38,8 @@ contract DefenseExecutorForkTest is Test {
                 usdc: IERC20(USDC),
                 swapRouter: ISwapRouter02(SWAP_ROUTER),
                 burnFinality: 1000,
-                maxPriceAge: 1 days
+                maxPriceAge: 1 days,
+                minDefenseInterval: 1 hours
             }),
             assets
         );
