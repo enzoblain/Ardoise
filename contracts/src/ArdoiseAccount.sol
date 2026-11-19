@@ -22,13 +22,23 @@ import {IVenue} from "./interfaces/IVenue.sol";
 /// and pays only venues that are both in the factory's list and in its own accepted set. A
 /// venue adapter is trusted with the account's USDC (`sweep()` approves it for what it reports
 /// as debt), so a venue the admin lists later must not reach an account whose owner never
-/// agreed to it. The accepted set starts as the factory's list when the account is created:
-/// the owner should read `IArdoiseFactory.venues()` before calling `createAccount()`, and
-/// `acceptedVenues()` afterwards. Only the owner changes it, with `acceptVenue` and
-/// `revokeVenue`.
+/// agreed to it. The accepted set starts as the factory's list when the account is created.
+/// That snapshot trusts the list as it stands in the creation transaction, which the admin
+/// may change just before it: the owner should read `acceptedVenues()` right after creating
+/// the account and revoke anything unexpected before funding it or granting an allowance.
+/// Only the owner changes the set afterwards, with `acceptVenue` and `revokeVenue`. A venue
+/// the admin delists stays accepted and is usable again as soon as it is relisted, without
+/// any event on the account: the owner should `revokeVenue` a delisted venue they no longer
+/// want.
+///
+/// Whatever a venue reports, a debt line never costs more than its own estimate: each
+/// repayment credits the line with the USDC that actually left, so the total paid through a
+/// line stops at its principal plus simple interest at the rate recorded when it was opened.
+/// This is the whole exposure to a venue once it is revoked or delisted.
 contract ArdoiseAccount is IArdoise {
-    /// @notice Largest number of venues an account accepts, so that the loops over the accepted
-    /// set in `bestVenue` and `sweep()` stay short whatever the factory lists.
+    /// @notice Largest number of venues an account accepts, so that `bestVenue` and `sweep()`
+    /// call at most that many venues whatever the factory lists (they still read the whole
+    /// factory list).
     uint256 public constant MAX_ACCEPTED_VENUES = 8;
 
     /// @dev CCTP domain of Arc.
@@ -175,7 +185,8 @@ contract ArdoiseAccount is IArdoise {
     /// @dev Only the venues that are both in the factory's list and accepted by the owner, each
     /// once, in the factory's order: the set `pay`, `payVia` and `sweep()` work with. A venue
     /// the admin lists after the account was created is absent until the owner calls
-    /// `acceptVenue`; a venue the admin delists or the owner revokes leaves it at once.
+    /// `acceptVenue`; a venue the admin delists or the owner revokes leaves it at once. A
+    /// delisted venue stays accepted, so it is back here as soon as the admin relists it.
     function venues() public view returns (IVenue[] memory usable) {
         IVenue[] memory listed = factory.venues();
         IVenue[] memory accepted = _accepted;
@@ -192,7 +203,9 @@ contract ArdoiseAccount is IArdoise {
     }
 
     /// @notice Venues the owner accepted, whether or not the factory still lists them.
-    /// @dev Not part of `IArdoise`. `venues()` is this set restricted to the factory's list.
+    /// @dev Not part of `IArdoise`. `venues()` is this set restricted to the factory's list. To
+    /// be read right after `createAccount()`, and whenever the factory's list changes: a venue
+    /// shown here that the factory no longer lists becomes usable again if it is relisted.
     /// @return The accepted venues, at most `MAX_ACCEPTED_VENUES`, in no particular order.
     function acceptedVenues() external view returns (IVenue[] memory) {
         return _accepted;
@@ -216,8 +229,11 @@ contract ArdoiseAccount is IArdoise {
     /// @notice Removes a venue from the accepted set: the account no longer borrows from it, and
     /// `sweep()` no longer reads its health or repays the owner's whole debt there. Owner only.
     /// @dev Not part of `IArdoise`. Debt lines already opened on the venue stay repayable, with
-    /// `repay` and at the end of `sweep()`, each up to its own estimate. Reverts with `NotOwner`
-    /// or `VenueNotAccepted`.
+    /// `repay` and at the end of `sweep()`. Each is credited with the USDC the venue actually
+    /// takes, so the venue receives at most the sum of its open lines' estimates (principal plus
+    /// simple interest at the rate recorded when the line was opened, less what was already
+    /// repaid), however many times `sweep()` is called and whatever it reports. Reverts with
+    /// `NotOwner` or `VenueNotAccepted`.
     /// @param venue Venue to revoke.
     function revokeVenue(IVenue venue) external onlyOwner {
         uint256 n = _accepted.length;
@@ -250,9 +266,9 @@ contract ArdoiseAccount is IArdoise {
     /// @inheritdoc IArdoise
     /// @dev Venues whose `available()` or `rate()` reverts are skipped, and so is a venue whose
     /// guard check reverts; ties go to the first venue in the factory's list. Only `venues()` are
-    /// considered, so a venue the owner did not accept is never chosen, whatever rate it quotes. The guard is asked
-    /// in order of rate and the first venue it allows in full wins, so a cheaper venue where the
-    /// owner has no position (or not enough margin) never blocks a payment another venue can
+    /// considered, so a venue the owner did not accept is never called nor chosen, whatever
+    /// rate it quotes. The guard is asked in order of rate and the first venue it allows in full
+    /// wins, so a cheaper venue where the owner has no position (or not enough margin) never blocks a payment another venue can
     /// make. When no venue is allowed in full, the one allowing the most is returned, and
     /// `pay()` then reverts with `PaymentRefused` and that amount. Without a guard, the cheapest
     /// venue with enough liquidity is returned. A guard check that reverts on every venue ends in
@@ -354,10 +370,13 @@ contract ArdoiseAccount is IArdoise {
     /// danger. For each venue, its open lines are repaid oldest first, then whatever remains of
     /// the owner's debt there: the line estimates use simple interest while venues compound, and
     /// the owner may have debt opened outside Ardoise. Open lines on a venue the factory no longer
-    /// lists or the owner revoked come last, each up to its own estimate: a line can only have
-    /// been opened on a venue the owner had accepted. Lines whose venue debt is already 0 are closed on the way at no cost; a
-    /// venue that refuses the repayment is skipped rather than blocking the sweep, so the keeper
-    /// is never stuck behind one line. Anything left after that stays in the account.
+    /// lists or the owner revoked come last: a line can only have been opened on a venue the
+    /// owner had accepted, and such a venue receives at most what its open lines still owe by
+    /// their own estimate, over any number of sweeps, since a line is credited with the USDC
+    /// that left the account even when the venue reports less. Lines whose venue debt is
+    /// already 0 are closed on the way at no cost; a venue that refuses the repayment is skipped
+    /// rather than blocking the sweep, so the keeper is never stuck behind one line. Anything
+    /// left after that stays in the account.
     function sweep() external nonReentrant returns (uint256 repaid) {
         uint256 balance = usdc.balanceOf(address(this));
         uint256 count = _lines.length;
@@ -502,7 +521,11 @@ contract ArdoiseAccount is IArdoise {
     // forge-lint: disable-next-item(calls-loop, reentrancy-no-eth, reentrancy-events, block-timestamp)
     /// @dev Repays up to `amount` of line `lineId` through its venue. `payer` is the caller for
     /// `repay` (a venue revert bubbles up) or the account itself for `sweep` (a venue revert
-    /// leaves the line untouched). Returns the debt the venue restored and the USDC spent.
+    /// leaves the line untouched). Returns the amount applied to the line and the USDC spent.
+    /// The amount applied is the larger of the debt the venue says it restored and the USDC it
+    /// took: with honest venues the two are equal, and a venue that takes tokens while reporting
+    /// less would otherwise keep its line open and be paid the same estimate again on every
+    /// call. Counting what left bounds the total spent on a line by its estimate.
     function _repayLine(uint256 lineId, Line storage l, uint256 amount, address payer)
         private
         returns (uint256 repaid, uint256 spent)
@@ -514,6 +537,7 @@ contract ArdoiseAccount is IArdoise {
             bool ok;
             (ok, repaid, spent) = _venueRepay(venue, toRepay, payer);
             if (!ok) return (0, 0);
+            if (spent > repaid) repaid = spent;
             l.repaid += repaid;
         }
 

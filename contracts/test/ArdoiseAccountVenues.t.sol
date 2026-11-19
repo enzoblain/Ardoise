@@ -142,6 +142,9 @@ contract ArdoiseAccountVenuesTest is Test {
         _list(_two(greedy, aave));
         assertEq(address(account.bestVenue(100 * USDC)), address(aave));
 
+        // Not even asked for its rate or liquidity: only `venues()` are considered.
+        vm.expectCall(address(greedy), abi.encodeWithSelector(IVenue.rate.selector), 0);
+        vm.expectCall(address(greedy), abi.encodeWithSelector(IVenue.available.selector), 0);
         vm.expectCall(address(greedy), abi.encodeWithSelector(IVenue.borrow.selector), 0);
         _payArc(100 * USDC);
         assertEq(address(account.line(1).venue), address(aave));
@@ -304,6 +307,128 @@ contract ArdoiseAccountVenuesTest is Test {
         vm.stopPrank();
         assertTrue(account.closed(1));
         assertEq(aave.debtOf(owner), 0);
+    }
+
+    /// A revoked venue that takes the tokens and reports nothing repaid: without crediting the
+    /// line with what left, its line would stay open and every sweep would pay it again.
+    function test_sweep_neverPaysAnUnderReportingRevokedVenueMoreThanItsLines() public {
+        _payArc(1 * USDC); // line 1, Aave
+        vm.prank(owner);
+        account.payVia(morpho, 2 * USDC, ARC, _b(payee), 0, ""); // line 2, Morpho, stays honest
+        vm.prank(owner);
+        account.revokeVenue(aave);
+        aave.setRepayUnderReported(true);
+        usdc.mint(address(account), 300 * USDC);
+
+        uint256 owed = 1 * USDC; // no time has passed: the line's estimate is its principal
+        for (uint256 i = 0; i < 50; ++i) {
+            vm.prank(stranger);
+            account.sweep();
+        }
+        assertEq(usdc.balanceOf(address(aave)), owed);
+        assertTrue(account.closed(1));
+        assertEq(account.line(1).repaid, owed);
+        assertEq(morpho.debtOf(owner), 0);
+        assertEq(usdc.balanceOf(address(account)), 300 * USDC - owed - 2 * USDC);
+        assertEq(usdc.allowance(address(account), address(aave)), 0);
+    }
+
+    function test_sweep_boundsAnUnderReportingRevokedVenueByTheInterestEstimateToo() public {
+        _payArc(100 * USDC); // line 1, Aave, at 310 bps
+        vm.prank(owner);
+        account.revokeVenue(aave);
+        aave.setRepayUnderReported(true);
+        vm.warp(block.timestamp + 365 days);
+        uint256 owed = 103.1e6; // principal plus one year of simple interest at the recorded rate
+        usdc.mint(address(account), 300 * USDC);
+        for (uint256 i = 0; i < 20; ++i) {
+            // Partial amounts on the way, as when USDC arrives in several transfers.
+            account.sweep();
+            vm.warp(block.timestamp + 1);
+        }
+        assertEq(usdc.balanceOf(address(aave)), owed);
+        assertTrue(account.closed(1));
+        assertEq(usdc.balanceOf(address(account)), 300 * USDC - owed);
+    }
+
+    function test_sweep_boundsAnUnderReportingDelistedVenueToo() public {
+        _payArc(1 * USDC); // line 1, Aave
+        _list(_two(morpho, morpho));
+        aave.setRepayUnderReported(true);
+        usdc.mint(address(account), 300 * USDC);
+        for (uint256 i = 0; i < 20; ++i) {
+            account.sweep();
+        }
+        assertEq(usdc.balanceOf(address(aave)), 1 * USDC);
+        assertEq(usdc.balanceOf(address(account)), 299 * USDC);
+    }
+
+    function test_repay_creditsTheLineWithWhatTheVenueTook() public {
+        _payArc(2 * USDC); // line 1, Aave
+        aave.setRepayUnderReported(true);
+        usdc.mint(stranger, 5 * USDC);
+        vm.startPrank(stranger);
+        usdc.approve(address(account), 5 * USDC);
+        vm.expectEmit(address(account));
+        emit IArdoise.LineRepaid(1, stranger, 2 * USDC);
+        assertEq(account.repay(1, 5 * USDC), 2 * USDC);
+        vm.stopPrank();
+        assertTrue(account.closed(1));
+        assertEq(usdc.balanceOf(stranger), 3 * USDC); // only what the line owed was taken
+    }
+
+    // ----- delisting -----
+
+    function test_delistedVenue_staysAcceptedAndIsUsableAgainOnceRelisted() public {
+        _list(_two(morpho, morpho));
+        assertEq(account.venues().length, 1);
+        assertEq(account.acceptedVenues().length, 2); // Aave keeps its place
+        vm.expectRevert(abi.encodeWithSelector(IArdoise.UnknownVenue.selector, aave));
+        vm.prank(owner);
+        account.payVia(aave, 1 * USDC, ARC, _b(payee), 0, "");
+
+        // Relisting needs no new consent from the owner.
+        _list(_two(aave, morpho));
+        assertEq(account.venues().length, 2);
+        assertEq(address(account.bestVenue(1 * USDC)), address(aave));
+        vm.prank(owner);
+        account.payVia(aave, 1 * USDC, ARC, _b(payee), 0, "");
+        assertEq(aave.debtOf(owner), 1 * USDC);
+    }
+
+    function test_delistedVenue_revokedByTheOwnerStaysOutWhenRelisted() public {
+        _list(_two(morpho, morpho));
+        vm.prank(owner);
+        account.revokeVenue(aave); // revoking needs no listing
+        _list(_two(aave, morpho));
+
+        IVenue[] memory usable = account.venues();
+        assertEq(usable.length, 1);
+        assertEq(address(usable[0]), address(morpho));
+        aave.setDebt(owner, 5 * USDC);
+        usdc.mint(address(account), 5 * USDC);
+        assertEq(account.sweep(), 0);
+        assertEq(usdc.balanceOf(address(account)), 5 * USDC);
+    }
+
+    function test_revokeVenue_ofTheMiddleOneKeepsTheOthers() public {
+        TokenVenue third = _listThird();
+        vm.startPrank(owner);
+        account.acceptVenue(third);
+        account.revokeVenue(morpho);
+        vm.stopPrank();
+
+        IVenue[] memory accepted = account.acceptedVenues();
+        assertEq(accepted.length, 2);
+        assertEq(address(accepted[0]), address(aave));
+        assertEq(address(accepted[1]), address(third));
+        IVenue[] memory usable = account.venues();
+        assertEq(usable.length, 2);
+        assertEq(address(usable[0]), address(aave)); // the factory's order
+        assertEq(address(usable[1]), address(third));
+        vm.expectRevert(abi.encodeWithSelector(ArdoiseAccount.VenueNotAccepted.selector, morpho));
+        vm.prank(owner);
+        account.revokeVenue(morpho);
     }
 
     // ----- helpers -----

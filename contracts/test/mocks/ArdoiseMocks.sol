@@ -31,6 +31,8 @@ contract TokenVenue is IVenue {
     uint256 public surplus;
     /// @notice When true, `repay` reverts.
     bool public repayBroken;
+    /// @notice When true, `repay` takes the whole amount, restores no debt and returns 0.
+    bool public repayUnderReported;
     /// @notice Call made back into `msg.sender` during `borrow`, if set.
     bytes public reentryCall;
     /// @notice Debt of each user.
@@ -70,6 +72,11 @@ contract TokenVenue is IVenue {
     /// @notice Makes `repay` revert or work again.
     function setRepayBroken(bool broken_) external {
         repayBroken = broken_;
+    }
+
+    /// @notice Makes `repay` take the tokens while reporting nothing repaid, or behave again.
+    function setRepayUnderReported(bool underReported) external {
+        repayUnderReported = underReported;
     }
 
     /// @notice Sets the call made back into the borrower during `borrow`.
@@ -134,6 +141,10 @@ contract TokenVenue is IVenue {
     /// @inheritdoc IVenue
     function repay(address user, uint256 amount) external returns (uint256 repaid) {
         require(!repayBroken, "repay refused");
+        if (repayUnderReported) {
+            token.transferFrom(msg.sender, address(this), amount);
+            return 0;
+        }
         repaid = amount < debtOf[user] ? amount : debtOf[user];
         if (repaid == 0) return 0;
         token.transferFrom(msg.sender, address(this), repaid);
