@@ -5,7 +5,28 @@ import Foundation
 enum Abis {
     static let factory = """
     [
-      {"type":"function","name":"accountOf","stateMutability":"view","inputs":[{"name":"owner","type":"address"}],"outputs":[{"name":"account","type":"address"}]}
+      {"type":"function","name":"accountOf","stateMutability":"view","inputs":[{"name":"owner","type":"address"}],"outputs":[{"name":"account","type":"address"}]},
+      {"type":"function","name":"createAccount","stateMutability":"nonpayable","inputs":[],"outputs":[{"name":"account","type":"address"}]},
+      {"type":"function","name":"defaultPerPaymentCap","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]}
+    ]
+    """
+
+    /// Aave V4 Main Spoke: the calls of the one-time setup, as `setup.ts` uses them.
+    static let aaveSpoke = """
+    [
+      {"type":"function","name":"isPositionManager","stateMutability":"view","inputs":[{"name":"user","type":"address"},{"name":"positionManager","type":"address"}],"outputs":[{"name":"","type":"bool"}]},
+      {"type":"function","name":"setUserPositionManager","stateMutability":"nonpayable","inputs":[{"name":"positionManager","type":"address"},{"name":"approve","type":"bool"}],"outputs":[]},
+      {"type":"function","name":"getUserSuppliedAssets","stateMutability":"view","inputs":[{"name":"reserveId","type":"uint256"},{"name":"user","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+      {"type":"function","name":"getUserReserveStatus","stateMutability":"view","inputs":[{"name":"reserveId","type":"uint256"},{"name":"user","type":"address"}],"outputs":[{"name":"","type":"bool"},{"name":"","type":"bool"}]},
+      {"type":"function","name":"supply","stateMutability":"nonpayable","inputs":[{"name":"reserveId","type":"uint256"},{"name":"amount","type":"uint256"},{"name":"onBehalfOf","type":"address"}],"outputs":[]},
+      {"type":"function","name":"setUsingAsCollateral","stateMutability":"nonpayable","inputs":[{"name":"reserveId","type":"uint256"},{"name":"usingAsCollateral","type":"bool"},{"name":"onBehalfOf","type":"address"}],"outputs":[]}
+    ]
+    """
+
+    static let aaveTaker = """
+    [
+      {"type":"function","name":"borrowAllowance","stateMutability":"view","inputs":[{"name":"spoke","type":"address"},{"name":"reserveId","type":"uint256"},{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+      {"type":"function","name":"approveBorrow","stateMutability":"nonpayable","inputs":[{"name":"spoke","type":"address"},{"name":"reserveId","type":"uint256"},{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]}
     ]
     """
 
@@ -46,7 +67,8 @@ enum Abis {
 
     static let erc20 = """
     [
-      {"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"account","type":"address"}],"outputs":[{"name":"","type":"uint256"}]}
+      {"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"account","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+      {"type":"function","name":"approve","stateMutability":"nonpayable","inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]}
     ]
     """
 }

@@ -18,6 +18,15 @@ enum Format {
         return "\(whole).\(fraction)"
     }
 
+    /// "0.00025": cirBTC from its 8 decimals, trailing zeros dropped.
+    static func cirBtc(_ units: BigUInt) -> String {
+        let unit = BigUInt(100_000_000)
+        var fraction = String(units % unit)
+        fraction = String(repeating: "0", count: 8 - fraction.count) + fraction
+        while fraction.hasSuffix("0") { fraction.removeLast() }
+        return fraction.isEmpty ? "\(units / unit)" : "\(units / unit).\(fraction)"
+    }
+
     /// Parses "20", "0.5" or "1,25" into USDC units; nil for anything else,
     /// zero, or more than 6 decimals.
     static func parseUsdc(_ text: String) -> BigUInt? {
