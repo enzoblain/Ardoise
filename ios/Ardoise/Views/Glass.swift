@@ -9,8 +9,12 @@ extension View {
         if #available(iOS 26, *) {
             glassEffect(.regular.tint(tint).interactive(interactive), in: RoundedRectangle(cornerRadius: cornerRadius))
         } else {
-            background((tint ?? Theme.card).opacity(tint == nil ? 1 : 0.25), in: RoundedRectangle(cornerRadius: cornerRadius))
-                .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(Theme.line))
+            // Opaque card first, so a light tint never leaves the surface see-through.
+            background {
+                RoundedRectangle(cornerRadius: cornerRadius).fill(Theme.card)
+                    .overlay(RoundedRectangle(cornerRadius: cornerRadius).fill(tint ?? .clear))
+            }
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(Theme.line))
         }
     }
 
@@ -63,14 +67,17 @@ struct Toast: Equatable, Identifiable {
     let title: String
     let detail: String?
 
+    /// An error notification whose detail is `error` in readable words.
     @MainActor static func error(_ title: String, _ error: Error) -> Toast {
         Toast(kind: .error, title: title, detail: AppModel.message(error))
     }
 
+    /// An error notification with an optional line of detail.
     static func error(_ title: String, detail: String? = nil) -> Toast {
         Toast(kind: .error, title: title, detail: detail)
     }
 
+    /// A confirmation notification with an optional line of detail.
     static func success(_ title: String, detail: String? = nil) -> Toast {
         Toast(kind: .success, title: title, detail: detail)
     }

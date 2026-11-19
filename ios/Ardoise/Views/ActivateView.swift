@@ -143,6 +143,7 @@ struct ActivateView: View {
         .disabled(!canActivate || activating)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
     }
 
     private func activate() {

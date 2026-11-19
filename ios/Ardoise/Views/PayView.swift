@@ -1,6 +1,5 @@
 import BigInt
 import SwiftUI
-import UIKit
 
 /// Pay: how much, to whom and on which chain, then where the credit comes
 /// from (the recommended venue, `bestVenue`, selected by default) and, in
@@ -23,6 +22,8 @@ struct PayView: View {
     @State private var quote: PaymentQuote?
     @State private var picked: Venue?
     @State private var quoting = false
+    /// The last quote failed: the screen offers to try again.
+    @State private var quoteFailed = false
     @State private var reviewing = false
     @State private var sending = false
     @State private var sentTx: String?
@@ -33,7 +34,9 @@ struct PayView: View {
     private var amount: BigUInt? { Format.parseUsdc(amountText) }
     private var chosen: Venue? { picked ?? quote?.recommended }
     private var chosenOption: VenueOption? { quote?.options.first { $0.venue == chosen } }
-    private var payeeValid: Bool { payee.count == 42 && payee.hasPrefix("0x") }
+    private var payeeValid: Bool {
+        payee.count == 42 && payee.hasPrefix("0x") && payee.dropFirst(2).allSatisfy(\.isHexDigit)
+    }
 
     var body: some View {
         ScrollView {
@@ -59,6 +62,10 @@ struct PayView: View {
                 }
                 .presentationDetents([.medium, .large])
                 .presentationBackground(.ultraThinMaterial)
+            } else {
+                ContentUnavailableView("This quote has expired", systemImage: "clock.arrow.circlepath",
+                                       description: Text("Close this sheet: the venues are compared again."))
+                    .presentationDetents([.medium])
             }
         }
         .task(id: "\(amountText)-\(chain.rawValue)-\(quoteVersion)") { await requote() }
@@ -106,9 +113,12 @@ struct PayView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 if payee.isEmpty {
-                    Button("Paste") { payee = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
-                        .font(.footnote.weight(.semibold))
-                        .secondaryButton()
+                    // PasteButton reads the clipboard without the system's "Allow Paste" prompt.
+                    PasteButton(payloadType: String.self) { strings in
+                        payee = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    }
+                    .labelStyle(.titleOnly)
+                    .buttonBorderShape(.capsule)
                 } else {
                     Button { payee = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.muted) }
                         .accessibilityLabel("Clear the payee address")
@@ -137,6 +147,13 @@ struct PayView: View {
                     .buttonStyle(.plain)
                 }
             }
+        } else if quoteFailed {
+            Button {
+                quoteVersion += 1
+            } label: {
+                Label("Compare the venues again", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+            }
+            .secondaryButton()
         } else if quoting {
             HStack(spacing: 10) {
                 ProgressView()
@@ -212,12 +229,14 @@ struct PayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
     }
 
     /// Why the payment cannot be reviewed yet, in a few words; nil when it can.
     private var blocker: String? {
         guard amount.map({ $0 > 0 }) ?? false else { return "Enter an amount." }
         guard let quote, quote.domain == chain.domain, quote.amount == amount else {
+            if quoteFailed { return "Could not compare the venues." }
             return quoting ? "Comparing the venues…" : "Waiting for a quote."
         }
         guard payeeValid else { return "Enter the payee's address." }
@@ -233,9 +252,11 @@ struct PayView: View {
 
     private func requote() async {
         quote = nil
+        quoteFailed = false
         guard let amount, amount > 0, let wallet = model.wallet, let account = model.account else { return }
         quoting = true
-        defer { quoting = false }
+        // A cancelled quote leaves `quoting` to the newer one that replaced it.
+        defer { if !Task.isCancelled { quoting = false } }
         // Let typing settle before asking the chain.
         try? await Task.sleep(for: .milliseconds(400))
         guard !Task.isCancelled else { return }
@@ -245,19 +266,25 @@ struct PayView: View {
             guard !Task.isCancelled else { return }
             quote = fresh
         } catch {
-            if !Task.isCancelled { toast = .error("Could not compare the venues", error) }
+            if !Task.isCancelled {
+                quoteFailed = true
+                toast = .error("Could not compare the venues", error)
+            }
         }
     }
 
     private func pay() {
-        guard let quote, let venue = chosen, let wallet = model.wallet, let account = model.account else { return }
+        // The review sheet's button signs: it gets the same checks as the
+        // button that opened it, and never runs while a payment is in flight.
+        guard !sending, blocker == nil,
+              let quote, let venue = chosen, let wallet = model.wallet, let account = model.account else { return }
         sending = true
         sentTx = nil
         Task {
             defer { sending = false }
             do {
-                // Everything comes from the quote on screen, never from the
-                // form, which may have changed since.
+                // Amount, chain and fee come from the quote on screen, never
+                // from the form, which may have changed since it was made.
                 let data = try model.service.payViaData(
                     venue: venue, amount: quote.amount, domain: quote.domain,
                     payee: payee, maxFee: quote.maxFee, memo: memo
@@ -314,6 +341,8 @@ private struct ReviewSheet: View {
     let chain: PayView.Chain
     let memo: String
     let confirm: () -> Void
+    /// Set on the first tap, so a double tap cannot sign twice.
+    @State private var confirmed = false
 
     var body: some View {
         VStack(spacing: 22) {
@@ -337,7 +366,10 @@ private struct ReviewSheet: View {
             }
             .padding(16)
             .glassSurface(cornerRadius: 20)
-            Button(action: confirm) {
+            Button {
+                confirmed = true
+                confirm()
+            } label: {
                 Label("Send with my passkey", systemImage: "faceid")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
@@ -345,6 +377,7 @@ private struct ReviewSheet: View {
             }
             .primaryButton()
             .controlSize(.large)
+            .disabled(confirmed)
         }
         .padding(20)
     }
