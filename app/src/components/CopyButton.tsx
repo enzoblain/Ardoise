@@ -28,14 +28,21 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
     }
   }
 
+  const shown = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy";
   return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      aria-label={`Copy ${label}`}
-      className="btn-secondary shrink-0 px-3 py-1.5 text-xs"
-    >
-      {state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy"}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={`${shown} ${label}`}
+        className="btn-secondary shrink-0 px-3 py-1.5 text-xs"
+      >
+        {shown}
+      </button>
+      {/* Screen readers hear the result, which the button's own label would not announce. */}
+      <span role="status" className="sr-only">
+        {state === "copied" ? `${label} copied` : state === "failed" ? `Could not copy the ${label}` : ""}
+      </span>
+    </>
   );
 }
