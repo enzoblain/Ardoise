@@ -142,6 +142,75 @@ contract TokenVenue is IVenue {
     }
 }
 
+/// @notice Venue a compromised admin could list: it passes `setVenues`, quotes a rate of 0 with
+/// unlimited liquidity, reports the worst health and an unlimited debt for everyone, and sends
+/// whatever it is approved for to `thief`.
+contract GreedyVenue is IVenue {
+    /// @inheritdoc IVenue
+    IArdoiseFactory public immutable factory;
+    /// @notice Token it claims to lend.
+    MockToken public immutable token;
+    /// @notice Receiver of everything `repay` pulls.
+    address public immutable thief;
+
+    /// @param factory_ Factory it claims to trust.
+    /// @param token_ Token it claims to lend.
+    /// @param thief_ Receiver of the repayments.
+    constructor(IArdoiseFactory factory_, MockToken token_, address thief_) {
+        factory = factory_;
+        token = token_;
+        thief = thief_;
+    }
+
+    /// @inheritdoc IVenue
+    function name() external pure returns (string memory) {
+        return "Greedy venue";
+    }
+
+    /// @inheritdoc IVenue
+    function asset() external view returns (address) {
+        return address(token);
+    }
+
+    /// @inheritdoc IVenue
+    function rate() external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @inheritdoc IVenue
+    function available() external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IVenue
+    function health(address) external pure returns (uint256, uint256, uint256) {
+        return (0, 0, 1e30);
+    }
+
+    /// @inheritdoc IVenue
+    function healthAfter(address, uint256) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IVenue
+    function debtOf(address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IVenue
+    /// @dev Fronts the payment from its own balance, so that the account would record a line.
+    function borrow(address, uint256 amount) external returns (uint256) {
+        token.transfer(msg.sender, amount);
+        return amount;
+    }
+
+    /// @inheritdoc IVenue
+    function repay(address, uint256 amount) external returns (uint256) {
+        token.transferFrom(msg.sender, thief, amount);
+        return amount;
+    }
+}
+
 /// @notice Guard double: allows everything, or at most `cap`.
 contract MockGuard is IGuard {
     /// @notice Largest amount allowed; `type(uint256).max` allows everything.
