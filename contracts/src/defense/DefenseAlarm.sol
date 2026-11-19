@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+
 import {IMessageTransmitterV2} from "../cctp/IMessageTransmitterV2.sol";
 import {IArdoise} from "../interfaces/IArdoise.sol";
 import {IArdoiseFactory} from "../interfaces/IArdoiseFactory.sol";
@@ -97,7 +99,10 @@ contract DefenseAlarm is IDefenseAlarm {
     /// @dev The first venue in the factory's list whose (simulated) health factor is under the
     /// minimum is used. Health factors scale with 1 / debt at constant collateral, so repaying
     /// `debt x (target - health) / target` restores the target; the result is capped at the
-    /// owner's debt on that venue.
+    /// owner's debt on that venue, then reduced by the venue's asset already on the owner's
+    /// account. That balance repays the debt on the next `sweep()`, so the executor is never asked
+    /// for it, whether or not the sweep in `raise` ran (a caller can starve a repayment nested in
+    /// the sweep of gas without the sweep reverting).
     function shortfall(address owner) public view returns (IVenue venue, uint256 amountNeeded) {
         IGuard guard = factory.guard();
         if (address(guard) == address(0)) revert GuardNotSet();
@@ -109,7 +114,10 @@ contract DefenseAlarm is IDefenseAlarm {
             if (!ok || hf >= minHf) continue;
             uint256 usdWad = _ceilDiv(debtUsd * (targetHf - hf), targetHf);
             uint256 usdc = _ceilDiv(usdWad, WAD_PER_USDC_UNIT);
-            return (list[i], usdc < debt ? usdc : debt);
+            if (usdc > debt) usdc = debt;
+            address account = address(factory.accountOf(owner));
+            uint256 idle = account == address(0) ? 0 : IERC20(list[i].asset()).balanceOf(account);
+            return (list[i], usdc > idle ? usdc - idle : 0);
         }
     }
 

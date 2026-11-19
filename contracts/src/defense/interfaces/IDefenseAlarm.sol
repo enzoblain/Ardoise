@@ -50,7 +50,8 @@ interface IDefenseAlarm {
 
     /// @notice Raises an alarm for `owner` if their position is under the guard's minimum.
     /// @dev Permissionless. Calls the account's public `sweep()` first, so USDC already on the
-    /// account is applied before the shortfall is measured. If that sweep alone restores the
+    /// account is applied before the shortfall is measured; whatever is still on the account after
+    /// it is deducted from the amount requested. If that sweep alone restores the
     /// position, `raise` reverts with `PositionHealthy` and the sweep is rolled back with it: a
     /// relayer should then call `sweep()` on the account directly. Reverts with `ExecutorNotSet`,
     /// `NoAccount`, `GuardNotSet`, `CoolingDown`, `PositionHealthy` or `SweepOutOfGas`. Emits
@@ -65,7 +66,11 @@ interface IDefenseAlarm {
     function cooldown(address owner) external view returns (uint64 nextAllowed);
 
     /// @notice USDC that `raise(owner)` would request now, and the venue it is measured on.
-    /// @dev `(0, 0)` when no venue shows the position under the guard's minimum. Reverts with
+    /// @dev `(0, 0)` when no venue shows the position under the guard's minimum; `(venue, 0)`
+    /// when one does but the USDC already on the owner's account covers the need (a `sweep()`
+    /// restores it), so an amount of 0 does not mean healthy. The idle USDC is credited to the
+    /// first venue under the minimum, while `sweep()` repays lines oldest first across venues:
+    /// with several venues that venue may get less until the next alarm. Reverts with
     /// `GuardNotSet` while the factory has no guard.
     /// @param owner Owner of the position.
     /// @return venue The first venue under the minimum, or zero.
