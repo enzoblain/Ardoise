@@ -8,7 +8,6 @@
 /** `ArdoiseAccount`. */
 export const accountAbi = [
   {"type": "function", "name": "ARC_DOMAIN", "inputs": [], "outputs": [{"name": "", "type": "uint32", "internalType": "uint32"}], "stateMutability": "pure"},
-  {"type": "function", "name": "acceptVenue", "inputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}], "outputs": [], "stateMutability": "nonpayable"},
   {"type": "function", "name": "acceptedVenues", "inputs": [], "outputs": [{"name": "", "type": "address[]", "internalType": "contract IVenue[]"}], "stateMutability": "view"},
   {"type": "function", "name": "bestVenue", "inputs": [{"name": "amount", "type": "uint256", "internalType": "uint256"}], "outputs": [{"name": "venue", "type": "address", "internalType": "contract IVenue"}], "stateMutability": "view"},
   {"type": "function", "name": "caps", "inputs": [], "outputs": [{"name": "perPayment", "type": "uint256", "internalType": "uint256"}, {"name": "daily", "type": "uint256", "internalType": "uint256"}, {"name": "spentToday", "type": "uint256", "internalType": "uint256"}], "stateMutability": "view"},

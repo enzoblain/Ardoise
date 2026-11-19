@@ -125,8 +125,9 @@ export function VenueWarning({ check, wallet }: { check: VenueCheckState; wallet
       )}
       {report.missing.length > 0 && (
         <p className="rounded-2xl border border-line bg-surface px-5 py-3 text-sm text-muted">
-          Your account has not accepted {report.missing.map(name).join(" and ")}: payments through{" "}
-          {report.missing.length > 1 ? "these venues" : "this venue"} will be refused.
+          Your account has not accepted {report.missing.map(name).join(" and ")}. Payments with the recommended venue go
+          to another one; picking {report.missing.length > 1 ? "one of these venues" : "this venue"} for a payment fails
+          with UnknownVenue.
         </p>
       )}
       {lastTx && (
@@ -149,7 +150,25 @@ export function VenueWarning({ check, wallet }: { check: VenueCheckState; wallet
  * @param props.wallet The owner's connected wallet.
  * @param props.deployment Deployed addresses.
  * @param props.account The owner's `ArdoiseAccount`.
+ * @param props.onUnexpected Told whether an unexpected venue is accepted, so
+ *   the screen can hold payments back; told `false` when the notice goes away.
  */
-export function VenueCheckNotice({ wallet, deployment, account }: { wallet: ConnectedWallet; deployment: Deployment; account: Address }) {
-  return <VenueWarning check={useVenueCheck(deployment, account)} wallet={wallet} />;
+export function VenueCheckNotice({
+  wallet,
+  deployment,
+  account,
+  onUnexpected,
+}: {
+  wallet: ConnectedWallet;
+  deployment: Deployment;
+  account: Address;
+  onUnexpected?: (unexpected: boolean) => void;
+}) {
+  const check = useVenueCheck(deployment, account);
+  const unexpected = (check.report?.unexpected.length ?? 0) > 0;
+  useEffect(() => {
+    onUnexpected?.(unexpected);
+    return () => onUnexpected?.(false);
+  }, [onUnexpected, unexpected]);
+  return <VenueWarning check={check} wallet={wallet} />;
 }
