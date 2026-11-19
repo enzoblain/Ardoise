@@ -57,6 +57,55 @@ contract EnvAddressTest is Test {
         env.envAddressOr("ARDOISE_TEST_ADDRESS_TEXT", FALLBACK);
     }
 
+    function _expectInvalid(string memory name, string memory value) internal {
+        vm.setEnv(name, value);
+        vm.expectRevert(bytes(string.concat(name, " is not a valid address")));
+        env.envAddressOr(name, FALLBACK);
+    }
+
+    function test_unbalancedQuoteReverts() public {
+        _expectInvalid("ARDOISE_TEST_ADDRESS_QUOTE", string.concat('"', VALID));
+    }
+
+    function test_unbalancedSingleQuoteReverts() public {
+        _expectInvalid("ARDOISE_TEST_ADDRESS_SINGLE_QUOTE", string.concat("'", VALID));
+    }
+
+    function test_quotedValueFollowedByTextReverts() public {
+        _expectInvalid("ARDOISE_TEST_ADDRESS_QUOTE_TEXT", string.concat('"', VALID, '" x'));
+    }
+
+    function test_quotedAndTruncatedReverts() public {
+        _expectInvalid("ARDOISE_TEST_ADDRESS_QUOTE_CUT", '"0x54e1714a0ffae58d3AA227C80FD48668e11f18d');
+    }
+
+    /// @dev Foundry hands a whitespace-only value over as an empty string, so the reader cannot
+    /// tell it from an empty one: it counts as unset.
+    function test_whitespaceOnlyReturnsTheFallback() public {
+        vm.setEnv("ARDOISE_TEST_ADDRESS_BLANK", "  ");
+        assertEq(env.envAddressOr("ARDOISE_TEST_ADDRESS_BLANK", FALLBACK), FALLBACK);
+    }
+
+    function test_tooLongReverts() public {
+        _expectInvalid("ARDOISE_TEST_ADDRESS_LONG", string.concat(VALID, "d7"));
+    }
+
+    function test_leadingSpaceReverts() public {
+        _expectInvalid("ARDOISE_TEST_ADDRESS_LEADING", string.concat(" ", VALID));
+    }
+
+    function test_missingPrefixGivesTheNamedAddressNotTheFallback() public {
+        vm.setEnv("ARDOISE_TEST_ADDRESS_NO_PREFIX", "54e1714a0ffae58d3AA227C80FD48668e11f18d7");
+        assertEq(
+            env.envAddressOr("ARDOISE_TEST_ADDRESS_NO_PREFIX", FALLBACK), 0x54e1714a0ffae58d3AA227C80FD48668e11f18d7
+        );
+    }
+
+    function test_balancedQuotesGiveTheNamedAddressNotTheFallback() public {
+        vm.setEnv("ARDOISE_TEST_ADDRESS_QUOTED", string.concat('"', VALID, '"'));
+        assertEq(env.envAddressOr("ARDOISE_TEST_ADDRESS_QUOTED", FALLBACK), 0x54e1714a0ffae58d3AA227C80FD48668e11f18d7);
+    }
+
     function test_zeroAddressReverts() public {
         vm.setEnv("ARDOISE_TEST_ADDRESS_ZERO", "0x0000000000000000000000000000000000000000");
         vm.expectRevert(bytes("ARDOISE_TEST_ADDRESS_ZERO is the zero address"));
