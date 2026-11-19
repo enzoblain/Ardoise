@@ -186,7 +186,30 @@ At start, with the relay on, the keeper logs the alarm address and its wallet's 
 
 ## CCTP-attested defense (D1)
 
-Deployed on 2026-11-19 from commit [`f48a7f2`](https://github.com/enzoblain/Ardoise/commit/f48a7f2) (after [#48](https://github.com/enzoblain/Ardoise/pull/48) and [#50](https://github.com/enzoblain/Ardoise/pull/50)) with [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol), by the project wallet, for the factory above (cooldown 1800 s, alarm TTL 900 s; executor: fast burns, price age 1500 s, minimum interval 2400 s). Set `DEFENSE_ALARM_ADDRESS` for the keeper (it does not read `DEFENSE_EXECUTOR_ADDRESS`). See *CCTP-attested defense* in [`docs/api.md`](../docs/api.md).
+The alarm reads one factory and the executor trusts one alarm, so each factory has its own pair. Set `DEFENSE_ALARM_ADDRESS` for the keeper to the current alarm (it does not read `DEFENSE_EXECUTOR_ADDRESS`). See *CCTP-attested defense* in [`docs/api.md`](../docs/api.md).
+
+### Current: for the factory with the Morpho venue
+
+Deployed on 2026-11-19 from commit [`7791d59`](https://github.com/enzoblain/Ardoise/commit/7791d59) (same contract sources as the previous pair) with [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol), by the project wallet, for the factory [`0xB4476B61…`](https://explorer.arc.io/address/0xB4476B617B750B9f48786c60930bc499343BB4a8), with the same settings as the previous pair (cooldown 1800 s, alarm TTL 900 s; executor: fast burns, price age 1500 s, minimum interval 2400 s).
+
+| Contract | Chain | Address | Source verification |
+|----------|-------|---------|---------------------|
+| `DefenseAlarm` | Arc mainnet | [`0x7147a1aE19F0d1Ad0d2885baa55f2D0004D5B3B8`](https://explorer.arc.io/address/0x7147a1aE19F0d1Ad0d2885baa55f2D0004D5B3B8) | [Sourcify, exact match](https://repo.sourcify.dev/5042/0x7147a1aE19F0d1Ad0d2885baa55f2D0004D5B3B8) |
+| `DefenseExecutor` | Base mainnet | [`0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6`](https://basescan.org/address/0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6) | [Sourcify, exact match](https://repo.sourcify.dev/8453/0x7294F4B0629C3dD7BCBA2ff074997982850Cb8d6) |
+
+| Step | Transaction | Block | Gas | Cost |
+|------|-------------|-------|-----|------|
+| Deploy `DefenseAlarm` (Arc) | [`0x3e3b0d3d…`](https://explorer.arc.io/tx/0x3e3b0d3dfba25bc3d22ea6c2eaaa64fa3606530112a609e555e29ae4ba1906a1) | 32023774 | 908,467 | 0.0182 USDC |
+| Deploy `DefenseExecutor` (Base) | [`0xfa8aa7a4…`](https://basescan.org/tx/0xfa8aa7a42bb983a30b36c9df608693d68f7b3e0337982d821eb161cbe86d2d2c) | 59432556 | 1,998,446 | 0.000012 ETH |
+| `alarm.setExecutor` (Arc) | [`0x81a44fd5…`](https://explorer.arc.io/tx/0x81a44fd5065f597bbc809d29dd75abdd135ec68b76251140e99306c02ed315b6) | 32023817 | 44,899 | 0.0012 USDC |
+| Owner policy (Base): `WETH.approve(executor, 0.0002e18)` | [`0x9f786c41…`](https://basescan.org/tx/0x9f786c419a14c8c2377fc9f540fec15da06b1a4d38cfbead2546ceeb0b7eebdf) | 59432665 | | |
+| Owner policy (Base): `setPolicy([USDC, WETH], [1e6, 0.0002e18], 86400, 100, 0.025e6)` | [`0x878f698a…`](https://basescan.org/tx/0x878f698a58abfd59cd3ed165592397b3db1e228e33c46c08ffb927868d9d85dd) | 59432670 | | |
+
+Checked after mining: `alarm.factory()` returns the Morpho factory, `alarm.executor()` the executor and `executor.alarm()` the alarm. A call to `raise(owner)` for the project wallet reverts with `PositionHealthy(owner)` (the alarm finds its account [`0x4d298b39…`](https://explorer.arc.io/address/0x4d298b39F3676B07335206E7b7F042D51e787a49) and the position is above the minimum), not `NoAccount`. The broadcasts are in [`broadcast/DeployDefense.s.sol/8453/run-latest.json`](broadcast/DeployDefense.s.sol/8453/run-latest.json) (executor) and [`broadcast/DeployDefense.s.sol/5042/run-latest.json`](broadcast/DeployDefense.s.sol/5042/run-latest.json) (`setExecutor`; the alarm deployment is listed above).
+
+### Previous: for the first factory
+
+Deployed on 2026-11-19 from commit [`f48a7f2`](https://github.com/enzoblain/Ardoise/commit/f48a7f2) (after [#48](https://github.com/enzoblain/Ardoise/pull/48) and [#50](https://github.com/enzoblain/Ardoise/pull/50)) with [`script/DeployDefense.s.sol`](script/DeployDefense.s.sol), by the project wallet, for the first factory [`0xb44DD865…`](https://explorer.arc.io/address/0xb44DD865DdD6a67b79C632Fe9795DB8e713692bD). It still defends that factory's accounts, which the app and the keeper no longer read; the mainnet proof below was run on it.
 
 | Contract | Chain | Address | Source verification |
 |----------|-------|---------|---------------------|
@@ -199,7 +222,7 @@ Deployed on 2026-11-19 from commit [`f48a7f2`](https://github.com/enzoblain/Ardo
 | Deploy `DefenseExecutor` (Base) | [`0xe36b79e6…`](https://basescan.org/tx/0xe36b79e68ec9f5ccf0997530938ce1d715fb2b4f8ed44ad2d1ae7dd1458effe8) | 59310147 | 1,998,458 | 0.000012 ETH |
 | `alarm.setExecutor` (Arc) | [`0xc3ce8cf5…`](https://explorer.arc.io/tx/0xc3ce8cf5f1741a2a6286293d238cc71768e81a7caa95e663752342498c654863) | 31975485 | 44,899 | 0.0012 USDC |
 
-### Mainnet proof
+#### Mainnet proof
 
 Run on 2026-11-19 on the demo position (owner: the project wallet, account [`0xdcB201E7…`](https://explorer.arc.io/address/0xdcB201E7dFCB1edaacB53043ca12558A260B2bBD)): health factor 3.57, debt 0.865 USDC. The two Gateway standing orders were taken out of the keeper's orders file for the run, so Gateway would not repay first, and put back unchanged afterwards. The running keeper did not have the D2 relay yet, so the project wallet relayed the message to Base.
 
