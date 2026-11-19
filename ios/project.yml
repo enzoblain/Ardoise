@@ -1,0 +1,71 @@
+# XcodeGen spec of the iOS app: `cd ios && xcodegen` regenerates Ardoise.xcodeproj.
+name: Ardoise
+options:
+  bundleIdPrefix: com.enzoblain
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+packages:
+  CircleModularWalletsCore:
+    url: https://github.com/circlefin/modularwallets-ios-sdk.git
+    from: "1.0.0"
+  web3swift:
+    url: https://github.com/web3swift-team/web3swift.git
+    minorVersion: "3.3.2"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: V89X9X5JFK
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Ardoise:
+    type: application
+    platform: iOS
+    sources:
+      - path: Ardoise
+    dependencies:
+      - package: CircleModularWalletsCore
+      - package: web3swift
+    entitlements:
+      path: Ardoise/Ardoise.entitlements
+      properties:
+        # The passkey belongs to the web app's domain, so the same passkey
+        # signs in on https://ardoise-rust.vercel.app and in this app.
+        com.apple.developer.associated-domains:
+          - webcredentials:ardoise-rust.vercel.app
+    info:
+      path: Ardoise/Info.plist
+      properties:
+        CFBundleDisplayName: Ardoise
+        CircleClientKey: $(CIRCLE_CLIENT_KEY)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIUserInterfaceStyle: Dark
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.enzoblain.ardoise
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+  ArdoiseTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ArdoiseTests
+    dependencies:
+      - target: Ardoise
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.enzoblain.ardoise.tests
+schemes:
+  Ardoise:
+    build:
+      targets:
+        Ardoise: all
+        ArdoiseTests: [test]
+    test:
+      targets:
+        - ArdoiseTests

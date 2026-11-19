@@ -1,0 +1,6 @@
+// Copy to Local.xcconfig (ignored by git) and fill in.
+// Circle client key for Modular Wallets: public by design (a client key, not
+// an API key), restricted in the Circle Console to the passkey domain
+// ardoise-rust.vercel.app. The same key as NEXT_PUBLIC_CIRCLE_CLIENT_KEY.
+// xcconfig reads "//" as a comment, so write the key as is (it has no "//").
+CIRCLE_CLIENT_KEY =

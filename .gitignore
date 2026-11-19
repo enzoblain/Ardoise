@@ -76,3 +76,10 @@ gateway-orders*.json
 # Scratch files
 tmp/
 scratch/
+
+# iOS app (ios/): local config with the Circle client key, Xcode user state and build output
+ios/Local.xcconfig
+xcuserdata/
+*.xcuserstate
+ios/build/
+DerivedData/
