@@ -172,8 +172,6 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// @param amountIn Amount of `asset` taken.
     /// @param usdcOut USDC it provided (equal to `amountIn` for USDC).
     event AssetUsed(address indexed owner, uint64 indexed nonce, address asset, uint256 amountIn, uint256 usdcOut);
-    /// @notice Emitted when a swap fails; the asset goes back to the owner and the next one is tried.
-    event SwapFailed(address indexed owner, uint64 indexed nonce, address asset, uint256 amountIn);
     /// @notice Emitted when USDC is burned to the owner's account on Arc.
     /// @param amount USDC burned; the account receives `amount` minus the fee, at most `maxFee`.
     event DefenseExecuted(
@@ -207,6 +205,12 @@ contract DefenseExecutor is IMessageHandlerV2 {
     /// gas: the relayer sent too little gas, and reverting keeps the alarm deliverable instead of
     /// consuming it without a defense.
     error SwapOutOfGas();
+    /// @notice Thrown when the swap of `asset` fails for a reason other than gas, in practice a pool
+    /// price outside the policy's slippage bound against Chainlink. Anyone can relay, so a relayer
+    /// could otherwise move the pool and deliver in one transaction to consume the alarm without
+    /// a defense; reverting undoes the whole delivery (USDC already gathered included) and keeps
+    /// the alarm deliverable until it expires.
+    error SwapFailed(address asset);
 
     modifier nonReentrant() {
         if (_locked != 1) revert Reentrancy();
@@ -312,7 +316,9 @@ contract DefenseExecutor is IMessageHandlerV2 {
 
     /// @inheritdoc IMessageHandlerV2
     /// @dev Reverts (so the message can be relayed again) for a wrong caller, source, sender,
-    /// a replayed alarm or a malformed body. An expired alarm, a missing policy or funds that do
+    /// a replayed alarm, a malformed body, a stale price (`StalePrice`) or a swap that fails
+    /// (`SwapFailed`, `SwapOutOfGas`): nothing is taken, no cap or interval is used, and the alarm
+    /// stays deliverable until it expires. An expired alarm, a missing policy or funds that do
     /// not cover the fee consume the alarm without a burn (`AlarmIgnored`). An alarm within
     /// `minDefenseInterval` of the owner's last burn, whose funds may still be on their way to
     /// Arc, reverts with `TooSoon` and can be relayed again later.
@@ -401,7 +407,8 @@ contract DefenseExecutor is IMessageHandlerV2 {
     // Same reasons as `_defend`, its only caller.
     // forge-lint: disable-next-item(calls-loop, reentrancy-events, reentrancy-no-eth, require-revert-in-loop)
     /// @dev Takes up to `needed` USDC worth of `asset` from the owner, within cap, allowance and
-    /// balance. Returns the USDC obtained.
+    /// balance. Returns the USDC obtained. Reverts with `SwapFailed` or `SwapOutOfGas` when the
+    /// asset has to be sold and the swap fails.
     function _take(DefenseMessage.Alarm memory a, Policy storage p, address asset, uint256 needed)
         private
         returns (uint256 usdcOut)
@@ -429,11 +436,12 @@ contract DefenseExecutor is IMessageHandlerV2 {
         _call(token.approve(address(swapRouter), amountIn));
 
         uint256 used = 0;
-        // Anyone can relay the message, so a relayer must not be able to pick a gas limit at which
-        // the swap fails for lack of gas while the delivery succeeds and consumes the alarm. The
-        // floor covers a swap costing up to about 285k (a defense-size swap costs about 95k); the
-        // 63/64 check catches a swap that ran out of gas in its own frame (it gets 63/64 of the gas
-        // left, so under 1/64 remains).
+        // Anyone can relay the message, so a relayer must not be able to make the swap fail (a gas
+        // limit too low for it, or a pool pushed away from the oracle in the same transaction)
+        // while the delivery succeeds and consumes the alarm: a failed swap reverts the delivery.
+        // The floor covers a swap costing up to about 285k (a defense-size swap costs about 95k);
+        // the 63/64 check tells a swap that ran out of gas in its own frame (it gets 63/64 of the
+        // gas left, so under 1/64 remains) from one that failed on price.
         uint256 gasBefore = gasleft();
         if (gasBefore < MIN_SWAP_GAS) revert SwapOutOfGas();
         if (amountIn == maxIn) {
@@ -445,7 +453,7 @@ contract DefenseExecutor is IMessageHandlerV2 {
                 used = spentIn;
                 usdcOut = needed;
             } catch {
-                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+                _revertFailedSwap(asset, gasBefore);
             }
         } else {
             uint256 minOut = amountIn * price * 1e6 * (BPS - p.maxSlippageBps) / (unit * priceUnit * BPS);
@@ -459,18 +467,26 @@ contract DefenseExecutor is IMessageHandlerV2 {
                 used = amountIn;
                 usdcOut = out;
             } catch {
-                if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+                _revertFailedSwap(asset, gasBefore);
             }
         }
         _call(token.approve(address(swapRouter), 0));
 
-        if (used == 0) emit SwapFailed(a.owner, a.nonce, asset, amountIn);
-        else emit AssetUsed(a.owner, a.nonce, asset, used, usdcOut);
+        emit AssetUsed(a.owner, a.nonce, asset, used, usdcOut);
         // Give back what the swap did not use, and take it off the period's spending.
         if (amountIn > used) {
             _usage[a.owner][asset].spent -= amountIn - used;
             _call(token.transfer(a.owner, amountIn - used));
         }
+    }
+
+    // Called from `_take`, inside `_defend`'s loop: the revert is the point.
+    // forge-lint: disable-next-item(require-revert-in-loop)
+    /// @dev Reverts the delivery after a failed swap: `SwapOutOfGas` when the swap, given
+    /// `gasBefore`, left under 1/64 of it, `SwapFailed` otherwise.
+    function _revertFailedSwap(address asset, uint256 gasBefore) private view {
+        if (gasleft() <= gasBefore / 63) revert SwapOutOfGas();
+        revert SwapFailed(asset);
     }
 
     // Same reasons as `_defend`.

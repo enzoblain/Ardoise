@@ -22,6 +22,7 @@ contract DefenseExecutorForkTest is Test {
     address internal alarm = makeAddr("alarm");
     address internal owner = makeAddr("owner");
     address internal account = makeAddr("account");
+    address internal attacker = makeAddr("attacker");
 
     function setUp() public {
         string memory rpc = vm.envOr("BASE_RPC_URL", string(""));
@@ -75,5 +76,56 @@ contract DefenseExecutorForkTest is Test {
             if (logs[i].topics[0] == DefenseExecutor.DefenseExecuted.selector) executed = true;
         }
         assertTrue(executed);
+    }
+
+    /// A relayer sells enough WETH into the real 0.05% pool to push it past the owner's 1% bound,
+    /// delivers the alarm, then buys the WETH back. The delivery reverts instead of consuming the
+    /// alarm, and the same alarm runs once the pool is back.
+    function test_fork_poolPushedOffTheOracleRevertsAndTheAlarmStaysDeliverable() public {
+        vm.skip(address(executor) == address(0));
+        deal(WETH, owner, 0.01e18);
+        address[] memory policyAssets = new address[](1);
+        uint256[] memory caps = new uint256[](1);
+        policyAssets[0] = WETH;
+        caps[0] = 0.01e18;
+        vm.startPrank(owner);
+        executor.setPolicy(policyAssets, caps, 1 days, 100, 0.03e6);
+        IERC20(WETH).approve(address(executor), type(uint256).max);
+        vm.stopPrank();
+        bytes memory body = abi.encode(owner, account, uint256(1e6), uint64(1), uint64(vm.getBlockTimestamp() + 900));
+        bytes32 sender = bytes32(uint256(uint160(alarm)));
+
+        // Well over the 800 WETH that moved the pool by 1% when this was measured.
+        uint256 size = 2_000e18;
+        deal(WETH, attacker, size);
+        vm.startPrank(attacker);
+        IERC20(WETH).approve(SWAP_ROUTER, type(uint256).max);
+        IERC20(USDC).approve(SWAP_ROUTER, type(uint256).max);
+        uint256 usdcOut = ISwapRouter02(SWAP_ROUTER)
+            .exactInputSingle(ISwapRouter02.ExactInputSingleParams(WETH, USDC, 500, attacker, size, 0, 0));
+        vm.stopPrank();
+
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.SwapFailed.selector, WETH));
+        vm.prank(MESSAGE_TRANSMITTER);
+        executor.handleReceiveFinalizedMessage(26, sender, 2000, body);
+        assertFalse(executor.alarmUsed(1));
+        assertEq(IERC20(WETH).balanceOf(owner), 0.01e18);
+        assertEq(executor.remainingCap(owner, WETH), 0.01e18);
+        assertEq(executor.lastDefenseAt(owner), 0);
+
+        vm.prank(attacker);
+        ISwapRouter02(SWAP_ROUTER)
+            .exactInputSingle(ISwapRouter02.ExactInputSingleParams(USDC, WETH, 500, attacker, usdcOut, 0, 0));
+
+        vm.prank(MESSAGE_TRANSMITTER);
+        assertTrue(executor.handleReceiveFinalizedMessage(26, sender, 2000, body));
+        assertTrue(executor.alarmUsed(1));
+        assertEq(executor.lastDefenseAt(owner), vm.getBlockTimestamp());
+        assertEq(IERC20(USDC).balanceOf(address(executor)), 0);
+        assertLt(IERC20(WETH).balanceOf(owner), 0.01e18);
+
+        vm.expectRevert(abi.encodeWithSelector(DefenseExecutor.AlarmAlreadyUsed.selector, uint64(1)));
+        vm.prank(MESSAGE_TRANSMITTER);
+        executor.handleReceiveFinalizedMessage(26, sender, 2000, body);
     }
 }
