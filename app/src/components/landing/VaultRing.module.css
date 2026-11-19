@@ -53,7 +53,6 @@
 
 .back {
   transform: rotateY(180deg);
-  filter: brightness(0.5);
 }
 
 .info {
@@ -66,9 +65,8 @@
 }
 
 .crest {
-  width: calc(var(--card-w) * 0.17);
-  height: calc(var(--card-w) * 0.2);
-  border-radius: 3px 3px 45% 45%;
+  width: calc(var(--card-w) * 0.19);
+  height: calc(var(--card-w) * 0.19);
   flex: none;
 }
 
@@ -118,38 +116,55 @@
   border: 1px solid rgb(20 20 20 / 30%);
 }
 
-/* Patterns, drawn with gradients so the page ships no image. */
-.checker {
-  background: conic-gradient(#d1462f 25%, #e9c46a 0 50%, #d1462f 0 75%, #e9c46a 0) 0 0 / 34% 24%;
-}
-
-.scallop {
+/* A slate: dark stone in a frame, with chalk lines and the orange dot of the
+   payment being written, as on the Ardoise mark. */
+.slate {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--card-w) * 0.075);
+  padding: calc(var(--card-w) * 0.15);
+  border: calc(var(--card-w) * 0.035) solid #2e2e2e;
   background:
-    radial-gradient(circle at 50% 0, #e0b83a 0 68%, transparent 70%) 0 0 / 25% 16%,
-    #4a463c;
+    radial-gradient(120% 80% at 20% 0%, rgb(255 255 255 / 7%), transparent 60%),
+    #121212;
 }
 
-.waves {
-  background:
-    radial-gradient(circle at 50% 100%, transparent 0 46%, #9cc3d5 48% 62%, transparent 64%) 0 0 / 25% 12%,
-    linear-gradient(#9cc3d5 0 42%, #2452b8 42%);
+.slate i {
+  display: block;
+  height: calc(var(--card-w) * 0.045);
+  border-radius: 999px;
+  background: #f3efe6;
+  opacity: 0.9;
 }
 
-.stripes {
-  background: repeating-linear-gradient(135deg, #f7931a 0 9%, #1c1c1c 9% 18%);
+.slate i:nth-child(1) {
+  width: 100%;
 }
 
-.dots {
-  background:
-    radial-gradient(circle, #f3efe6 0 22%, transparent 24%) 0 0 / 25% 17.6%,
-    #7f9c7a;
+.slate i:nth-child(2) {
+  width: 78%;
 }
 
-.cross {
-  background:
-    linear-gradient(#d1462f, #d1462f) 50% 50% / 26% 100% no-repeat,
-    linear-gradient(#d1462f, #d1462f) 50% 50% / 100% 20% no-repeat,
-    #f3efe6;
+.slate i:nth-child(3) {
+  width: 46%;
+}
+
+.slate b {
+  align-self: flex-end;
+  width: calc(var(--card-w) * 0.075);
+  height: calc(var(--card-w) * 0.075);
+  margin-top: calc(var(--card-w) * -0.12);
+  border-radius: 50%;
+  background: #f7931a;
+}
+
+/* The single card kept on screen by the intro, sized on its own. */
+.solo {
+  --card-w: clamp(150px, 15vw, 230px);
+  position: relative;
+  width: var(--card-w);
+  height: calc(var(--card-w) * 1.42);
 }
 
 @keyframes spin {

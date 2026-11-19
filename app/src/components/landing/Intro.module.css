@@ -1,0 +1,472 @@
+/* The intro is a sequence of pinned slides. `--p` and `--enter` are written
+   by ScrollProgress on every [data-progress] element; the defaults below
+   describe a slide that is fully in place, so the page reads correctly
+   without JavaScript. */
+.intro {
+  --p: 0;
+  --enter: 1;
+  --chalk: #f3efe6;
+  --ink: #141414;
+  --orange: #f7931a;
+  --apricot: #ffbe7a;
+  background: #000;
+  color: var(--chalk);
+}
+
+/* Slide 1 and 2: the ring, then the first chapter, on the same black stage. */
+.act {
+  position: relative;
+  height: 320vh;
+}
+
+.stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem clamp(1.25rem, 3vw, 2.75rem);
+  opacity: calc(1 - var(--p) * 6);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--orange);
+}
+
+.tagline {
+  max-width: 28rem;
+  margin: 0 auto;
+  /* Keeps the tagline centred on the page, not on the space left by the brand. */
+  transform: translateX(-3.5rem);
+  text-align: center;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: #a8a49b;
+}
+
+.title {
+  position: relative;
+  z-index: 2;
+  margin-top: 1vh;
+  text-align: center;
+  font-size: clamp(4rem, 13vw, 15rem);
+  line-height: 0.85;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  opacity: calc(1 - var(--p) * 5);
+  transform: translateY(calc(var(--p) * -30vh));
+}
+
+/* The ring folds towards the centre as the visitor starts to scroll... */
+.ring {
+  position: absolute;
+  inset: 22vh 0 auto;
+  opacity: calc(1 - var(--p) * 4.5);
+  transform: scale(calc(1 - min(var(--p) * 3.2, 0.75)));
+  transform-origin: 50% 45%;
+}
+
+/* ...and leaves one card, which stays through the first chapter. */
+.solo {
+  position: absolute;
+  left: 30%;
+  top: 60%;
+  opacity: clamp(0, calc(var(--p) * 6 - 0.9), 1);
+  transform: translate(-50%, -50%) scale(calc(1.35 - min(var(--p) * 2, 0.35)))
+    rotate(calc((1 - min(var(--p) * 3, 1)) * -8deg));
+}
+
+.chapterOne {
+  position: relative;
+  z-index: 4;
+  height: 160vh;
+  margin-top: 60vh;
+  padding: 0 clamp(1.25rem, 3vw, 2.75rem);
+  pointer-events: none;
+}
+
+.labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 1.25rem 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.heading {
+  font-size: clamp(2.6rem, 6.4vw, 6.5rem);
+  line-height: 0.92;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.headingRight {
+  max-width: 11em;
+  margin: 6vh 4vw 0 auto;
+  text-align: right;
+}
+
+.noteRight {
+  max-width: 25rem;
+  margin: 2.5rem 4vw 0 auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #c9c5bc;
+}
+
+/* A pinned slide: it stays in place while the visitor scrolls through its
+   wrapper, and the next sheet slides over it during the last 100vh. */
+.pinned {
+  position: relative;
+  height: 290vh;
+}
+
+.pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+  padding: 0 clamp(1.25rem, 3vw, 2.75rem);
+}
+
+/* A sheet arrives tilted from the bottom and straightens as it settles. */
+.sheet {
+  --enter: 1;
+  z-index: 2;
+  margin-top: -100vh;
+}
+
+.sheet > * {
+  border-radius: calc((1 - var(--enter)) * 2.5rem) calc((1 - var(--enter)) * 2.5rem) 0 0;
+  transform: rotate(calc((1 - var(--enter)) * -7deg));
+  transform-origin: 0 100%;
+}
+
+/* Slide 3: paying, on apricot. */
+.pay .pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--apricot);
+  color: var(--ink);
+}
+
+.pay .labels,
+.cover .labels {
+  align-self: stretch;
+}
+
+.ghost {
+  position: absolute;
+  inset: 34% 0 auto;
+  text-align: center;
+  font-size: clamp(8rem, 30vw, 34rem);
+  line-height: 1;
+  color: rgb(20 20 20 / 7%);
+  pointer-events: none;
+}
+
+.headingCenter {
+  position: relative;
+  max-width: 12em;
+  text-align: center;
+  font-size: clamp(2.2rem, 4.6vw, 4.75rem);
+}
+
+.word {
+  opacity: clamp(0.14, calc(var(--p) * 16 - var(--i) * 0.55 + 0.14), 1);
+}
+
+.phoneWrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin-top: 3vh;
+  perspective: 1400px;
+}
+
+.pay .phoneWrap {
+  /* The phone rises into place while the slide scrolls in. */
+  transform: translateY(calc((1 - var(--enter)) * 45vh)) scale(calc(1.2 - var(--enter) * 0.2));
+}
+
+.phone {
+  width: min(16rem, 62vw);
+  height: min(33rem, 62vh);
+  padding: 0.55rem;
+  border-radius: 2.5rem;
+  background: var(--ink);
+  box-shadow: 0 40px 80px -30px rgb(20 20 20 / 55%);
+}
+
+.phoneDark {
+  box-shadow:
+    0 0 0 1px #333,
+    0 40px 80px -30px rgb(20 20 20 / 60%);
+  transform: rotateY(calc((1 - var(--enter)) * -30deg - 8deg)) rotateX(5deg);
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  height: 100%;
+  padding: 2.2rem 1rem 1rem;
+  border-radius: 2rem;
+  background: var(--chalk);
+  color: var(--ink);
+}
+
+.screenLabel {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6d6a63;
+}
+
+.amount {
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.amount span {
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #6d6a63;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: 0.74rem;
+}
+
+.rows div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgb(20 20 20 / 12%);
+}
+
+.rows dt {
+  color: #6d6a63;
+}
+
+.rows dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.good {
+  color: #2c7a4b;
+}
+
+.cta {
+  margin-top: auto;
+  border-radius: 999px;
+  padding: 0.75rem;
+  background: var(--ink);
+  color: var(--chalk);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.gauge {
+  position: relative;
+  height: 0.6rem;
+  margin-top: 0.5rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d1462f 0 22%, #e0b83a 22% 40%, #7f9c7a 40%);
+}
+
+.gauge span {
+  position: absolute;
+  top: -0.3rem;
+  left: 72%;
+  width: 0.25rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.gaugeNote {
+  font-size: 0.74rem;
+  color: #6d6a63;
+}
+
+.gaugeNote strong {
+  color: var(--ink);
+}
+
+.footnotes {
+  position: absolute;
+  inset: auto clamp(1.25rem, 3vw, 2.75rem) 5vh;
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  opacity: clamp(0, calc(var(--p) * 10 - 1.6), 1);
+}
+
+.footnotes p {
+  max-width: 22rem;
+}
+
+/* Slide 4: the reserve, on chalk. */
+.cover .pin {
+  display: flex;
+  flex-direction: column;
+  background: var(--chalk);
+  color: var(--ink);
+}
+
+.coverGrid {
+  display: grid;
+  flex: 1;
+  align-items: center;
+  gap: 2rem;
+  padding-bottom: 6vh;
+}
+
+.coverCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cover .heading {
+  max-width: 9.5em;
+  font-size: clamp(2.4rem, 5.4vw, 5.5rem);
+}
+
+.lead {
+  max-width: 30rem;
+  line-height: 1.55;
+  color: #4a4741;
+}
+
+.lines {
+  max-width: 30rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.lines li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid rgb(20 20 20 / 14%);
+}
+
+.soon {
+  border: 1px solid rgb(20 20 20 / 35%);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+/* The main page slides over the last slide like one more sheet. */
+.main {
+  position: relative;
+}
+
+.mainInner {
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .coverGrid {
+    grid-template-columns: 1.25fr 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .tagline {
+    display: none;
+  }
+
+  .footnotes {
+    display: none;
+  }
+
+  .cover .phoneWrap {
+    display: none;
+  }
+
+  .headingRight,
+  .noteRight {
+    margin-right: 0;
+  }
+}
+
+/* With reduced motion nothing is pinned or tilted: plain stacked sections. */
+@media (prefers-reduced-motion: reduce) {
+  .act,
+  .pinned {
+    height: auto;
+  }
+
+  .stage,
+  .pin {
+    position: relative;
+    min-height: 100vh;
+  }
+
+  .sheet {
+    margin-top: 0;
+  }
+
+  .sheet > *,
+  .title,
+  .ring,
+  .phoneDark,
+  .pay .phoneWrap {
+    transform: none;
+  }
+
+  .header,
+  .title,
+  .ring,
+  .footnotes,
+  .word {
+    opacity: 1;
+  }
+
+  .solo {
+    display: none;
+  }
+
+  .chapterOne {
+    height: auto;
+    margin-top: 0;
+    padding-bottom: 6rem;
+  }
+}
