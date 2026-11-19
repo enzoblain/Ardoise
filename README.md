@@ -240,7 +240,6 @@ Further out:
 
 - **A market for protection:** anyone could post a reserve that defends other people's positions against a fee, under the same mandate rules.
 - **A yielding reserve:** keep the reserve in USYC, Circle's tokenized Treasury fund, instead of idle USDC.
-- **Pay in other currencies** with StableFX, Circle's stablecoin exchange on Arc.
 - **More collateral:** ETH and tokenized real-world assets next to cirBTC.
 - **Private positions** with Arc's confidentiality features, so the size of a defended position is not public.
 
