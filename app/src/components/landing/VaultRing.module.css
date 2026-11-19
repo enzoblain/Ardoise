@@ -1,0 +1,177 @@
+/* Rotating ring of vault cards. Sizes follow the viewport so the ring fills
+   the hero on a phone as well as on a wide screen. */
+.stage {
+  --card-w: clamp(132px, 15vw, 236px);
+  --card-h: calc(var(--card-w) * 1.42);
+  --radius: clamp(210px, 33vw, 560px);
+  position: relative;
+  height: calc(var(--card-h) * 2.5);
+  perspective: 1500px;
+  perspective-origin: 50% 35%;
+  overflow: hidden;
+  /* Fades the far cards into the page at the top and the bottom. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 86%, transparent 100%);
+}
+
+.tilt {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(calc(-9deg * (1 - var(--fold, 0)))) rotateZ(calc(-5deg * (1 - var(--fold, 0))));
+}
+
+.ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transform-style: preserve-3d;
+  animation: spin 48s linear infinite;
+}
+
+.slot {
+  position: absolute;
+  left: calc(var(--card-w) / -2);
+  top: calc(var(--card-h) / -2);
+  width: var(--card-w);
+  height: var(--card-h);
+  transform-style: preserve-3d;
+  /* `--fold` (0 to 1, set by the intro) gathers the cards into one stack. */
+  transform: rotateY(var(--angle)) translateZ(calc(var(--radius) * (1 - var(--fold, 0))))
+    translateY(calc(var(--card-h) * var(--lift) * (1 - var(--fold, 0))));
+}
+
+.card {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--card-w) * 0.055);
+  backface-visibility: hidden;
+  overflow: hidden;
+}
+
+.back {
+  transform: rotateY(180deg);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--card-w) * 0.035);
+  padding: calc(var(--card-w) * 0.075);
+  color: #141414;
+  background: linear-gradient(180deg, #f6f2e9 0%, #dcd8cf 62%, #f6f2e9 100%);
+}
+
+.crest {
+  width: calc(var(--card-w) * 0.19);
+  height: calc(var(--card-w) * 0.19);
+  flex: none;
+}
+
+.family {
+  font-size: calc(var(--card-w) * 0.052);
+  color: #55524c;
+}
+
+.headline {
+  font-size: calc(var(--card-w) * 0.108);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+}
+
+.text {
+  font-size: calc(var(--card-w) * 0.056);
+  line-height: 1.3;
+  color: #33312d;
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--card-w) * 0.03);
+  margin-top: auto;
+  padding-top: calc(var(--card-w) * 0.04);
+  border-top: 1px solid rgb(20 20 20 / 14%);
+  font-size: calc(var(--card-w) * 0.05);
+  color: #55524c;
+}
+
+.live,
+.soon {
+  border-radius: 999px;
+  padding: 0.2em 0.7em;
+  font-weight: 600;
+}
+
+.live {
+  background: #f7931a;
+  color: #141414;
+}
+
+.soon {
+  border: 1px solid rgb(20 20 20 / 30%);
+}
+
+/* A slate: dark stone in a frame, with chalk lines and the orange dot of the
+   payment being written, as on the Ardoise mark. */
+.slate {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--card-w) * 0.075);
+  padding: calc(var(--card-w) * 0.15);
+  border: calc(var(--card-w) * 0.035) solid #2e2e2e;
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgb(255 255 255 / 7%), transparent 60%),
+    #121212;
+}
+
+.slate i {
+  display: block;
+  height: calc(var(--card-w) * 0.045);
+  border-radius: 999px;
+  background: #f3efe6;
+  opacity: 0.9;
+}
+
+.slate i:nth-child(1) {
+  width: 100%;
+}
+
+.slate i:nth-child(2) {
+  width: 78%;
+}
+
+.slate i:nth-child(3) {
+  width: 46%;
+}
+
+.slate b {
+  align-self: flex-end;
+  width: calc(var(--card-w) * 0.075);
+  height: calc(var(--card-w) * 0.075);
+  margin-top: calc(var(--card-w) * -0.12);
+  border-radius: 50%;
+  background: #f7931a;
+}
+
+@keyframes spin {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring {
+    animation: none;
+  }
+}

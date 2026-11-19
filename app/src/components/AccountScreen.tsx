@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Address } from "viem";
 import { arcClient } from "@/lib/arc";
 import type { ArdoiseClient, Venue } from "@/lib/ardoise";
@@ -83,6 +83,17 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
       setConnectError((e as Error).message.split("\n")[0]);
     }
   }
+
+  // The landing page's "Connect wallet" button links here with
+  // `?connect=wallet`: open the browser wallet straight away, once.
+  const autoConnected = useRef(false);
+  useEffect(() => {
+    if (autoConnected.current || new URLSearchParams(window.location.search).get("connect") !== "wallet") return;
+    autoConnected.current = true;
+    // Drop the parameter so that a reload does not open the wallet prompt again.
+    window.history.replaceState(null, "", window.location.pathname);
+    connectWallet().then(setWallet, (e: Error) => setConnectError(e.message.split("\n")[0]));
+  }, []);
 
   const onReady = useCallback((address: Address) => setAccountAddress(address), []);
 

@@ -1,0 +1,617 @@
+/* The intro plays on one pinned stage. `--p` is written by ScrollProgress on
+   the [data-progress] section and runs from 0 to 1 over the 660vh the stage
+   stays pinned. The variables on `.act` cut it into steps, each from 0 to 1:
+   the ring folds, chapter 01 scrolls past, chapter 02 rises with the slip,
+   its three steps fill the slip in, then chapter 03 opens from the phone. */
+.intro {
+  --p: 0;
+  --chalk: #f3efe6;
+  --ink: #141414;
+  --orange: #f7931a;
+  --apricot: #ffbe7a;
+  /* Width of the payment slip; the phone is sized from it so the slip fits. */
+  --slip-w: clamp(180px, 19vw, 280px);
+  /* Where the slip and the phone sit on the stage. */
+  --spot-x: 74%;
+  --spot-y: 52%;
+  background: #000;
+  color: var(--chalk);
+}
+
+.act {
+  --fold: clamp(0, calc(var(--p) * 13.2), 1);
+  --rise: clamp(0, calc((var(--p) - 0.325) * 13), 1);
+  --s1: clamp(0, calc((var(--p) - 0.41) * 16), 1);
+  --s2: clamp(0, calc((var(--p) - 0.47) * 16), 1);
+  --s3: clamp(0, calc((var(--p) - 0.53) * 16), 1);
+  --reveal: clamp(0, calc((var(--p) - 0.67) * 10), 1);
+  --final: clamp(0, calc((var(--p) - 0.76) * 12), 1);
+  position: relative;
+  height: 760vh;
+}
+
+.stage {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+}
+
+.night,
+.steps,
+.day {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Slide 1. The title sits top left and the mark top right, at the same height. */
+.header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.25rem clamp(1.25rem, 3vw, 2.75rem);
+  opacity: calc(1 - var(--fold) * 1.4);
+  transform: translateY(calc(var(--fold) * -22vh));
+}
+
+.title {
+  --title-size: clamp(3.5rem, 8.5vw, 9rem);
+  font-size: var(--title-size);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+}
+
+.mark {
+  --title-size: clamp(3.5rem, 8.5vw, 9rem);
+  flex: none;
+  width: calc(var(--title-size) * 0.95);
+  height: calc(var(--title-size) * 0.95);
+}
+
+.tagline {
+  max-width: 24rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: #a8a49b;
+}
+
+/* The cards of the ring gather into one stack, which shrinks away. */
+.ring {
+  position: absolute;
+  inset: 24vh 0 auto;
+  opacity: clamp(0, calc((1 - var(--fold)) * 4), 1);
+  transform: translateY(calc(var(--fold) * -8vh)) scale(calc(1 - var(--fold) * 0.6));
+  transform-origin: 50% 50%;
+}
+
+/* Slide 2: chapter 01 scrolls over the pinned stage. */
+.chapterOne {
+  position: relative;
+  z-index: 5;
+  height: 135vh;
+  margin-top: 55vh;
+  padding: 0 clamp(1.25rem, 3vw, 2.75rem);
+  pointer-events: none;
+}
+
+.labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 1.25rem 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.heading {
+  font-size: clamp(2.2rem, 5vw, 5.25rem);
+  line-height: 0.94;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+/* Three lines, each pushed a different distance from the right edge. */
+.headingStagger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-top: 5vh;
+  font-size: clamp(2.6rem, 6.4vw, 6.5rem);
+}
+
+.headingStagger span:nth-child(1) {
+  margin-right: 2vw;
+}
+
+.headingStagger span:nth-child(2) {
+  margin-right: 14vw;
+}
+
+.headingStagger span:nth-child(3) {
+  margin-right: 6vw;
+}
+
+.noteRight {
+  max-width: 25rem;
+  margin: 2.5rem 8vw 0 auto;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #c9c5bc;
+}
+
+/* Slides 3 and 4 share a layout: copy in a left column, the slip (then the
+   phone) on the right. */
+.steps,
+.day {
+  display: flex;
+  flex-direction: column;
+  padding: 0 clamp(1.25rem, 3vw, 2.75rem);
+}
+
+.column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(1rem, 2.6vh, 1.75rem);
+  width: min(56%, 46rem);
+  padding-bottom: 4vh;
+}
+
+/* Slide 3: chapter 02, the three steps. It rises from the bottom of the
+   stage; the part still below the edge takes no clicks. */
+.steps {
+  z-index: 2;
+  background: #000;
+  opacity: var(--rise);
+  clip-path: inset(calc((1 - var(--rise)) * 100%) 0 0 0);
+}
+
+.stepList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepList li {
+  display: flex;
+  gap: 1.25rem;
+  padding: clamp(0.6rem, 1.8vh, 1.1rem) 0;
+  border-top: 1px solid #1f1f1f;
+}
+
+.stepNumber {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.875rem;
+  color: var(--orange);
+}
+
+.stepList h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.stepList p {
+  max-width: 34rem;
+  margin-top: 0.3rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #a8a49b;
+}
+
+/* A step lights up when its turn comes. */
+.step1 {
+  opacity: calc(0.25 + var(--s1) * 0.75);
+}
+
+.step2 {
+  opacity: calc(0.25 + var(--s2) * 0.75);
+}
+
+.step3 {
+  opacity: calc(0.25 + var(--s3) * 0.75);
+}
+
+.proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #a8a49b;
+}
+
+.proof a {
+  border: 1px solid #262626;
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  color: var(--chalk);
+  transition: border-color 0.2s;
+}
+
+.proof a:hover {
+  border-color: #4a4a4a;
+}
+
+/* The payment slip: it pops in with chapter 02, is filled in step by step,
+   then shrinks into the phone of chapter 03. */
+.slip {
+  position: absolute;
+  left: var(--spot-x);
+  top: var(--spot-y);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--slip-w) * 0.05);
+  width: var(--slip-w);
+  height: calc(var(--slip-w) * 1.4);
+  padding: calc(var(--slip-w) * 0.075);
+  border-radius: calc(var(--slip-w) * 0.055);
+  background: linear-gradient(180deg, #f6f2e9 0%, #dcd8cf 62%, #f6f2e9 100%);
+  color: var(--ink);
+  box-shadow: 0 30px 70px -25px rgb(0 0 0 / 60%);
+  opacity: clamp(0, calc(var(--rise) * 3 - 1.2), 1);
+  /* Pops from 0.55 to 1.2 as the chapter rises, settles at 0.72 in the
+     phone, a little above its centre. */
+  transform: translate(-50%, -50%) translateY(calc(var(--reveal) * var(--slip-w) * -0.16))
+    scale(calc((0.55 + var(--rise) * 0.45) * (1.2 - var(--reveal) * 0.48)));
+}
+
+.slipHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: calc(var(--slip-w) * 0.05);
+  font-weight: 600;
+}
+
+.slipFields {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: calc(var(--slip-w) * 0.048);
+}
+
+.slipFields div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  padding: 0.55em 0;
+  border-bottom: 1px solid rgb(20 20 20 / 22%);
+}
+
+.slipFields dt {
+  font-size: 0.82em;
+  color: #6d6a63;
+}
+
+.slipFields dd {
+  margin: 0;
+  min-height: 1.3em;
+  font-size: 1.12em;
+  font-weight: 600;
+}
+
+/* A field is written in when its step lights up. */
+.fill1 {
+  opacity: var(--s1);
+  transform: translateY(calc((1 - var(--s1)) * 0.5em));
+}
+
+.fill2 {
+  opacity: var(--s2);
+  transform: translateY(calc((1 - var(--s2)) * 0.5em));
+}
+
+.fill3 {
+  opacity: var(--s3);
+  transform: translateY(calc((1 - var(--s3)) * 0.5em));
+  color: #2c7a4b;
+}
+
+.slipFoot {
+  align-self: flex-start;
+  margin-top: auto;
+  border-radius: 999px;
+  padding: 0.25em 0.8em;
+  background: var(--orange);
+  font-size: calc(var(--slip-w) * 0.046);
+  font-weight: 600;
+}
+
+/* Slide 4: chapter 03. The apricot layer opens from the phone outwards. */
+.day {
+  z-index: 3;
+  background: var(--apricot);
+  color: var(--ink);
+  clip-path: circle(calc(var(--reveal) * 150vmax) at var(--spot-x) var(--spot-y));
+}
+
+.day .column > * {
+  opacity: var(--final);
+  transform: translateY(calc((1 - var(--final)) * 2.5rem));
+}
+
+.lead {
+  max-width: 32rem;
+  line-height: 1.55;
+  color: #3d3528;
+}
+
+.lines {
+  max-width: 34rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.lines li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid rgb(20 20 20 / 16%);
+}
+
+.soon {
+  flex: none;
+  border: 1px solid rgb(20 20 20 / 40%);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+/* The phone forms around the slip once the colour has opened. */
+.phone {
+  position: absolute;
+  left: var(--spot-x);
+  top: var(--spot-y);
+  width: calc(var(--slip-w) * 0.9);
+  height: calc(var(--slip-w) * 1.84);
+  padding: calc(var(--slip-w) * 0.035);
+  border-radius: calc(var(--slip-w) * 0.16);
+  background: var(--ink);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 12%),
+    0 40px 80px -30px rgb(20 20 20 / 55%);
+  opacity: clamp(0, calc(var(--reveal) * 2 - 0.6), 1);
+  transform: translate(-50%, -50%) scale(calc(1.12 - var(--reveal) * 0.12));
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--slip-w) * 0.035);
+  height: 100%;
+  padding: calc(var(--slip-w) * 0.07) calc(var(--slip-w) * 0.06) calc(var(--slip-w) * 0.06);
+  border-radius: calc(var(--slip-w) * 0.13);
+  background: #1c1c1c;
+  color: var(--chalk);
+  font-size: calc(var(--slip-w) * 0.042);
+}
+
+.appBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+/* Left empty: the slip comes to rest here. */
+.cardSlot {
+  flex: 1;
+}
+
+.gauge {
+  position: relative;
+  height: 0.5em;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d1462f 0 22%, #e0b83a 22% 40%, #7f9c7a 40%);
+}
+
+.gauge span {
+  position: absolute;
+  top: -0.3em;
+  left: 72%;
+  width: 0.22em;
+  height: 1.1em;
+  border-radius: 999px;
+  background: var(--chalk);
+}
+
+.gaugeNote {
+  opacity: 0.8;
+}
+
+.cta {
+  border-radius: 999px;
+  padding: 0.7em;
+  background: var(--orange);
+  color: var(--ink);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* The way into the main page: a pane of clear glass over the colour. */
+.accessRow {
+  /* 1 once the slide has settled, 0 before: the step triggers the
+     transition, which waits two seconds and then fades the button in. */
+  --shown: clamp(0, calc((var(--final) - 0.98) * 60), 1);
+  position: absolute;
+  left: 50%;
+  bottom: 6vh;
+  opacity: var(--shown);
+  transform: translateX(-50%);
+  translate: 0 calc((1 - var(--shown)) * 14px);
+  transition:
+    opacity 1.1s ease 2s,
+    translate 1.1s ease 2s;
+}
+
+.access {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: 999px;
+  padding: 0.95rem 2.2rem;
+  background: linear-gradient(135deg, rgb(255 255 255 / 38%), rgb(255 255 255 / 10%));
+  backdrop-filter: blur(14px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 80%),
+    inset 0 -1px 0 rgb(255 255 255 / 18%),
+    0 12px 32px -12px rgb(20 20 20 / 45%);
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    transform 0.25s,
+    background 0.25s;
+}
+
+.access:hover {
+  background: linear-gradient(135deg, rgb(255 255 255 / 55%), rgb(255 255 255 / 20%));
+  transform: translateY(-2px) scale(1.03);
+}
+
+.access:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* The main page pops in when the visitor opens it. */
+.mainEnter {
+  animation: mainEnter 0.6s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  transform-origin: 50% 0;
+}
+
+@keyframes mainEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* On a narrow screen the copy takes the top and the slip the bottom. */
+@media (max-width: 767px) {
+  .intro {
+    --slip-w: clamp(150px, 42vw, 190px);
+    --spot-x: 50%;
+    --spot-y: 76%;
+  }
+
+  .column {
+    justify-content: flex-start;
+    width: 100%;
+    padding-bottom: 0;
+  }
+
+  .stepList p,
+  .lead,
+  .lines li:nth-child(n + 3),
+  .proof {
+    display: none;
+  }
+
+  .slip {
+    /* Smaller than on a wide screen, so the steps above stay readable. */
+    transform: translate(-50%, -50%) translateY(calc(var(--reveal) * var(--slip-w) * -0.16))
+      scale(calc((0.55 + var(--rise) * 0.45) * (0.9 - var(--reveal) * 0.18)));
+  }
+
+  .phone {
+    display: none;
+  }
+
+  .headingStagger span:nth-child(n),
+  .noteRight {
+    margin-right: 0;
+  }
+}
+
+/* With reduced motion nothing is pinned or animated: the slides are plain
+   sections in reading order, and the slip is left out. */
+@media (prefers-reduced-motion: reduce) {
+  .act {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+
+  .stage {
+    display: contents;
+  }
+
+  .night,
+  .steps,
+  .day {
+    position: relative;
+    min-height: 100vh;
+    clip-path: none;
+    opacity: 1;
+  }
+
+  .night {
+    order: 1;
+  }
+
+  .chapterOne {
+    order: 2;
+    height: auto;
+    margin-top: 0;
+    padding-bottom: 6rem;
+  }
+
+  .steps {
+    order: 3;
+  }
+
+  .day {
+    order: 4;
+  }
+
+  .slip,
+  .phone {
+    display: none;
+  }
+
+  .header,
+  .ring,
+  .step1,
+  .step2,
+  .step3,
+  .day .column > * {
+    opacity: 1;
+    transform: none;
+  }
+
+  .accessRow {
+    position: static;
+    padding-bottom: 3rem;
+    opacity: 1;
+    transform: none;
+    translate: none;
+    transition: none;
+    text-align: center;
+  }
+
+  .mainEnter {
+    animation: none;
+  }
+}
