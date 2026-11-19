@@ -209,21 +209,22 @@ Checked after mining: `alarm.factory()` returns the Morpho factory, `alarm.execu
 
 ### Keeper run with no manual step (2026-11-19)
 
-The keeper, restarted from `main` at 08:39 UTC on the Morpho factory with `DEFENSE_ALARM_ADDRESS` set to the alarm above, defended the demo account `0x4d298b39…` alone: one Gateway standing order of 0.34 USDC re-signed for this account (the reserve held 0.399422 USDC), 0.000143 WETH on Base under the policy above, and 0.0001 ETH on Base in the keeper wallet. The only manual steps were turning the simulated drop on and off. Times are block timestamps (UTC).
+The keeper, restarted from `main` at 08:39 UTC on the Morpho factory with `DEFENSE_ALARM_ADDRESS` set to the alarm above, defended the demo account `0x4d298b39…` alone: one Gateway standing order of 0.34 USDC re-signed for this account (the reserve held 0.399422 USDC), 0.000143 WETH on Base under the policy above, and 0.0001 ETH on Base in the keeper wallet. The only manual steps were turning the simulated drop on and off. Times are block timestamps (UTC), except the attestation, read from the keeper's log; the Gateway transfer id and the attestation come from the keeper's log.
 
 | Time | Step | Transaction |
 |------|------|-------------|
-| 08:39:48 | `guard.setSimulatedDrop(8000)`: Aave V4 health factor 2.63 read as 0.525, 0.462666 USDC missing to reach 1.5 | [`0x97e9f5b1…`](https://explorer.arc.io/tx/0x97e9f5b103628d43825e9881be11c8d68dec01cdefe16872769139386a73363d) |
+| 08:39:48 | `guard.setSimulatedDrop(8000)`: Aave V4 health factor 2.63 read as 0.525, 0.462666 USDC missing to reach 1.5 (0.462745 by the time it was repaid: interest between reads) | [`0x97e9f5b1…`](https://explorer.arc.io/tx/0x97e9f5b103628d43825e9881be11c8d68dec01cdefe16872769139386a73363d) |
 | 08:39:51 | keeper submits the Gateway standing order (0.34 USDC) | Gateway transfer `96539074…` |
-| 08:40:11 | Gateway mint on the account, then `sweep()` repays 0.34 USDC; 0.122745 USDC still missing, health factor 1.005 | [`0xc4c7781b…`](https://explorer.arc.io/tx/0xc4c7781b0911bd63cebe3bd0e693d89352f9af5d404fb85eac19a85f1ad254a9), [`0x05b8afe6…`](https://explorer.arc.io/tx/0x05b8afe6e887cfffbcf8fa22cc12f35c26ab9597392de8dc39cbb317e2ce721b) |
-| 08:41:15 | no standing order left and the Gateway transfer settled over a minute ago: keeper calls `alarm.raise(owner)`, alarm #1 for 0.122745 USDC | [`0x289fd120…`](https://explorer.arc.io/tx/0x289fd120a66d699585d6b4f2102ea0c942778a963c36d39eb62d7dacebb6a9c3) |
+| 08:39:55 | Gateway mint of 0.34 USDC on the account | [`0xc4c7781b…`](https://explorer.arc.io/tx/0xc4c7781b0911bd63cebe3bd0e693d89352f9af5d404fb85eac19a85f1ad254a9) |
+| 08:40:07 | keeper `sweep()` repays 0.34 USDC; 0.122745 USDC still missing, health factor 1.005 | [`0x05b8afe6…`](https://explorer.arc.io/tx/0x05b8afe6e887cfffbcf8fa22cc12f35c26ab9597392de8dc39cbb317e2ce721b) |
+| 08:41:15 | no standing order left and over a minute since the keeper saw the Gateway transfer delivered (08:40:12 in its log): keeper calls `alarm.raise(owner)`, alarm #1 for 0.122745 USDC | [`0x289fd120…`](https://explorer.arc.io/tx/0x289fd120a66d699585d6b4f2102ea0c942778a963c36d39eb62d7dacebb6a9c3) |
 | 08:41:19 (log) | Circle's attestation complete, 2 s after the raise was confirmed | |
 | 08:41:20 | keeper relays `receiveMessage` on Base: the executor swaps WETH and burns 0.147745 USDC (0.025 maximum fee) to the account | [`0x1364061d…`](https://basescan.org/tx/0x1364061dab1e69fbd0b85d698919c0a1ede43bdd003c54bbdbba264b42b24151) |
 | 08:41:25 | Circle's forwarder mints 0.122745 USDC on the account | [`0x908be65c…`](https://explorer.arc.io/tx/0x908be65c75724bc79f4b312d236a3fd671ccaf0de734ad877a9bea53e0d80499) |
 | 08:41:30 | keeper `sweep()` repays 0.122745 USDC: simulated health factor back to 1.500 | [`0x6979521d…`](https://explorer.arc.io/tx/0x6979521de46b87d47eede512d313bc7c286dc788af1631b8e8e54402f519a6cb) |
-| | `guard.setSimulatedDrop(0)` | [`0x125a95f8…`](https://explorer.arc.io/tx/0x125a95f8cbd17b9746f9d76a0c34b84440e0a16c9cd63edf74fd7b903baf2f40) |
+| 08:42:05 | `guard.setSimulatedDrop(0)` | [`0x125a95f8…`](https://explorer.arc.io/tx/0x125a95f8cbd17b9746f9d76a0c34b84440e0a16c9cd63edf74fd7b903baf2f40) |
 
-From the drop to the target: 102 s, of which 60 s is the keeper waiting a minute after the Gateway transfer settles before it raises the alarm. From `raise` to the repayment on Arc: 15 s.
+From the drop to the target: 102 s, of which about a minute is the keeper waiting after it sees the Gateway transfer delivered before it raises the alarm. From `raise` to the repayment on Arc: 15 s.
 
 ### Previous: for the first factory
 
