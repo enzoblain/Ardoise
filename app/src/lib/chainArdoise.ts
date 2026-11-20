@@ -299,9 +299,10 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
       let sent: Hex;
       try {
         const call = payCall(request);
-        const signer = { account: walletClient!.account, chain: walletClient!.chain };
         if (smartAccount) sent = await smartAccount.submit([{ to: account, data: encodeFunctionData(call) }]);
         else {
+          // Only a browser wallet has a wallet client: a passkey account has none.
+          const signer = { account: walletClient!.account, chain: walletClient!.chain };
           // The estimate is too tight for this call (guard, venue borrow and the
           // CCTP burn with its forwarder hook): a payment ran out of gas at the
           // wallet's limit on mainnet. 30% headroom, only the gas used is paid.
