@@ -8,13 +8,13 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, 
 
 ## Demo
 
-- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page opens with a scroll-driven intro (the ring of collateral vaults with the live cirBTC rate, then borrowing, paying and protection); its **Access** button leads to the main page, where **My position** (or [`/app`](https://ardoise-rust.vercel.app/app)) opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
+- Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page opens with a scroll-driven intro (the ring of collateral vaults with the live cirBTC rate, then borrowing, paying and protection); its **Access** button leads to the main page, where **My position** (or [`/app`](https://ardoise-rust.vercel.app/app)) asks first for a wallet or a passkey; with cirBTC collateral on Aave V4 on Arc mainnet, the one-time activation opens a real account, shown in four tabs: Pay, Statement, Protection and Stress test. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
 - Demo video: _coming soon_
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
 <img src="docs/images/app-demo.jpg" alt="Ardoise app: the pay screen with the Aave V4 and Morpho rates and the margin gauge, beside the line-by-line statement" width="720">
 
-*The app on the demo account: live rates from Arc mainnet and the margin before and after the payment, beside the statement.*
+*The pay screen: live rates from Arc mainnet and the margin before and after the payment (earlier layout, with the statement beside it; the statement now has its own tab).*
 
 A real payment made from the app on Arc mainnet (2026-11-18):
 
@@ -58,9 +58,9 @@ What the agent does with it:
 - **See the rates and your margin before you pay.** The pay screen compares the live USDC borrow rates of Aave V4 and Morpho on Arc, with each borrowable venue's liquidity and whether the guard allows this payment there, and shows how much margin the position keeps before and after the payment.
 - **One line per payment.** The statement lists every payment as a debt line: amount, venue, rate, payee, memo and interest so far, built from the account's on-chain events. Each cross-chain payment has a tracking page that follows it until it lands on the payee's chain.
 - **Defended across chains.** A position guard refuses any payment that would push the margin below a minimum. A keeper repays debt with the USDC sent to the account. From the Protection panel, the owner can also keep a USDC reserve in Circle Gateway on Base and sign standing orders that the keeper uses to repay when the margin gets too low, or repay from Base in one click (both run on Arc mainnet: a one-click repayment from Base swept 5 s after it landed, and an automatic repayment 17 s after a simulated price drop; see [`contracts/deployments.md`](contracts/deployments.md#state)).
-- **Stress test before it happens.** Pick a scenario (for example bitcoin −40% and ether −50%) and see the health factor as bitcoin falls, with and without the keeper drawing on the reserve. The panel shows the reserve drawn in order, whether the position survives and the liquidation penalty it avoids, using Aave V4's cirBTC liquidation parameters read on Arc. The keeper only counts what it can actually draw: USDC on the account and the part of the Gateway reserve the standing orders cover. A breakdown lists the reserve asset by asset, including the rest of the Gateway balance and USDC and ETH in the wallet on Base, with ETH counted at its crisis value. It ends with the bitcoin drop the keeper covers, and the drop covered if the owner also moves the rest in time. A live account's reserve is read on chain; the demo account's is simulated. Everything is computed in the browser ([`app/src/lib/stress.ts`](app/src/lib/stress.ts), [`app/src/lib/reserve.ts`](app/src/lib/reserve.ts)).
+- **Stress test before it happens.** Pick a scenario (for example bitcoin −40% and ether −50%) and see the health factor as bitcoin falls, with and without the keeper drawing on the reserve. The panel shows the reserve drawn in order, whether the position survives and the liquidation penalty it avoids, using Aave V4's cirBTC liquidation parameters read on Arc. The keeper only counts what it can actually draw: USDC on the account and the part of the Gateway reserve the standing orders cover. A breakdown lists the reserve asset by asset, including the rest of the Gateway balance and USDC and ETH in the wallet on Base, with ETH counted at its crisis value. It ends with the bitcoin drop the keeper covers, and the drop covered if the owner also moves the rest in time. The reserve is read on chain. Everything is computed in the browser ([`app/src/lib/stress.ts`](app/src/lib/stress.ts), [`app/src/lib/reserve.ts`](app/src/lib/reserve.ts)).
 
-Without a wallet, anyone can try the whole flow on a demo account simulated in the browser, with live rates from Arc mainnet and real Circle fee quotes. Connecting a wallet on Arc mainnet activates a real account. Instead of a browser wallet, a user can sign in with a passkey (Face ID, Touch ID, a security key): it owns a Circle smart account, which is activated and pays with one passkey signature each, with no seed phrase and no extension.
+The app opens on a connect screen: connecting a wallet on Arc mainnet activates a real account, then the account is shown in four tabs (Pay, Statement, Protection with the Gateway reserve and the withdrawal of idle USDC, and Stress test). Instead of a browser wallet, a user can sign in with a passkey (Face ID, Touch ID, a security key): it owns a Circle smart account, which is activated and pays with one passkey signature each, with no seed phrase and no extension.
 
 **What Ardoise adds to Borrow Kit:**
 
@@ -163,7 +163,7 @@ On **Base mainnet**: `DefenseExecutor` production [`0xbb8c9935BFE2F15169E7195E21
 
 The fastest way is the [live app](https://ardoise-rust.vercel.app), with nothing to install. To run it locally instead:
 
-Needs Node.js 22.9 or later. No wallet and no `.env` file are required: the app opens on a demo account simulated in the browser, with live lending rates from Arc mainnet. Without `.env` the app runs in testnet mode, so payments go to Base Sepolia or Arc Testnet and the cross-chain fee is quoted by Circle's sandbox.
+Needs Node.js 22.9 or later. No `.env` file is required to start the app, but without one it runs in testnet mode, where no contracts are deployed: the app page then says so. Set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` (below) to open an account.
 
 ```bash
 git clone https://github.com/enzoblain/Ardoise.git
@@ -198,7 +198,7 @@ Run the front end and the keeper in two separate terminals, from the repository 
 (cd app && npm run dev)      # front end on http://localhost:3000
 ```
 
-By default the app runs on Arc Testnet with a simulated demo account. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance). To offer passkeys, also set `NEXT_PUBLIC_CIRCLE_CLIENT_KEY` to a Circle client key whose passkey domain is the app's host (`localhost` for local runs); the passkey's smart account needs cirBTC and some USDC for gas before its activation (the app asks for at least 0.5 USDC: in test 0.2, a single transfer needed a 0.106 USDC prefund and finally cost about 0.04 USDC).
+By default the app runs on Arc Testnet, where no contracts are deployed. To use the deployed contracts, set `NEXT_PUBLIC_ARDOISE_NETWORK=mainnet` in the root `.env`, open the app with a browser wallet that holds cirBTC collateral on Aave V4, click **Connect wallet** and follow the one-time activation (Aave position managers, account creation, borrow allowance). To offer passkeys, also set `NEXT_PUBLIC_CIRCLE_CLIENT_KEY` to a Circle client key whose passkey domain is the app's host (`localhost` for local runs); the passkey's smart account needs cirBTC and some USDC for gas before its activation (the app asks for at least 0.5 USDC: in test 0.2, a single transfer needed a 0.106 USDC prefund and finally cost about 0.04 USDC).
 
 ```bash
 (cd keeper && npm start)     # keeper, polls Arc mainnet for new blocks
