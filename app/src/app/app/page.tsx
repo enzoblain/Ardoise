@@ -3,6 +3,7 @@ import { APP_TABS, SiteHeader, type AppTab } from "@/components/SiteHeader";
 import { arcClient } from "@/lib/arc";
 import { network } from "@/lib/network";
 import { memo } from "@/lib/cache";
+import { WalletProvider } from "@/lib/walletContext";
 import { readVenueRates } from "@/lib/venues";
 
 // Rendered per request, but its chain reads are shared between visitors:
@@ -15,7 +16,7 @@ const chainId = memo(60 * 60_000, 24 * 60 * 60_000, () => arcClient.getChainId()
 
 /**
  * App page (`/app`): the account's sections (`?tab=positions`, the default,
- * `markets` or `new`), fed with live venue rates from Arc mainnet, and the
+ * `collateral`, `stress`, `markets` or `new`), fed with live venue rates from Arc mainnet, and the
  * status of the Arc network the app is set to.
  *
  * @param props.searchParams The query; `tab` picks the section, `connect=wallet` opens the browser wallet.
@@ -33,6 +34,7 @@ export default async function AppPage({ searchParams }: { searchParams: Promise<
       : `${network.arc.label} · block ${block.toString()}`;
 
   return (
+    <WalletProvider>
     <div className="min-h-screen">
       <SiteHeader current={tab} />
       <div className="mx-auto flex max-w-6xl justify-end px-6 pb-3">
@@ -52,5 +54,6 @@ export default async function AppPage({ searchParams }: { searchParams: Promise<
         )}
       </main>
     </div>
+    </WalletProvider>
   );
 }

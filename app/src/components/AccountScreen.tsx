@@ -12,6 +12,7 @@ import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { Markets } from "@/components/Markets";
+import { OpenPositions } from "@/components/OpenPositions";
 import { NewPosition } from "@/components/NewPosition";
 import { PayScreen } from "@/components/PayScreen";
 import { VenueCheckNotice } from "@/components/VenueCheck";
@@ -20,11 +21,14 @@ import type { AppTab } from "@/components/SiteHeader";
 import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
 import { WithdrawPanel } from "@/components/WithdrawPanel";
+import { useWalletState } from "@/lib/walletContext";
 
 /**
- * The account's views, sharing one account client, on three tabs:
- * - My positions: the position on each lender and what can still be spent,
- *   the pay screen, the statement each payment adds a line to, and the stress test;
+ * The account's views, sharing one account client, on five tabs:
+ * - My positions: the open positions (payment lines still owed), the pay
+ *   screen, the statement each payment adds a line to, and the withdrawal;
+ * - Collateral: the position on each lender and what can still be spent;
+ * - Stress test: what a bitcoin fall would do;
  * - Markets: the lenders Ardoise borrows from, side by side, with a way to pay from one;
  * - New position: connecting a wallet (a browser wallet, or a passkey that
  *   owns a Circle smart account), the one-time setup, and the protection from
@@ -47,8 +51,14 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
   // Created once: the server sends fresh venue objects on every section
   // change, and a new demo account would drop the payments made so far.
   const [demo] = useState(() => createMockArdoise(venues));
-  const [wallet, setWallet] = useState<ConnectedWallet>();
-  const [accountAddress, setAccountAddress] = useState<Address>();
+  // Shared with the header (which shows the wallet), so it survives section changes.
+  const shared = useWalletState();
+  const [localWallet, setLocalWallet] = useState<ConnectedWallet>();
+  const [localAccount, setLocalAccount] = useState<Address>();
+  const wallet = shared ? shared.wallet : localWallet;
+  const setWallet = shared ? shared.setWallet : setLocalWallet;
+  const accountAddress = shared ? shared.accountAddress : localAccount;
+  const setAccountAddress = shared ? shared.setAccountAddress : setLocalAccount;
   const [connectError, setConnectError] = useState<string>();
   const [payments, setPayments] = useState(0);
   const [unexpectedVenue, setUnexpectedVenue] = useState(false);
@@ -92,7 +102,7 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
     return () => {
       wallet.provider.removeListener("accountsChanged", reset);
     };
-  }, [wallet]);
+  }, [wallet, setWallet, setAccountAddress]);
 
   async function connect(how: () => Promise<ConnectedWallet>) {
     setConnectError(undefined);
@@ -118,9 +128,9 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
     // Drop the parameter so that a reload does not open the wallet prompt again.
     router.replace("/app?tab=new");
     connectWallet().then(setWallet, (e: Error) => setConnectError(e.message.split("\n")[0]));
-  }, [autoConnect, router]);
+  }, [autoConnect, router, setWallet]);
 
-  const onReady = useCallback((address: Address) => setAccountAddress(address), []);
+  const onReady = useCallback((address: Address) => setAccountAddress(address), [setAccountAddress]);
 
   return (
     <>
@@ -156,10 +166,25 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
             setTab("positions");
           }}
         />
+      ) : tab === "collateral" ? (
+        <section className="card" aria-label="Collateral on each lender">
+          <Positions key={live ? "live-positions" : "demo-positions"} account={account} venues={venues} version={payments} />
+        </section>
+      ) : tab === "stress" ? (
+        <section className="card" aria-label="Stress test">
+          <StressTest
+            key={live ? "live-stress" : "demo-stress"}
+            account={account}
+            venues={venues}
+            owner={live ? wallet?.address : undefined}
+            accountAddress={live ? accountAddress : undefined}
+            version={payments}
+          />
+        </section>
       ) : (
         <>
-          <section className="card" aria-label="My positions">
-            <Positions key={live ? "live-positions" : "demo-positions"} account={account} venues={venues} version={payments} />
+          <section className="card" aria-label="My open positions">
+            <OpenPositions key={live ? "live-open" : "demo-open"} account={account} venues={venues} version={payments} />
           </section>
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay" inert={unexpectedVenue}>
@@ -180,16 +205,6 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
                   <WithdrawPanel wallet={wallet} account={accountAddress} version={payments} />
                 </div>
               )}
-              <section className="card" aria-label="Stress test">
-                <StressTest
-                  key={live ? "live-stress" : "demo-stress"}
-                  account={account}
-                  venues={venues}
-                  owner={live ? wallet?.address : undefined}
-                  accountAddress={live ? accountAddress : undefined}
-                  version={payments}
-                />
-              </section>
             </div>
           </div>
         </>

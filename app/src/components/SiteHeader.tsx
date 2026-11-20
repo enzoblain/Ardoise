@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { HeaderWallet } from "@/components/HeaderWallet";
 import { LogoMark } from "@/components/LogoMark";
 
 /** A section of the app, as `/app?tab=`. */
-export type AppTab = "positions" | "new" | "markets";
+export type AppTab = "positions" | "collateral" | "stress" | "new" | "markets";
 
 /** The app's sections, in the order of the header. */
 export const APP_TABS: [AppTab, string][] = [
   ["positions", "My positions"],
+  ["collateral", "Collateral"],
+  ["stress", "Stress test"],
   ["new", "New position"],
   ["markets", "Markets"],
 ];
@@ -14,8 +17,8 @@ export const APP_TABS: [AppTab, string][] = [
 /**
  * The header shared by the main landing page and the app: the brand (back to
  * the intro), the app's sections on the left, and on the right the way back
- * to the intro, the Arc and Circle section of the landing page, and Connect
- * wallet.
+ * to the intro, the Arc and Circle section of the landing page, and the
+ * wallet: Connect wallet, or the connected wallet's address.
  *
  * @param props.current The app section being shown, if any, to mark it.
  */
@@ -49,12 +52,7 @@ export function SiteHeader({ current }: { current?: AppTab }) {
         <Link href="/#stack" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
           Arc / Circle
         </Link>
-        <Link
-          href="/app?connect=wallet"
-          className="rounded-full bg-[#fafafa] px-4 py-2 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85"
-        >
-          Connect wallet
-        </Link>
+        <HeaderWallet />
       </nav>
     </header>
   );
