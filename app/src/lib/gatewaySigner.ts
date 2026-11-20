@@ -2,7 +2,7 @@ import { createPublicClient, createWalletClient, custom, encodeFunctionData, htt
 import { arcClient } from "@/lib/arc";
 import { depositAbi, gateway, sweepAbi, type IntentSigner } from "@/lib/gateway";
 import { network } from "@/lib/network";
-import { sendFromPasskey, switchChain, type PasskeyWallet } from "@/lib/wallet";
+import { sendFromPasskey, switchChain, type Call, type PasskeyWallet } from "@/lib/wallet";
 
 /**
  * What the Protection panel needs from the owner's wallet: deposit on Base,
@@ -27,6 +27,14 @@ export interface GatewaySigner extends IntentSigner {
    * @returns The Arc transaction.
    */
   sweep(account: Address): Promise<Hex>;
+  /**
+   * Sends calls on Base from the owner (the defense mandate: approvals and
+   * `setPolicy` on the executor) and waits for them.
+   *
+   * @param calls Calls in order.
+   * @returns The Base transaction of the last call.
+   */
+  sendOnBase(calls: Call[]): Promise<Hex>;
 }
 
 /**
@@ -69,6 +77,23 @@ export function browserGatewaySigner(provider: EIP1193Provider, owner: Address):
         await switchChain(provider, network.arc.chain).catch(() => undefined);
       }
     },
+    async sendOnBase(calls) {
+      const chain = network.base.chain;
+      await switchChain(provider, chain);
+      try {
+        const wallet = createWalletClient({ account: owner, chain, transport: custom(provider) });
+        const base = createPublicClient({ chain, transport: http() });
+        let hash: Hex = "0x";
+        for (const call of calls) {
+          hash = await wallet.sendTransaction({ to: call.to, data: call.data });
+          const receipt = await base.waitForTransactionReceipt({ hash });
+          if (receipt.status !== "success") throw new Error(`Transaction ${hash} reverted`);
+        }
+        return hash;
+      } finally {
+        await switchChain(provider, network.arc.chain).catch(() => undefined);
+      }
+    },
     async sweep(account) {
       await switchChain(provider, network.arc.chain);
       const wallet = createWalletClient({ account: owner, chain: network.arc.chain, transport: custom(provider) });
@@ -108,5 +133,6 @@ export function passkeyGatewaySigner(wallet: PasskeyWallet): GatewaySigner {
       ]);
     },
     sweep: (account) => sendFromPasskey(wallet, [{ to: account, data: encodeFunctionData({ abi: sweepAbi, functionName: "sweep" }) }]),
+    sendOnBase: async (calls) => sendFromPasskey(await wallet.onBase(), calls),
   };
 }

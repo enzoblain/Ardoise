@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Address } from "viem";
 import { AccountSetup } from "@/components/AccountSetup";
 import { AddCollateral } from "@/components/AddCollateral";
+import { DefenseMandate } from "@/components/DefenseMandate";
 import { PayScreen } from "@/components/PayScreen";
 import type { ArdoiseClient, Venue } from "@/lib/ardoise";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
@@ -20,7 +21,8 @@ const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
  * passkey) until one is connected, then the one-time setup on Aave V4 and
  * the account until it is done; then three cards: put up cirBTC collateral
  * on Aave V4 or Morpho, borrow USDC to the owner's wallet, and set aside USDC
- * on Base (Gateway reserve, standing orders) that the keeper repays with.
+ * on Base (Gateway reserve, standing orders) and the defense mandate the
+ * keeper repays with.
  *
  * @param props.wallet The connected wallet, if any.
  * @param props.account The owner's Ardoise account once the setup is done.
@@ -87,12 +89,21 @@ export function NewPosition(props: {
             )}
           </section>
           <section className="card flex flex-col gap-3" aria-label="Reserve">
-            <h2 className="text-lg font-semibold">3 · Set aside USDC to manage it</h2>
+            <h2 className="text-lg font-semibold">3 · How do you want to be covered?</h2>
             <p className="text-sm text-muted">
-              A USDC reserve with Circle Gateway and standing orders: when the margin runs low, the keeper draws on it and repays.
-              It protects all your positions, the one closest to liquidation first.
+              When the margin runs low, the keeper repays from what you set aside here, before any liquidation: first a USDC
+              reserve with Circle Gateway, then, if that is not enough, your defense mandate.
             </p>
-            {props.signer ? <ProtectionPanel signer={props.signer} account={account} /> : <p className="text-sm text-muted">Reading your account…</p>}
+            {props.signer ? (
+              <>
+                <ProtectionPanel signer={props.signer} account={account} />
+                <div className="border-t border-line pt-4">
+                  <DefenseMandate signer={props.signer} owner={wallet.address} />
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted">Reading your account…</p>
+            )}
           </section>
         </>
       ) : wallet && deployment ? (
