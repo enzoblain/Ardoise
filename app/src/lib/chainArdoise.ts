@@ -301,9 +301,21 @@ export function createChainArdoise(options: ChainArdoiseOptions): ArdoiseClient 
         const call = payCall(request);
         const signer = { account: walletClient!.account, chain: walletClient!.chain };
         if (smartAccount) sent = await smartAccount.submit([{ to: account, data: encodeFunctionData(call) }]);
-        // One call per function, so viem types each one's arguments.
-        else if (call.functionName === "pay") sent = await walletClient!.writeContract({ ...call, ...signer });
-        else sent = await walletClient!.writeContract({ ...call, ...signer });
+        else {
+          // The estimate is too tight for this call (guard, venue borrow and the
+          // CCTP burn with its forwarder hook): a payment ran out of gas at the
+          // wallet's limit on mainnet. 30% headroom, only the gas used is paid.
+          // Without an estimate the wallet estimates on its own, as before.
+          let gas: bigint | undefined;
+          try {
+            gas = ((await publicClient.estimateGas({ account: owner, to: account, data: encodeFunctionData(call) })) * 13n) / 10n;
+          } catch {
+            gas = undefined;
+          }
+          // One call per function, so viem types each one's arguments.
+          if (call.functionName === "pay") sent = await walletClient!.writeContract({ ...call, ...signer, gas });
+          else sent = await walletClient!.writeContract({ ...call, ...signer, gas });
+        }
       } catch (error) {
         const reason = toPaymentError(error);
         if (reason.code !== "Reverted") throw new PaymentFailed(reason);
