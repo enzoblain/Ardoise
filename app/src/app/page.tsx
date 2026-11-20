@@ -93,7 +93,7 @@ export default async function Landing() {
 
         <section className="mx-auto max-w-6xl px-6 pb-24">
           {venues ? (
-            <Markets venues={venues} pickHref={(id) => `/app?tab=new&venue=${id}`} />
+            <Markets venues={venues} pickHref="/app?tab=new&venue=" />
           ) : (
             <p className="text-sm text-[#6b6b6b]">The lending rates on Arc cannot be read right now.</p>
           )}

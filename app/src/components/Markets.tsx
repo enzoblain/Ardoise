@@ -23,9 +23,9 @@ const ABOUT: Record<string, { market: string; detail: string }> = {
  * given market. Rates are the ones every payment compares.
  *
  * @param props.venues Venues with their live rates, read on the server.
- * @param props.pickHref Link to the app's pay screen on a venue, by venue id.
+ * @param props.pickHref Start of the link that opens the app on a venue; the venue id is appended.
  */
-export function Markets({ venues, pickHref }: { venues: Venue[]; pickHref: (venueId: string) => string }) {
+export function Markets({ venues, pickHref }: { venues: Venue[]; pickHref: string }) {
   const borrowable = venues.filter((v) => v.borrowable !== false);
   const cheapest = [...borrowable].sort((a, b) => a.rateBps - b.rateBps)[0];
   const explorer = network.arc.chain.blockExplorers?.default.url;
@@ -77,7 +77,7 @@ export function Markets({ venues, pickHref }: { venues: Venue[]; pickHref: (venu
                   </a>
                 )}
                 {canBorrow ? (
-                  <Link href={pickHref(venue.id)} className="btn-primary px-4 py-2 text-sm">
+                  <Link href={`${pickHref}${venue.id}`} className="btn-primary px-4 py-2 text-sm">
                     Borrow on {venue.name}
                   </Link>
                 ) : (
