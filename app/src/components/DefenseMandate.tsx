@@ -25,10 +25,18 @@ export function DefenseMandate({ signer, owner }: { signer: GatewaySigner; owner
   const [error, setError] = useState<string>();
   const [done, setDone] = useState<string>();
   const [version, setVersion] = useState(0);
+  const [readError, setReadError] = useState<string>();
 
   useEffect(() => {
     let current = true;
-    readMandate(owner).then((m) => current && setMandate(m), () => current && setMandate(null));
+    readMandate(owner).then(
+      (m) => {
+        if (!current) return;
+        setMandate(m);
+        setReadError(undefined);
+      },
+      (e: Error) => current && setReadError(e.message.split("\n")[0]),
+    );
     readBaseFunds(owner).then((f) => current && setFunds(f), () => undefined);
     return () => {
       current = false;
@@ -49,7 +57,7 @@ export function DefenseMandate({ signer, owner }: { signer: GatewaySigner; owner
     }
   }
 
-  const choice = () => ({ usdcPerDay: Number(usdc) || 0, wethPerDay: Number(weth) || 0, maxSlippageBps: Math.round((Number(slippage) || 0) * 100) });
+  const choice = () => ({ usdcPerDay: usdc, wethPerDay: weth, maxSlippageBps: Math.round((Number(slippage) || 0) * 100) });
 
   return (
     <div className="flex flex-col gap-3">
@@ -61,7 +69,9 @@ export function DefenseMandate({ signer, owner }: { signer: GatewaySigner; owner
           account.
         </p>
       </div>
-      {mandate === undefined ? (
+      {readError ? (
+        <p className="text-sm text-danger">Could not read your mandate: {readError}</p>
+      ) : mandate === undefined ? (
         <p className="text-sm text-muted">Reading your mandate…</p>
       ) : mandate ? (
         <p className="rounded-xl border border-line px-3 py-2 text-sm">
@@ -92,7 +102,7 @@ export function DefenseMandate({ signer, owner }: { signer: GatewaySigner; owner
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-primary px-4 py-2 text-sm" disabled={busy} onClick={() => void run(() => mandateCalls(choice()))}>
+        <button type="button" className="btn-primary px-4 py-2 text-sm" disabled={busy || readError !== undefined || mandate === undefined} onClick={() => void run(() => mandateCalls(choice()))}>
           {busy ? "Confirm in your wallet…" : mandate ? "Update mandate" : "Set mandate"}
         </button>
         {mandate && (

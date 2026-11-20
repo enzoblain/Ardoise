@@ -97,9 +97,12 @@ export function NewPosition(props: {
             {props.signer ? (
               <>
                 <ProtectionPanel signer={props.signer} account={account} />
-                <div className="border-t border-line pt-4">
-                  <DefenseMandate signer={props.signer} owner={wallet.address} />
-                </div>
+                {/* The executor is deployed on Base mainnet only. */}
+                {network.name === "mainnet" && (
+                  <div className="border-t border-line pt-4">
+                    <DefenseMandate signer={props.signer} owner={wallet.address} />
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-sm text-muted">Reading your account…</p>
