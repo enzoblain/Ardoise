@@ -11,7 +11,7 @@ Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, 
 ## Demo
 
 - Live app: **https://ardoise-rust.vercel.app**, on Arc mainnet. The landing page opens with a scroll-driven intro (the ring of collateral vaults with the live cirBTC rate, then borrowing, paying and protection); its **Access** button leads to the main page, where **My position** (or [`/app`](https://ardoise-rust.vercel.app/app)) opens on a demo account simulated in the browser, with live lending rates and Circle fee quotes from mainnet; with a wallet that holds cirBTC collateral on Aave V4 on Arc mainnet, **Connect wallet** activates a real account. Standing orders cannot be signed there, since the keeper's order intake only listens locally.
-- Demo video: _coming soon_
+- Demo video: **https://youtu.be/fc81em77WjI**
 - Try it locally in 2 minutes: see [Try it in 2 minutes](#try-it-in-2-minutes).
 
 <img src="docs/images/app-demo.jpg" alt="Ardoise app: the pay screen with the Aave V4 and Morpho rates and the margin gauge, beside the line-by-line statement" width="720">
