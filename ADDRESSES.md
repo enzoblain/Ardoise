@@ -25,10 +25,17 @@ The Ardoise contracts in use, deployed on 2026-11-19 from `main`. Every source i
 
 | Contract | Chain | Address |
 |---|---|---|
+| USDC | Arc | `0x3600000000000000000000000000000000000000` |
+| cirBTC | Arc | `0x171A4217b86A807A64eB94757Db6849fb4bDbAA0` |
+| Aave V4 Main Spoke | Arc | `0xB843bdC3a87A05E77E07Df9FE48928b3A34b134d` |
+| Aave V4 TakerPositionManager | Arc | `0xe9fae1C386c6f45B1fb3C3Ef01aDE424DAd4bCcF` |
+| Aave V4 GiverPositionManager | Arc | `0x01Da80Eef3004ebbF90b7637B1De7fF30fBc7cf1` |
+| Morpho (cirBTC / USDC market `0xc2db905f174e5defcce01d321b09f15f78856a36a21b90cc7e1abbc29225815d`) | Arc | `0x34CD04070dD72b14E241112F6d83812Df5Af7fCD` |
 | Circle CCTP V2 TokenMessengerV2 | Arc, Base | `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d` |
 | Circle CCTP V2 MessageTransmitterV2 | Arc, Base | `0x81D40F21F12A8F0E3252Bccb954D722d4c464B64` |
-| Circle Gateway Wallet | Base | `0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE` |
-| Aave V4 Main Spoke | Arc | `0xB843bdC3a87A05E77E07Df9FE48928b3A34b134d` |
-| Morpho | Arc | `0x34CD04070dD72b14E241112F6d83812Df5Af7fCD` |
-| cirBTC | Arc | `0x171A4217b86A807A64eB94757Db6849fb4bDbAA0` |
-| USDC | Arc | `0x3600000000000000000000000000000000000000` |
+| Circle Gateway GatewayWallet | Arc, Base | `0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE` |
+| Circle Gateway GatewayMinter | Arc, Base | `0x2222222d7164433c4C09B0b0D809a9b52C04C205` |
+| USDC | Base | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| WETH | Base | `0x4200000000000000000000000000000000000006` |
+| Uniswap SwapRouter02 | Base | `0x2626664c2603336E57B271c5C0b26F421741e481` |
+| Chainlink ETH / USD feed | Base | `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70` |
