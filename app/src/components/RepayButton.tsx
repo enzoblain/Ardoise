@@ -7,7 +7,7 @@ import { sendCalls } from "@/lib/collateral";
 import { erc20Abi } from "@/lib/contracts/deployments";
 import { formatUsdc } from "@/lib/format";
 import { gateway } from "@/lib/gateway";
-import { repayAllCalls, repayAmount, repayCalls } from "@/lib/repay";
+import { GAS_RESERVE, repayAllCalls, repayAmount, repayCalls } from "@/lib/repay";
 import type { ConnectedWallet } from "@/lib/wallet";
 
 /**
@@ -30,7 +30,7 @@ export function RepayButton(props: { wallet: ConnectedWallet; account: Address; 
     try {
       const balance = await arcClient.readContract({ address: gateway.arcUsdc, abi: erc20Abi, functionName: "balanceOf", args: [props.wallet.address] });
       const amount = repayAmount(props.owed, balance);
-      if (amount === 0n) throw new Error("No USDC in your wallet on Arc to repay with.");
+      if (amount === 0n) throw new Error("Not enough USDC in your wallet on Arc to repay and pay the gas.");
       await sendCalls(props.wallet, arcClient, repayCalls(props.account, props.lineId, amount));
       if (amount < props.owed) setError(`Repaid ${formatUnits(amount, 6)} USDC, all your wallet held: the rest is still owed.`);
       props.onRepaid();
@@ -77,13 +77,15 @@ export function RepayAllButton(props: { wallet: ConnectedWallet; account: Addres
     try {
       const { calls, total } = repayAllCalls(props.account, props.lines);
       const balance = await arcClient.readContract({ address: gateway.arcUsdc, abi: erc20Abi, functionName: "balanceOf", args: [props.wallet.address] });
-      if (balance < total) throw new Error(`Needs ${formatUnits(total, 6)} USDC in your wallet on Arc; it holds ${formatUnits(balance, 6)}.`);
+      if (balance < total + GAS_RESERVE)
+        throw new Error(`Needs ${formatUnits(total + GAS_RESERVE, 6)} USDC in your wallet on Arc (gas included); it holds ${formatUnits(balance, 6)}.`);
       await sendCalls(props.wallet, arcClient, calls);
-      props.onRepaid();
     } catch (e) {
       setError((e as Error).message.split("\n")[0]);
     } finally {
       setBusy(false);
+      // Read again even after a failure: earlier lines may have been repaid before it.
+      props.onRepaid();
     }
   }
 

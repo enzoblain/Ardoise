@@ -12,8 +12,14 @@ import type { Call } from "@/lib/wallet";
 export const REPAY_HEADROOM = 10_000n; // 0.01 USDC
 
 /**
+ * USDC kept in the wallet for gas: on Arc the USDC balance also pays gas, so
+ * sending all of it would leave nothing for the approval and the repayment.
+ */
+export const GAS_RESERVE = 50_000n; // 0.05 USDC
+
+/**
  * How much to send to close a line: its estimate plus headroom, never more
- * than the wallet holds.
+ * than the wallet holds less a reserve for gas.
  *
  * @param owed What the line is estimated to owe, USDC units.
  * @param walletBalance USDC in the owner's wallet on Arc, USDC units.
@@ -21,7 +27,8 @@ export const REPAY_HEADROOM = 10_000n; // 0.01 USDC
  */
 export function repayAmount(owed: bigint, walletBalance: bigint): bigint {
   const wanted = owed + REPAY_HEADROOM;
-  return wanted < walletBalance ? wanted : walletBalance;
+  const spendable = walletBalance > GAS_RESERVE ? walletBalance - GAS_RESERVE : 0n;
+  return wanted < spendable ? wanted : spendable;
 }
 
 /**

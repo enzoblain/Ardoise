@@ -50,7 +50,7 @@ export function LandingGate({ intro, children }: { intro: React.ReactNode; child
     setEntered(!wantsIntro && seen);
   }, []);
 
-  // A link such as `/#stack` scrolls to its section once the main page is shown.
+  // A link with a hash (`/#section`) scrolls to its section once the main page is shown.
   useEffect(() => {
     if (!entered || !window.location.hash) return;
     document.getElementById(window.location.hash.slice(1))?.scrollIntoView();

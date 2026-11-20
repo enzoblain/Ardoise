@@ -32,7 +32,7 @@ const DESTINATIONS: PayoutChain[] = [network.base, network.arc];
  * @param props.account Account client the payment goes through.
  * @param props.venues Venues with their live rates, read on the server.
  * @param props.onPaid Called after each successful payment.
- * @param props.initialVenueId Venue to borrow from at first (picked on the Markets tab); the
+ * @param props.initialVenueId Venue to borrow from at first (picked in the Markets section of the main page); the
  * recommendation when absent.
  * @param props.toSelf The owner's wallet, to borrow to it on Arc instead of paying someone.
  * @param props.title Heading of the card.

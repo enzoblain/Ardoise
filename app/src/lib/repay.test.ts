@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { REPAY_HEADROOM, repayAllCalls, repayAmount, repayCalls } from "@/lib/repay";
+import { GAS_RESERVE, REPAY_HEADROOM, repayAllCalls, repayAmount, repayCalls } from "@/lib/repay";
 
 describe("repayAmount", () => {
   it("adds headroom to the estimate", () => {
     expect(repayAmount(100_000n, 10_000_000n)).toBe(100_000n + REPAY_HEADROOM);
   });
-  it("never sends more than the wallet holds", () => {
-    expect(repayAmount(100_000n, 50_000n)).toBe(50_000n);
+  it("keeps a reserve for gas out of what it sends", () => {
+    expect(repayAmount(100_000n, 80_000n)).toBe(80_000n - GAS_RESERVE);
+    expect(repayAmount(100_000n, 10_000n)).toBe(0n);
   });
 });
 

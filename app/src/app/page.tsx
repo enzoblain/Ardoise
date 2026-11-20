@@ -36,7 +36,7 @@ const STEPS = [
 
 /**
  * Landing page: opening slides, then, once the visitor asks for it, what Ardoise does, the live
- * borrow rates on Arc mainnet, what Ardoise uses from Arc and Circle, and the way into the app.
+ * markets on Arc mainnet and the way into the app (what Ardoise uses from Arc and Circle is on `/stack`).
  */
 export default async function Landing() {
   const venues = await readVenueRates().catch(() => null);

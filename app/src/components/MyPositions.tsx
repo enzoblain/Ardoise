@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Address } from "viem";
+import { arcClient } from "@/lib/arc";
+import { accountAbi } from "@/lib/contracts/abis";
 import { marginFromHealth, NO_DEBT_HEALTH, WAD, type ArdoiseClient, type Caps, type Health, type Venue } from "@/lib/ardoise";
 import { DEMO_MANDATE, readMandate, type Mandate } from "@/lib/defense";
 import { formatBps, formatPercent, formatUsdc } from "@/lib/format";
@@ -74,10 +76,19 @@ export function MyPositions(props: {
     const now = Math.floor(Date.now() / 1000);
     void Promise.all([
       Promise.all(venues.map((v) => account.health(v.id).then((h) => ({ h }), (e: Error) => ({ e: e.message.split("\n")[0] })))),
-      account.events().then(
-        (e) => ({ lines: buildStatement(e.account, e.logs, e.blockTimes, venues, now).lines.filter((l) => l.owed > 0n) }),
-        (e: Error) => ({ lines: [] as StatementLine[], error: e.message.split("\n")[0] }),
-      ),
+      account
+        .events()
+        .then(async (e) => {
+          const estimated = buildStatement(e.account, e.logs, e.blockTimes, venues, now).lines.filter((l) => l.owed > 0n);
+          // The estimate keeps accruing interest on a line the account already closed (repaid, or
+          // its venue debt at 0): the contract's `closed` is what says a line is still open.
+          if (!live) return { lines: estimated };
+          const closed = await Promise.all(
+            estimated.map((l) => arcClient.readContract({ address: accountAddress, abi: accountAbi, functionName: "closed", args: [l.lineId] })),
+          );
+          return { lines: estimated.filter((_, i) => !closed[i]) };
+        })
+        .catch((e: Error) => ({ lines: [] as StatementLine[], error: e.message.split("\n")[0] })),
     ]).then(([healths, read2]) => {
       if (!current) return;
       const lines = read2.lines;
@@ -98,7 +109,7 @@ export function MyPositions(props: {
     return () => {
       current = false;
     };
-  }, [account, venues, version, live]);
+  }, [account, venues, version, live, accountAddress]);
 
   useEffect(() => {
     let current = true;
