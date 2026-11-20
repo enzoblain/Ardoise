@@ -19,18 +19,19 @@ const EXPLORER = "https://explorer.arc.io";
 const PAY_TX = "0x9dfdd3d8ba60968a8feaed312edd03ad8c238850e89ec3af05cb3aa8b5836aed";
 const MINT_TX = "0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408a4b";
 
+// The "About paying" chapter of the intro: borrowing and protection have their own chapters.
 const STEPS = [
   {
-    title: "Put up your bitcoin",
-    text: "Your cirBTC goes into your own position on Aave V4 or Morpho, on Arc. Ardoise never holds it and can never withdraw it.",
+    title: "Pick who you pay",
+    text: "An amount, a payee, their chain: Arc or Base. Or your own wallet. No sale, no swap, no bridge to set up.",
   },
   {
-    title: "Borrow, or pay someone directly",
-    text: "Borrow USDC to your wallet, or have Ardoise pay a payee straight away: it borrows exactly the amount at the cheapest lender, after checking your margin.",
+    title: "Ardoise borrows exactly that",
+    text: "At the cheapest lender on Arc, Aave V4 or Morpho, against the cirBTC in your own position, after checking your margin.",
   },
   {
-    title: "Set aside a reserve, the keeper does the rest",
-    text: "If your margin runs low, the keeper repays your debt from the reserve you set aside, before any liquidation. Each borrowing is one line on your statement.",
+    title: "It lands, and goes on your tab",
+    text: "On Arc it is a direct transfer; to Base, Circle's CCTP delivers it in seconds. Your statement gets one new line, repayable at any time.",
   },
 ];
 
