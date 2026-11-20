@@ -143,12 +143,12 @@ export interface PaymentQuote {
 }
 
 /**
- * The account operations the app needs: the in-browser mock (`mockArdoise`)
- * for the demo account, the deployed contracts (`chainArdoise`) once a
- * wallet is connected.
+ * The account operations the app needs: the deployed contracts
+ * (`chainArdoise`) for the connected wallet's account, and an in-memory stand-in
+ * (`mockArdoise`) for the unit tests.
  */
 export interface ArdoiseClient {
-  /** True for the in-browser mock, so the UI can say the data is simulated. */
+  /** True for the in-memory stand-in, so the UI never presents its data as on chain. */
   readonly simulated: boolean;
   /**
    * `IArdoise.health(venue)`: Aave V4 and Morpho are separate positions,

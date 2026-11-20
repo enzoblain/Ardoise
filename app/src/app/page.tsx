@@ -130,7 +130,6 @@ export default async function Landing() {
                 How it works
               </Link>
             </div>
-            <p className="text-xs text-[#6b6b6b]">No wallet needed to try it: the app opens on a demo account.</p>
             <IosDownload />
           </div>
           <div className="flex justify-center py-6 md:py-0">

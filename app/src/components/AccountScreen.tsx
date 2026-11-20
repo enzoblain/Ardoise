@@ -6,7 +6,6 @@ import { arcClient } from "@/lib/arc";
 import type { ArdoiseClient, Venue } from "@/lib/ardoise";
 import { createChainArdoise } from "@/lib/chainArdoise";
 import { deployment } from "@/lib/contracts/deployments";
-import { createMockArdoise } from "@/lib/mockArdoise";
 import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
@@ -18,26 +17,33 @@ import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
 import { WithdrawPanel } from "@/components/WithdrawPanel";
 
+/** The account's views, one per tab. */
+const TABS = [
+  { id: "pay", label: "Pay" },
+  { id: "statement", label: "Statement" },
+  { id: "protection", label: "Protection" },
+  { id: "stress", label: "Stress test" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
+
 /**
- * The account's views, sharing one account client: the pay screen and,
- * beside it (below on small screens), the statement each payment adds a line to.
- *
- * Without a wallet it runs the simulated demo account, so anyone can try the
- * flow. Once the owner connects a wallet (a browser wallet, or a passkey that
- * owns a Circle smart account) on a network where the contracts are deployed,
- * it walks through the one-time setup, then switches to the on-chain account
- * and adds the Protection panel (Gateway reserve on Base): a browser wallet
- * signs there itself, a passkey through the same smart account on Base.
+ * The owner's account. The page asks first for a wallet (a browser wallet, or
+ * a passkey that owns a Circle smart account), then walks through the
+ * one-time setup, then shows the on-chain account in tabs: pay, the
+ * statement each payment adds a line to, protection (Gateway reserve on Base
+ * and withdrawal of idle USDC) and the stress test. A browser wallet signs on
+ * Base itself, a passkey through the same smart account on Base.
  *
  * @param props.venues Venues with their live rates, read on the server.
  */
 export function AccountScreen({ venues }: { venues: Venue[] }) {
-  const demo = useMemo(() => createMockArdoise(venues), [venues]);
   const [wallet, setWallet] = useState<ConnectedWallet>();
   const [accountAddress, setAccountAddress] = useState<Address>();
   const [connectError, setConnectError] = useState<string>();
+  const [connecting, setConnecting] = useState(false);
   const [payments, setPayments] = useState(0);
   const [unexpectedVenue, setUnexpectedVenue] = useState(false);
+  const [tab, setTab] = useState<Tab>("pay");
 
   const live = useMemo<ArdoiseClient | undefined>(
     () =>
@@ -56,7 +62,6 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
         : undefined,
     [wallet, accountAddress, venues],
   );
-  const account = live ?? demo;
   const gatewaySigner = useMemo(
     () => (wallet ? (wallet.kind === "browser" ? browserGatewaySigner(wallet.provider, wallet.address) : passkeyGatewaySigner(wallet)) : undefined),
     [wallet],
@@ -78,14 +83,30 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
     };
   }, [wallet]);
 
-  async function connect(how: () => Promise<ConnectedWallet>) {
+  // The tab is kept in the URL (`?tab=statement`), so a reload or a shared
+  // link opens the same view.
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search).get("tab");
+    if (TABS.some((t) => t.id === asked)) setTab(asked as Tab);
+  }, []);
+  function openTab(next: Tab) {
+    setTab(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url);
+  }
+
+  const connect = useCallback(async (how: () => Promise<ConnectedWallet>) => {
     setConnectError(undefined);
+    setConnecting(true);
     try {
       setWallet(await how());
     } catch (e) {
       setConnectError((e as Error).message.split("\n")[0]);
+    } finally {
+      setConnecting(false);
     }
-  }
+  }, []);
 
   // The landing page's "Connect wallet" button links here with
   // `?connect=wallet`: open the browser wallet straight away, once.
@@ -94,144 +115,183 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
     if (autoConnected.current || new URLSearchParams(window.location.search).get("connect") !== "wallet") return;
     autoConnected.current = true;
     // Drop the parameter so that a reload does not open the wallet prompt again.
-    window.history.replaceState(null, "", window.location.pathname);
-    connectWallet().then(setWallet, (e: Error) => setConnectError(e.message.split("\n")[0]));
-  }, []);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("connect");
+    window.history.replaceState(null, "", url);
+    void connect(connectWallet);
+  }, [connect]);
 
   const onReady = useCallback((address: Address) => setAccountAddress(address), []);
+  const disconnect = () => {
+    setWallet(undefined);
+    setAccountAddress(undefined);
+  };
 
-  return (
-    <>
-      <ModeBar
-        live={live !== undefined}
-        wallet={wallet}
-        account={accountAddress}
+  if (!deployment) {
+    return <p className="card mx-auto w-full max-w-xl text-muted">The contracts are deployed on Arc mainnet only: set the app to mainnet to open an account.</p>;
+  }
+  if (!wallet) {
+    return (
+      <ConnectScreen
+        connecting={connecting}
+        error={connectError}
         onConnect={() => void connect(connectWallet)}
         // Circle's SDK is large: loaded only once the user picks a passkey.
         onPasskey={(mode, username) => void connect(async () => (await import("@/lib/passkey")).connectPasskey(mode, username))}
-        onDisconnect={() => {
-          setWallet(undefined);
-          setAccountAddress(undefined);
-        }}
       />
-      {connectError && <p className="text-sm text-danger">{connectError}</p>}
-      {live && <LiveNotices account={live} version={payments} />}
-      {live && wallet && accountAddress && deployment && <VenueCheckNotice wallet={wallet} deployment={deployment} account={accountAddress} onUnexpected={setUnexpectedVenue} />}
-      {wallet && deployment && !accountAddress ? (
+    );
+  }
+
+  return (
+    <>
+      <AccountBar wallet={wallet} account={accountAddress} onDisconnect={disconnect} />
+      {!accountAddress || !live ? (
         <div className="card mx-auto w-full max-w-xl">
           <AccountSetup wallet={wallet} deployment={deployment} onReady={onReady} />
         </div>
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay" inert={unexpectedVenue}>
-            <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
-          </section>
-          <div className="flex flex-col gap-6">
-            <div className="card">
-              <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
-            </div>
-            {live && gatewaySigner && accountAddress && (
-              <div className="card">
-                <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
-              </div>
-            )}
-            {live && wallet && accountAddress && <div className="card"><WithdrawPanel wallet={wallet} account={accountAddress} version={payments} /></div>}
-            <section className="card" aria-label="Stress test">
-              <StressTest
-                key={live ? "live-stress" : "demo-stress"}
-                account={account}
-                venues={venues}
-                owner={live ? wallet?.address : undefined}
-                accountAddress={live ? accountAddress : undefined}
-                version={payments}
-              />
+        <>
+          <LiveNotices account={live} version={payments} />
+          <VenueCheckNotice wallet={wallet} deployment={deployment} account={accountAddress} onUnexpected={setUnexpectedVenue} />
+          <nav role="tablist" aria-label="Account views" className="flex gap-1 overflow-x-auto rounded-2xl border border-line bg-surface p-1">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`tab-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`panel-${t.id}`}
+                onClick={() => openTab(t.id)}
+                className={`flex-1 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                  tab === t.id ? "bg-foreground text-background" : "text-muted hover:text-foreground"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          {/* Every view stays mounted, so a form being filled in survives a tab switch. */}
+          <TabPanel id="pay" active={tab}>
+            <section className={unexpectedVenue ? "card mx-auto w-full max-w-2xl opacity-50" : "card mx-auto w-full max-w-2xl"} aria-label="Pay" inert={unexpectedVenue}>
+              <PayScreen account={live} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
             </section>
-          </div>
-        </div>
+          </TabPanel>
+          <TabPanel id="statement" active={tab}>
+            <div className="card">
+              <Statement account={live} venues={venues} version={payments} />
+            </div>
+          </TabPanel>
+          <TabPanel id="protection" active={tab}>
+            <div className="grid items-start gap-6 lg:grid-cols-2">
+              {gatewaySigner && (
+                <div className="card">
+                  <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
+                </div>
+              )}
+              <div className="card">
+                <WithdrawPanel wallet={wallet} account={accountAddress} version={payments} />
+              </div>
+            </div>
+          </TabPanel>
+          <TabPanel id="stress" active={tab}>
+            <section className="card" aria-label="Stress test">
+              <StressTest account={live} venues={venues} owner={wallet.address} accountAddress={accountAddress} version={payments} />
+            </section>
+          </TabPanel>
+        </>
       )}
     </>
+  );
+}
+
+function TabPanel({ id, active, children }: { id: Tab; active: Tab; children: React.ReactNode }) {
+  return (
+    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} hidden={active !== id}>
+      {children}
+    </div>
   );
 }
 
 // Passkeys need a Circle client key (registered for this domain); without one, only browser wallets are offered.
 const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
 
-function ModeBar(props: {
-  live: boolean;
-  wallet?: ConnectedWallet;
-  account?: Address;
+/** The first screen: connect a browser wallet, or sign in or create a passkey. */
+function ConnectScreen(props: {
+  connecting: boolean;
+  error?: string;
   onConnect: () => void;
   onPasskey: (mode: "register" | "login", username: string) => void;
-  onDisconnect: () => void;
 }) {
   const [username, setUsername] = useState("");
-  if (props.wallet) {
-    return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm">
-        <span className="flex items-center gap-2.5 text-muted">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-          <span>
-            <span className="text-foreground">{props.live ? "Live account" : "Wallet connected"}</span> on{" "}
-            {network.arc.label}
-            {props.wallet.kind === "passkey" && <> with {props.wallet.username ? `passkey “${props.wallet.username}”` : "a passkey"}</>}:{" "}
-            <span className="font-mono">{short(props.wallet.address)}</span>
-            {props.account && (
-              <>
-                {" · account "}
-                <span className="font-mono">{short(props.account)}</span>
-              </>
-            )}
-          </span>
-        </span>
-        <button type="button" className="text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline" onClick={props.onDisconnect}>
-          Back to the demo account
-        </button>
+  return (
+    <div className="card mx-auto flex w-full max-w-md flex-col gap-6 py-8">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-2xl font-semibold tracking-tight">Open your account</h2>
+        <p className="text-sm text-muted">
+          Connect the wallet that holds your cirBTC on {network.arc.label}. Ardoise borrows against it to pay, and guards
+          the position.
+        </p>
       </div>
-    );
-  }
+      <button type="button" onClick={props.onConnect} disabled={props.connecting} className="btn-primary px-4 py-3">
+        {props.connecting ? "Connecting…" : "Connect wallet"}
+      </button>
+      {passkeysEnabled && (
+        <div className="flex flex-col gap-3 border-t border-line pt-5">
+          <p className="text-xs uppercase tracking-widest text-muted">Or with a passkey</p>
+          <button type="button" onClick={() => props.onPasskey("login", "")} disabled={props.connecting} className="btn-secondary px-4 py-2.5">
+            Sign in with a passkey
+          </button>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (username.trim()) props.onPasskey("register", username.trim());
+            }}
+          >
+            <input
+              aria-label="Passkey name"
+              placeholder="Name for a new passkey"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="min-w-0 flex-1 rounded-xl border border-line bg-background px-3 py-2 text-sm"
+            />
+            <button type="submit" disabled={!username.trim() || props.connecting} className="btn-secondary shrink-0 px-4 py-2 text-sm">
+              Create
+            </button>
+          </form>
+        </div>
+      )}
+      {props.error && (
+        <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm">
+          {props.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Who is connected, with a way out. */
+function AccountBar(props: { wallet: ConnectedWallet; account?: Address; onDisconnect: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm">
-      <span className="flex min-w-0 flex-1 basis-80 items-start gap-2.5 text-muted">
-        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-chalk" aria-hidden />
+      <span className="flex items-center gap-2.5 text-muted">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
         <span>
-          <span className="text-foreground">Demo account.</span> The position, guard and payments are simulated in your
-          browser; rates are live from Arc mainnet and fees are quoted by Circle.
-        </span>
-      </span>
-      {deployment ? (
-        <span className="flex flex-wrap items-center gap-2">
-          {passkeysEnabled && (
+          <span className="text-foreground">{props.account ? "Live account" : "Wallet connected"}</span> on {network.arc.label}
+          {props.wallet.kind === "passkey" && <> with {props.wallet.username ? `passkey “${props.wallet.username}”` : "a passkey"}</>}:{" "}
+          <span className="font-mono">{short(props.wallet.address)}</span>
+          {props.account && (
             <>
-              <button type="button" onClick={() => props.onPasskey("login", "")} className="btn-secondary shrink-0 px-4 py-2 text-sm">
-                Sign in with passkey
-              </button>
-              <form
-                className="flex items-center gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (username.trim()) props.onPasskey("register", username.trim());
-                }}
-              >
-                <input
-                  aria-label="Passkey name"
-                  placeholder="New passkey name"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-40 rounded-xl border border-line bg-background px-3 py-2 text-sm"
-                />
-                <button type="submit" disabled={!username.trim()} className="btn-secondary shrink-0 px-4 py-2 text-sm">
-                  Create
-                </button>
-              </form>
+              {" · account "}
+              <span className="font-mono">{short(props.account)}</span>
             </>
           )}
-          <button type="button" onClick={props.onConnect} className="btn-primary shrink-0 px-4 py-2 text-sm">
-            Connect wallet
-          </button>
         </span>
-      ) : (
-        <span className="text-faint">The contracts are deployed on Arc mainnet only.</span>
-      )}
+      </span>
+      <button type="button" className="text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline" onClick={props.onDisconnect}>
+        Disconnect
+      </button>
     </div>
   );
 }

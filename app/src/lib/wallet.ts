@@ -90,7 +90,7 @@ export async function sendFromPasskey(wallet: PasskeyAccount, calls: Call[]): Pr
  */
 export async function connectWallet(): Promise<BrowserWallet> {
   const provider = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
-  if (!provider) throw new Error("No browser wallet found. Install MetaMask, or use the demo account.");
+  if (!provider) throw new Error("No browser wallet found. Install MetaMask, or sign in with a passkey.");
   const chain = network.arc.chain;
   await switchChain(provider, chain);
   const [address] = await provider.request({ method: "eth_requestAccounts" });

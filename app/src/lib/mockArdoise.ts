@@ -89,10 +89,10 @@ export const DEFAULT_MOCK: MockOptions = {
 };
 
 /**
- * In-browser stand-in for an Ardoise account, venues and guard. It applies
- * the rules `IArdoise.pay()` documents, in the same order: payee, caps, best
- * venue, guard. Venue rates come from the caller (real reads); positions,
- * caps and debt lines are simulated.
+ * In-memory stand-in for an Ardoise account, venues and guard, used by the
+ * unit tests. It applies the rules `IArdoise.pay()` documents, in the same
+ * order: payee, caps, best venue, guard. Venue rates come from the caller;
+ * positions, caps and debt lines are simulated.
  *
  * @param venues Venues to choose from.
  * @param options Starting positions, guard threshold and caps.

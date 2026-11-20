@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Address } from "viem";
 import { WAD, type ArdoiseClient, type Venue } from "@/lib/ardoise";
 import { formatPercent } from "@/lib/format";
-import { demoReserve, readReserve, type ReserveRead } from "@/lib/reserve";
+import { readReserve, type ReserveRead } from "@/lib/reserve";
 import {
   AAVE_V4_CIRBTC,
   MORPHO_86,
@@ -35,10 +35,10 @@ const SPEED_LABEL = { instant: "repaid at once by sweep()", automatic: "drawn by
  * only: everything is computed in the browser from the positions and
  * balances already on chain (`lib/stress.ts`).
  *
- * @param props.account The account client (demo or live), for positions and thresholds.
+ * @param props.account The account client, for positions and thresholds.
  * @param props.venues Venues to read positions on.
- * @param props.owner Owner's wallet, for the live reserve; omitted for the demo account.
- * @param props.accountAddress The live Ardoise account; omitted for the demo account.
+ * @param props.owner Owner's wallet, for the reserve on Base.
+ * @param props.accountAddress The Ardoise account.
  * @param props.version Bumped after each payment, to read the positions again.
  */
 export function StressTest({
@@ -50,8 +50,8 @@ export function StressTest({
 }: {
   account: ArdoiseClient;
   venues: Venue[];
-  owner?: Address;
-  accountAddress?: Address;
+  owner: Address;
+  accountAddress: Address;
   version: number;
 }) {
   const [scenario, setScenario] = useState<Scenario>(PRESETS[1].scenario);
@@ -67,7 +67,7 @@ export function StressTest({
       Promise.all(borrowable.map((v) => account.health(v.id).then((h) => ({ venue: v, h })))),
       account.minHealthFactor(),
       account.targetHealthFactor(),
-      owner && accountAddress ? readReserve(owner, accountAddress) : demoReserve(),
+      readReserve(owner, accountAddress),
     ])
       .then(([healths, min, target, read]) => {
         if (!current) return;
@@ -142,8 +142,8 @@ export function StressTest({
         <p className="text-xs text-faint">Left out, could not be read: {reserve.errors.join("; ")}.</p>
       )}
       <p className="text-xs text-faint">
-        A simulation computed in your browser, from your position and reserve on chain (simulated on the demo account);
-        nothing is sent. Liquidation
+        A simulation computed in your browser, from your position and reserve on chain; nothing
+        is sent. Liquidation
         penalties use Aave V4&apos;s cirBTC parameters on Arc and Morpho&apos;s incentive for an 86% LLTV market.
       </p>
     </div>

@@ -137,26 +137,6 @@ function gatewaySources(owner: Address): [string, Promise<ReserveAsset>][] {
   ];
 }
 
-/**
- * The demo account's reserve, simulated like its position: a Gateway reserve
- * of 40 USDC with 30 USDC of standing orders, and a wallet on Base. ETH is valued at the live price when it can be read.
- *
- * @returns The simulated reserve.
- */
-export async function demoReserve(): Promise<ReserveRead> {
-  const assets: ReserveAsset[] = [
-    { asset: "USDC", chain: "Base", place: "Gateway, standing orders", valueUsd: 30, speed: "automatic" },
-    { asset: "USDC", chain: "Base", place: "Gateway, no standing order", valueUsd: 10, speed: "manual" },
-    { asset: "USDC", chain: "Base", place: "Wallet", valueUsd: 15, speed: "manual" },
-  ];
-  try {
-    assets.push({ asset: "ETH", chain: "Base", place: "Wallet", valueUsd: 0.02 * (await ethPriceUsd()), speed: "manual" });
-    return { assets, errors: [] };
-  } catch (e) {
-    return { assets, errors: [`ETH price: ${(e as Error).message.split("\n")[0]}`] };
-  }
-}
-
 function usdcAsset(units: bigint, chain: string, place: string, speed: ReserveAsset["speed"]): ReserveAsset {
   // 1 USDC counted as 1 USD, as everywhere in the app.
   return { asset: "USDC", chain, place, valueUsd: Number(formatUnits(units, 6)), speed };
