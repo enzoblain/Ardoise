@@ -231,7 +231,7 @@ The [CI workflow](.github/workflows/ci.yml) runs the contract, app and keeper te
 
 ```
 contracts/   Solidity contracts (Foundry): account, factory, Aave V4 and Morpho adapters, margin guard, CCTP defense alarm and executor, deployment scripts and records (deployments.md)
-app/         Next.js + viem front end: landing page (`/`, scroll-driven intro with a ring of collateral vaults, live rates, Arc and Circle overview), and the app (`/app`): pay screen, rate comparison, margin gauge, statement, Protection panel, stress test, payment tracking page
+app/         Next.js + viem front end: landing page (`/`, scroll-driven intro with a ring of collateral vaults, live rates, Arc and Circle overview), and the app (`/app`, three sections in the site header: My positions, New position, Markets): pay screen, rate comparison, margin gauge, statement, Protection panel, stress test, payment tracking page
 ios/         Native iOS app (SwiftUI, Circle's Modular Wallets iOS SDK): passkey sign-in, activation in one signature, pay with the venue picker and a review sheet, statement, account; generated from project.yml with XcodeGen
 keeper/      Node keeper: repays debt with sweep() and Gateway standing orders, and receives standing orders from the app
 docs/        Contract interfaces and payment flow (api.md), hackathon roadmap (roadmap.md), README screenshot (images/)

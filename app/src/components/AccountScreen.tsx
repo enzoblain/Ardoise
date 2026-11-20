@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Address } from "viem";
 import { arcClient } from "@/lib/arc";
 import type { ArdoiseClient, Venue } from "@/lib/ardoise";
@@ -10,34 +11,49 @@ import { createMockArdoise } from "@/lib/mockArdoise";
 import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
-import { AccountSetup } from "@/components/AccountSetup";
-import { VenueCheckNotice } from "@/components/VenueCheck";
+import { Markets } from "@/components/Markets";
+import { NewPosition } from "@/components/NewPosition";
 import { PayScreen } from "@/components/PayScreen";
-import { ProtectionPanel } from "@/components/ProtectionPanel";
+import { VenueCheckNotice } from "@/components/VenueCheck";
+import { Positions } from "@/components/Positions";
+import type { AppTab } from "@/components/SiteHeader";
 import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
 import { WithdrawPanel } from "@/components/WithdrawPanel";
 
 /**
- * The account's views, sharing one account client: the pay screen and,
- * beside it (below on small screens), the statement each payment adds a line to.
+ * The account's views, sharing one account client, on three tabs:
+ * - My positions: the position on each lender and what can still be spent,
+ *   the pay screen, the statement each payment adds a line to, and the stress test;
+ * - Markets: the lenders Ardoise borrows from, side by side, with a way to pay from one;
+ * - New position: connecting a wallet (a browser wallet, or a passkey that
+ *   owns a Circle smart account), the one-time setup, and the protection from
+ *   Base (Gateway reserve): a browser wallet signs there itself, a passkey
+ *   through the same smart account on Base.
  *
  * Without a wallet it runs the simulated demo account, so anyone can try the
- * flow. Once the owner connects a wallet (a browser wallet, or a passkey that
- * owns a Circle smart account) on a network where the contracts are deployed,
- * it walks through the one-time setup, then switches to the on-chain account
- * and adds the Protection panel (Gateway reserve on Base): a browser wallet
- * signs there itself, a passkey through the same smart account on Base.
+ * flow; once the setup is done it switches to the on-chain account.
+ *
+ * The tabs are links in the site header (`/app?tab=…`): navigating between
+ * them keeps this component, so the connected wallet stays connected.
  *
  * @param props.venues Venues with their live rates, read on the server.
+ * @param props.tab The section to show.
+ * @param props.autoConnect True when the page was opened with `?connect=wallet`.
  */
-export function AccountScreen({ venues }: { venues: Venue[] }) {
-  const demo = useMemo(() => createMockArdoise(venues), [venues]);
+export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; tab: AppTab; autoConnect: boolean }) {
+  const router = useRouter();
+  const setTab = useCallback((next: AppTab) => router.push(`/app?tab=${next}`), [router]);
+  // Created once: the server sends fresh venue objects on every section
+  // change, and a new demo account would drop the payments made so far.
+  const [demo] = useState(() => createMockArdoise(venues));
   const [wallet, setWallet] = useState<ConnectedWallet>();
   const [accountAddress, setAccountAddress] = useState<Address>();
   const [connectError, setConnectError] = useState<string>();
   const [payments, setPayments] = useState(0);
   const [unexpectedVenue, setUnexpectedVenue] = useState(false);
+  // Venue picked on the Markets tab, which the pay screen starts on.
+  const [pickedVenue, setPickedVenue] = useState<string>();
 
   const live = useMemo<ArdoiseClient | undefined>(
     () =>
@@ -82,21 +98,27 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
     setConnectError(undefined);
     try {
       setWallet(await how());
+      setTab("new");
     } catch (e) {
       setConnectError((e as Error).message.split("\n")[0]);
     }
   }
 
-  // The landing page's "Connect wallet" button links here with
-  // `?connect=wallet`: open the browser wallet straight away, once.
+  // The header's "Connect wallet" links here with `?connect=wallet`, also
+  // from inside the app, where the page is not reloaded: the prop changes,
+  // so the browser wallet opens each time the link is followed.
   const autoConnected = useRef(false);
   useEffect(() => {
-    if (autoConnected.current || new URLSearchParams(window.location.search).get("connect") !== "wallet") return;
+    if (!autoConnect) {
+      autoConnected.current = false;
+      return;
+    }
+    if (autoConnected.current) return;
     autoConnected.current = true;
     // Drop the parameter so that a reload does not open the wallet prompt again.
-    window.history.replaceState(null, "", window.location.pathname);
+    router.replace("/app?tab=new");
     connectWallet().then(setWallet, (e: Error) => setConnectError(e.message.split("\n")[0]));
-  }, []);
+  }, [autoConnect, router]);
 
   const onReady = useCallback((address: Address) => setAccountAddress(address), []);
 
@@ -106,9 +128,7 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
         live={live !== undefined}
         wallet={wallet}
         account={accountAddress}
-        onConnect={() => void connect(connectWallet)}
-        // Circle's SDK is large: loaded only once the user picks a passkey.
-        onPasskey={(mode, username) => void connect(async () => (await import("@/lib/passkey")).connectPasskey(mode, username))}
+        onNew={() => setTab("new")}
         onDisconnect={() => {
           setWallet(undefined);
           setAccountAddress(undefined);
@@ -117,54 +137,74 @@ export function AccountScreen({ venues }: { venues: Venue[] }) {
       {connectError && <p className="text-sm text-danger">{connectError}</p>}
       {live && <LiveNotices account={live} version={payments} />}
       {live && wallet && accountAddress && deployment && <VenueCheckNotice wallet={wallet} deployment={deployment} account={accountAddress} onUnexpected={setUnexpectedVenue} />}
-      {wallet && deployment && !accountAddress ? (
-        <div className="card mx-auto w-full max-w-xl">
-          <AccountSetup wallet={wallet} deployment={deployment} onReady={onReady} />
-        </div>
+      {tab === "new" ? (
+        <NewPosition
+          wallet={wallet}
+          account={accountAddress}
+          deployment={deployment}
+          signer={live ? gatewaySigner : undefined}
+          onConnect={() => void connect(connectWallet)}
+          // Circle's SDK is large: loaded only once the user picks a passkey.
+          onPasskey={(mode, username) => void connect(async () => (await import("@/lib/passkey")).connectPasskey(mode, username))}
+          onReady={onReady}
+        />
+      ) : tab === "markets" ? (
+        <Markets
+          venues={venues}
+          onPick={(venueId) => {
+            setPickedVenue(venueId);
+            setTab("positions");
+          }}
+        />
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay" inert={unexpectedVenue}>
-            <PayScreen key={live ? "live" : "demo"} account={account} venues={venues} onPaid={() => setPayments((n) => n + 1)} />
+        <>
+          <section className="card" aria-label="My positions">
+            <Positions key={live ? "live-positions" : "demo-positions"} account={account} venues={venues} version={payments} />
           </section>
-          <div className="flex flex-col gap-6">
-            <div className="card">
-              <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
-            </div>
-            {live && gatewaySigner && accountAddress && (
-              <div className="card">
-                <ProtectionPanel signer={gatewaySigner} account={accountAddress} />
-              </div>
-            )}
-            {live && wallet && accountAddress && <div className="card"><WithdrawPanel wallet={wallet} account={accountAddress} version={payments} /></div>}
-            <section className="card" aria-label="Stress test">
-              <StressTest
-                key={live ? "live-stress" : "demo-stress"}
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay" inert={unexpectedVenue}>
+              <PayScreen
+                key={`${live ? "live" : "demo"}-${pickedVenue ?? "best"}`}
                 account={account}
                 venues={venues}
-                owner={live ? wallet?.address : undefined}
-                accountAddress={live ? accountAddress : undefined}
-                version={payments}
+                initialVenueId={pickedVenue}
+                onPaid={() => setPayments((n) => n + 1)}
               />
             </section>
+            <div className="flex flex-col gap-6">
+              <div className="card">
+                <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
+              </div>
+              {live && wallet && accountAddress && (
+                <div className="card">
+                  <WithdrawPanel wallet={wallet} account={accountAddress} version={payments} />
+                </div>
+              )}
+              <section className="card" aria-label="Stress test">
+                <StressTest
+                  key={live ? "live-stress" : "demo-stress"}
+                  account={account}
+                  venues={venues}
+                  owner={live ? wallet?.address : undefined}
+                  accountAddress={live ? accountAddress : undefined}
+                  version={payments}
+                />
+              </section>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </>
   );
 }
 
-// Passkeys need a Circle client key (registered for this domain); without one, only browser wallets are offered.
-const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
-
 function ModeBar(props: {
   live: boolean;
   wallet?: ConnectedWallet;
   account?: Address;
-  onConnect: () => void;
-  onPasskey: (mode: "register" | "login", username: string) => void;
+  onNew: () => void;
   onDisconnect: () => void;
 }) {
-  const [username, setUsername] = useState("");
   if (props.wallet) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-5 py-3 text-sm">
@@ -199,36 +239,9 @@ function ModeBar(props: {
         </span>
       </span>
       {deployment ? (
-        <span className="flex flex-wrap items-center gap-2">
-          {passkeysEnabled && (
-            <>
-              <button type="button" onClick={() => props.onPasskey("login", "")} className="btn-secondary shrink-0 px-4 py-2 text-sm">
-                Sign in with passkey
-              </button>
-              <form
-                className="flex items-center gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (username.trim()) props.onPasskey("register", username.trim());
-                }}
-              >
-                <input
-                  aria-label="Passkey name"
-                  placeholder="New passkey name"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-40 rounded-xl border border-line bg-background px-3 py-2 text-sm"
-                />
-                <button type="submit" disabled={!username.trim()} className="btn-secondary shrink-0 px-4 py-2 text-sm">
-                  Create
-                </button>
-              </form>
-            </>
-          )}
-          <button type="button" onClick={props.onConnect} className="btn-primary shrink-0 px-4 py-2 text-sm">
-            Connect wallet
-          </button>
-        </span>
+        <button type="button" onClick={props.onNew} className="btn-primary shrink-0 px-4 py-2 text-sm">
+          Open a live position
+        </button>
       ) : (
         <span className="text-faint">The contracts are deployed on Arc mainnet only.</span>
       )}

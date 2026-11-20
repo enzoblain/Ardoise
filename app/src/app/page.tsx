@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogoMark } from "@/components/LogoMark";
+import { SiteHeader } from "@/components/SiteHeader";
 import { Intro } from "@/components/landing/Intro";
 import { IosDownload } from "@/components/landing/IosDownload";
 import { LandingGate } from "@/components/landing/LandingGate";
@@ -62,17 +62,16 @@ const STACK = [
  */
 export default async function Landing() {
   const venues = await readVenueRates().catch(() => null);
-  // Only venues Ardoise can borrow from may be advertised as the payment rate;
-  // the others (Morpho today) are shown as comparisons.
-  const best = venues?.filter((v) => v.borrowable !== false).sort((a, b) => a.rateBps - b.rateBps)[0];
-  const compared = venues?.find((v) => v.borrowable === false);
+  // Every listed venue is borrowable since the Morpho adapter: the cheapest is
+  // the payment rate, the next one is shown beside it.
+  const [best, other] = venues?.filter((v) => v.borrowable !== false).sort((a, b) => a.rateBps - b.rateBps) ?? [];
   const stats = [
     best
-      ? { label: "Borrow rate now", value: formatBps(best.rateBps), note: `${best.name}, used for payments` }
+      ? { label: "Borrow rate now", value: formatBps(best.rateBps), note: `${best.name}, the cheapest right now` }
       : { label: "Borrow rate now", value: "—", note: "rates unavailable right now" },
-    compared
-      ? { label: `${compared.name} rate`, value: formatBps(compared.rateBps), note: "compared live, not borrowed yet" }
-      : { label: "Compared rate", value: "—", note: "rates unavailable right now" },
+    other
+      ? { label: `${other.name} rate`, value: formatBps(other.rateBps), note: "also borrowable, compared on every payment" }
+      : { label: "Second lender", value: "—", note: "rates unavailable right now" },
     { label: "Arc → Base delivery", value: "4 s", note: "first mainnet payment" },
     { label: "Bitcoin sold", value: "0", note: "it stays your collateral" },
   ];
@@ -92,19 +91,7 @@ export default async function Landing() {
       }
     >
     <div className="min-h-screen bg-[#0a0a0a] text-[#fafafa]">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Link href="/" className="flex items-center gap-2.5 text-lg font-semibold tracking-tight">
-          <LogoMark size={28} />
-          Ardoise
-        </Link>
-        <nav className="flex items-center gap-6 text-sm">
-          <Link href="/" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">How it works</Link>
-          <a href="#stack" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">Arc / Circle</a>
-          <Link href="/app?connect=wallet" className="rounded-full bg-[#fafafa] px-4 py-2 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">
-            Connect wallet
-          </Link>
-        </nav>
-      </header>
+      <SiteHeader />
 
       <main>
         <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pt-10 pb-24 md:grid-cols-[1.05fr_1fr] md:pt-20">
@@ -126,7 +113,7 @@ export default async function Landing() {
               <Link href="/app" className="rounded-full bg-[#fafafa] px-6 py-3 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">
                 My position →
               </Link>
-              <Link href="/" className="rounded-full border border-[#262626] px-6 py-3 font-medium text-[#fafafa] transition-colors hover:border-[#4a4a4a]">
+              <Link href="/?intro" className="rounded-full border border-[#262626] px-6 py-3 font-medium text-[#fafafa] transition-colors hover:border-[#4a4a4a]">
                 How it works
               </Link>
             </div>

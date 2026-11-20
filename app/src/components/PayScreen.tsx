@@ -32,22 +32,26 @@ const DESTINATIONS: PayoutChain[] = [network.base, network.arc];
  * @param props.account Account client the payment goes through.
  * @param props.venues Venues with their live rates, read on the server.
  * @param props.onPaid Called after each successful payment.
+ * @param props.initialVenueId Venue to borrow from at first (picked on the Markets tab); the
+ * recommendation when absent.
  */
 export function PayScreen({
   account,
   venues,
   onPaid,
+  initialVenueId,
 }: {
   account: ArdoiseClient;
   venues: Venue[];
   onPaid: () => void;
+  initialVenueId?: string;
 }) {
   const [amountText, setAmountText] = useState("20");
   const [destination, setDestination] = useState<PayoutChain>(network.base);
   const [payee, setPayee] = useState("");
   const [memo, setMemo] = useState("");
   // Venue the user picked; undefined follows the recommendation (`bestVenue`).
-  const [pickedVenueId, setPickedVenueId] = useState<string>();
+  const [pickedVenueId, setPickedVenueId] = useState<string | undefined>(initialVenueId);
 
   // `null`: no guard is set yet; undefined: not read yet.
   const [minHealthFactor, setMinHealthFactor] = useState<bigint | null>();
