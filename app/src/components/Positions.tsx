@@ -58,7 +58,7 @@ export function Positions({ account, venues, version }: { account: ArdoiseClient
     <div className="flex flex-col gap-4">
       <div>
         <p className="eyebrow">Collateral on each lender</p>
-        <h2 className="text-lg font-semibold">My positions</h2>
+        <h2 className="text-lg font-semibold">Collateral and limits</h2>
       </div>
       {!positions && <p className="text-sm text-muted">Reading your positions…</p>}
       <div className="grid gap-3 sm:grid-cols-2">

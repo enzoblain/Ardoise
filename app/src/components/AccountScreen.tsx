@@ -12,7 +12,7 @@ import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
 import { Markets } from "@/components/Markets";
-import { OpenPositions } from "@/components/OpenPositions";
+import { MyPositions } from "@/components/MyPositions";
 import { NewPosition } from "@/components/NewPosition";
 import { PayScreen } from "@/components/PayScreen";
 import { VenueCheckNotice } from "@/components/VenueCheck";
@@ -24,9 +24,11 @@ import { WithdrawPanel } from "@/components/WithdrawPanel";
 import { useWalletState } from "@/lib/walletContext";
 
 /**
- * The account's views, sharing one account client, on five tabs:
- * - My positions: the open positions (payment lines still owed), the pay
- *   screen, the statement each payment adds a line to, and the withdrawal;
+ * The account's views, sharing one account client, on six tabs:
+ * - My positions: one card per lender (collateral, debt, margin, borrowings
+ *   in progress) and the protection the keeper repays with, then the
+ *   statement and the withdrawal;
+ * - Pay someone: borrow and pay a third party on Arc or Base;
  * - Collateral: the position on each lender and what can still be spent;
  * - Stress test: what a bitcoin fall would do;
  * - Markets: the lenders Ardoise borrows from, side by side, with a way to pay from one;
@@ -161,13 +163,16 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
           // Circle's SDK is large: loaded only once the user picks a passkey.
           onPasskey={(mode, username) => void connect(async () => (await import("@/lib/passkey")).connectPasskey(mode, username))}
           onReady={onReady}
+          live={live}
+          venues={venues}
+          onPaid={() => setPayments((n) => n + 1)}
         />
       ) : tab === "markets" ? (
         <Markets
           venues={venues}
           onPick={(venueId) => {
             setPickedVenue(venueId);
-            setTab("positions");
+            setTab("pay");
           }}
         />
       ) : tab === "collateral" ? (
@@ -185,31 +190,43 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
             version={payments}
           />
         </section>
+      ) : tab === "pay" ? (
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+          <p className="text-sm text-muted">
+            Pay someone on Arc or on Base with money borrowed on your positions: the USDC goes straight to them, and the debt
+            is added to the lender you pick (or the cheapest one the guard allows). Your collateral never moves. To borrow to
+            your own wallet instead, use New position.
+          </p>
+          <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay someone" inert={unexpectedVenue}>
+            <PayScreen
+              key={`${live ? "live" : "demo"}-${pickedVenue ?? "best"}`}
+              account={account}
+              venues={venues}
+              initialVenueId={pickedVenue}
+              title="Pay someone"
+              onPaid={() => setPayments((n) => n + 1)}
+            />
+          </section>
+        </div>
       ) : (
         <>
-          <section className="card" aria-label="My open positions">
-            <OpenPositions key={live ? "live-open" : "demo-open"} account={account} venues={venues} version={payments} />
-          </section>
+          <MyPositions
+            key={live ? "live-my" : "demo-my"}
+            account={account}
+            venues={venues}
+            version={payments}
+            owner={live ? wallet?.address : undefined}
+            accountAddress={live ? accountAddress : undefined}
+          />
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <section className={unexpectedVenue ? "card opacity-50" : "card"} aria-label="Pay" inert={unexpectedVenue}>
-              <PayScreen
-                key={`${live ? "live" : "demo"}-${pickedVenue ?? "best"}`}
-                account={account}
-                venues={venues}
-                initialVenueId={pickedVenue}
-                onPaid={() => setPayments((n) => n + 1)}
-              />
-            </section>
-            <div className="flex flex-col gap-6">
-              <div className="card">
-                <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
-              </div>
-              {live && wallet && accountAddress && (
-                <div className="card">
-                  <WithdrawPanel wallet={wallet} account={accountAddress} version={payments} />
-                </div>
-              )}
+            <div className="card">
+              <Statement key={live ? "live-statement" : "demo-statement"} account={account} venues={venues} version={payments} />
             </div>
+            {live && wallet && accountAddress && (
+              <div className="card">
+                <WithdrawPanel wallet={wallet} account={accountAddress} version={payments} />
+              </div>
+            )}
           </div>
         </>
       )}

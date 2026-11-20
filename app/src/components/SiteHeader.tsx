@@ -3,15 +3,16 @@ import { HeaderWallet } from "@/components/HeaderWallet";
 import { LogoMark } from "@/components/LogoMark";
 
 /** A section of the app, as `/app?tab=`. */
-export type AppTab = "positions" | "collateral" | "stress" | "new" | "markets";
+export type AppTab = "positions" | "new" | "pay" | "markets" | "collateral" | "stress";
 
 /** The app's sections, in the order of the header. */
 export const APP_TABS: [AppTab, string][] = [
   ["positions", "My positions"],
+  ["new", "New position"],
+  ["pay", "Pay someone"],
+  ["markets", "Markets"],
   ["collateral", "Collateral"],
   ["stress", "Stress test"],
-  ["new", "New position"],
-  ["markets", "Markets"],
 ];
 
 /**

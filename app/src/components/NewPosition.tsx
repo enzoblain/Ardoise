@@ -3,6 +3,9 @@
 import { useState } from "react";
 import type { Address } from "viem";
 import { AccountSetup } from "@/components/AccountSetup";
+import { AddCollateral } from "@/components/AddCollateral";
+import { PayScreen } from "@/components/PayScreen";
+import type { ArdoiseClient, Venue } from "@/lib/ardoise";
 import { ProtectionPanel } from "@/components/ProtectionPanel";
 import type { Deployment } from "@/lib/contracts/deployments";
 import type { GatewaySigner } from "@/lib/gatewaySigner";
@@ -13,10 +16,11 @@ import type { ConnectedWallet } from "@/lib/wallet";
 const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
 
 /**
- * Opening a live position, one card at a time, centred: connecting a wallet
- * (browser wallet or passkey) until one is connected, then the one-time setup
- * on Aave V4 and the account until it is done, then only the protection from
- * Base (Gateway reserve, standing orders, repaying from Base).
+ * Opening a new borrowing, centred: connecting a wallet (browser wallet or
+ * passkey) until one is connected, then the one-time setup on Aave V4 and
+ * the account until it is done; then three cards: put up cirBTC collateral
+ * on Aave V4 or Morpho, borrow USDC to the owner's wallet, and set aside USDC
+ * on Base (Gateway reserve, standing orders) that the keeper repays with.
  *
  * @param props.wallet The connected wallet, if any.
  * @param props.account The owner's Ardoise account once the setup is done.
@@ -25,6 +29,9 @@ const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
  * @param props.onConnect Connects a browser wallet.
  * @param props.onPasskey Signs in with, or creates, a passkey.
  * @param props.onReady Called with the account address once the setup is done.
+ * @param props.live The on-chain account client once the setup is done.
+ * @param props.venues Venues with their live rates.
+ * @param props.onPaid Called after collateral is added or USDC borrowed, to read again.
  */
 export function NewPosition(props: {
   wallet?: ConnectedWallet;
@@ -34,6 +41,9 @@ export function NewPosition(props: {
   onConnect: () => void;
   onPasskey: (mode: "register" | "login", username: string) => void;
   onReady: (account: Address) => void;
+  live?: ArdoiseClient;
+  venues: Venue[];
+  onPaid: () => void;
 }) {
   const { wallet, account, deployment } = props;
   const [username, setUsername] = useState("");
@@ -49,15 +59,36 @@ export function NewPosition(props: {
         </p>
       </div>
 
-      {account ? (
-        <section className="card flex flex-col gap-3" aria-label={`Protect it from ${network.base.label}`}>
-          <h2 className="text-lg font-semibold">Protect it from {network.base.label}</h2>
-          {props.signer ? (
-            <ProtectionPanel signer={props.signer} account={account} />
-          ) : (
-            <p className="text-sm text-muted">Reading your account…</p>
-          )}
-        </section>
+      {account && wallet && deployment ? (
+        <>
+          <section className="card flex flex-col gap-3" aria-label="Collateral">
+            <h2 className="text-lg font-semibold">1 · Put up collateral</h2>
+            <p className="text-sm text-muted">Add cirBTC to your position on the lender you will borrow from.</p>
+            <AddCollateral wallet={wallet} deployment={deployment} onDone={props.onPaid} />
+          </section>
+          <section className="card flex flex-col gap-3" aria-label="Borrow">
+            {props.live ? (
+              <PayScreen
+                key={`borrow-${wallet.address}`}
+                account={props.live}
+                venues={props.venues}
+                toSelf={wallet.address}
+                title="2 · Borrow to my wallet"
+                onPaid={props.onPaid}
+              />
+            ) : (
+              <p className="text-sm text-muted">Reading your account…</p>
+            )}
+          </section>
+          <section className="card flex flex-col gap-3" aria-label={`Protect it from ${network.base.label}`}>
+            <h2 className="text-lg font-semibold">3 · Set aside USDC to manage it</h2>
+            <p className="text-sm text-muted">
+              A reserve on {network.base.label} and standing orders: when the margin runs low, the keeper brings it to Arc and
+              repays. It protects all your positions, the one closest to liquidation first.
+            </p>
+            {props.signer ? <ProtectionPanel signer={props.signer} account={account} /> : <p className="text-sm text-muted">Reading your account…</p>}
+          </section>
+        </>
       ) : wallet && deployment ? (
         <section className="card flex flex-col gap-3" aria-label="Activate your account">
           <h2 className="text-lg font-semibold">Activate your account</h2>

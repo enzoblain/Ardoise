@@ -34,22 +34,29 @@ const DESTINATIONS: PayoutChain[] = [network.base, network.arc];
  * @param props.onPaid Called after each successful payment.
  * @param props.initialVenueId Venue to borrow from at first (picked on the Markets tab); the
  * recommendation when absent.
+ * @param props.toSelf The owner's wallet, to borrow to it on Arc instead of paying someone.
+ * @param props.title Heading of the card.
  */
 export function PayScreen({
   account,
   venues,
   onPaid,
   initialVenueId,
+  toSelf,
+  title = "Pay",
 }: {
   account: ArdoiseClient;
   venues: Venue[];
   onPaid: () => void;
   initialVenueId?: string;
+  /** Borrow to this address (the owner's wallet), on Arc, instead of paying someone. */
+  toSelf?: string;
+  title?: string;
 }) {
   const [amountText, setAmountText] = useState("20");
-  const [destination, setDestination] = useState<PayoutChain>(network.base);
-  const [payee, setPayee] = useState("");
-  const [memo, setMemo] = useState("");
+  const [destination, setDestination] = useState<PayoutChain>(toSelf ? network.arc : network.base);
+  const [payee, setPayee] = useState(toSelf ?? "");
+  const [memo, setMemo] = useState(toSelf ? "Borrow to my wallet" : "");
   // Venue the user picked; undefined follows the recommendation (`bestVenue`).
   const [pickedVenueId, setPickedVenueId] = useState<string | undefined>(initialVenueId);
 
@@ -194,7 +201,7 @@ export function PayScreen({
       }}
     >
       <div className="flex items-baseline justify-between">
-        <h2 className="text-xl font-semibold tracking-tight">Pay</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
         <span className="eyebrow">Borrowed at payment time</span>
       </div>
       <fieldset className="flex flex-col gap-4">
