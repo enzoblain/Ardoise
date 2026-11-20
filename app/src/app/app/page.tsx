@@ -18,10 +18,10 @@ const chainId = memo(60 * 60_000, 24 * 60 * 60_000, () => arcClient.getChainId()
  * `markets` or `new`), fed with live venue rates from Arc mainnet, and the
  * status of the Arc network the app is set to.
  *
- * @param props.searchParams The query; `tab` picks the section.
+ * @param props.searchParams The query; `tab` picks the section, `connect=wallet` opens the browser wallet.
  */
-export default async function AppPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const asked = (await searchParams).tab;
+export default async function AppPage({ searchParams }: { searchParams: Promise<{ tab?: string; connect?: string }> }) {
+  const { tab: asked, connect } = await searchParams;
   const tab: AppTab = APP_TABS.find(([id]) => id === asked)?.[0] ?? "positions";
   const [venues, block, chain] = await Promise.all([rates().catch(() => null), blockNumber().catch(() => null), chainId().catch(() => null)]);
   // ARC_RPC_URL is set by hand and may point at the other network.
@@ -46,7 +46,7 @@ export default async function AppPage({ searchParams }: { searchParams: Promise<
       </div>
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pb-16">
         {venues ? (
-          <AccountScreen venues={venues} tab={tab} />
+          <AccountScreen venues={venues} tab={tab} autoConnect={connect === "wallet"} />
         ) : (
           <p className="card text-danger">Could not read the lending rates from Arc mainnet. Try again in a moment.</p>
         )}

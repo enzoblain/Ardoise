@@ -39,11 +39,14 @@ import { WithdrawPanel } from "@/components/WithdrawPanel";
  *
  * @param props.venues Venues with their live rates, read on the server.
  * @param props.tab The section to show.
+ * @param props.autoConnect True when the page was opened with `?connect=wallet`.
  */
-export function AccountScreen({ venues, tab }: { venues: Venue[]; tab: AppTab }) {
+export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; tab: AppTab; autoConnect: boolean }) {
   const router = useRouter();
   const setTab = useCallback((next: AppTab) => router.push(`/app?tab=${next}`), [router]);
-  const demo = useMemo(() => createMockArdoise(venues), [venues]);
+  // Created once: the server sends fresh venue objects on every section
+  // change, and a new demo account would drop the payments made so far.
+  const [demo] = useState(() => createMockArdoise(venues));
   const [wallet, setWallet] = useState<ConnectedWallet>();
   const [accountAddress, setAccountAddress] = useState<Address>();
   const [connectError, setConnectError] = useState<string>();
@@ -101,16 +104,21 @@ export function AccountScreen({ venues, tab }: { venues: Venue[]; tab: AppTab })
     }
   }
 
-  // The landing page's "Connect wallet" button links here with
-  // `?connect=wallet`: open the browser wallet straight away, once.
+  // The header's "Connect wallet" links here with `?connect=wallet`, also
+  // from inside the app, where the page is not reloaded: the prop changes,
+  // so the browser wallet opens each time the link is followed.
   const autoConnected = useRef(false);
   useEffect(() => {
-    if (autoConnected.current || new URLSearchParams(window.location.search).get("connect") !== "wallet") return;
+    if (!autoConnect) {
+      autoConnected.current = false;
+      return;
+    }
+    if (autoConnected.current) return;
     autoConnected.current = true;
     // Drop the parameter so that a reload does not open the wallet prompt again.
     router.replace("/app?tab=new");
     connectWallet().then(setWallet, (e: Error) => setConnectError(e.message.split("\n")[0]));
-  }, [router]);
+  }, [autoConnect, router]);
 
   const onReady = useCallback((address: Address) => setAccountAddress(address), []);
 
