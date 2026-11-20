@@ -1,7 +1,7 @@
 import { Fraunces } from "next/font/google";
 import { LogoMark } from "@/components/LogoMark";
 import styles from "./Intro.module.css";
-import { AccessButton } from "./LandingGate";
+import { AccessButton, SkipButton } from "./LandingGate";
 import { ScrollProgress } from "./ScrollProgress";
 import { VaultRing } from "./VaultRing";
 
@@ -20,13 +20,13 @@ export interface IntroLink {
   href: string;
 }
 
-/** The two corner labels at the top of a chapter. */
-function ChapterLabels({ about, chapter }: { about: string; chapter: string }) {
+/** The top of a chapter: what it is about, and the way to skip the intro. */
+function ChapterLabels({ about }: { about: string }) {
   return (
-    <p className={styles.labels}>
+    <div className={styles.labels}>
       <span>About {about}</span>
-      <span>Chapter {chapter}</span>
-    </p>
+      <SkipButton />
+    </div>
   );
 }
 
@@ -73,7 +73,10 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
                   Post collateral, pay anyone in USDC, keep your assets. A bot guards the position on Arc mainnet.
                 </p>
               </div>
-              <LogoMark className={styles.mark} />
+              <div className={styles.headerSide}>
+                <SkipButton />
+                <LogoMark className={styles.mark} />
+              </div>
             </header>
             <div className={styles.ring}>
               <VaultRing rate={rate} />
@@ -81,7 +84,7 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
           </div>
 
           <div className={styles.steps}>
-            <ChapterLabels about="paying" chapter="02" />
+            <ChapterLabels about="paying" />
             <div className={styles.column}>
               <h2 className={`${styles.heading} ${display.className}`}>One payment, one line on the slate.</h2>
               <ol className={styles.stepList}>
@@ -107,7 +110,7 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
           </div>
 
           <div className={styles.day}>
-            <ChapterLabels about="protection" chapter="03" />
+            <ChapterLabels about="protection" />
             <div className={styles.column}>
               <h2 className={`${styles.heading} ${display.className}`}>Add liquidity. Our bot covers your exposure.</h2>
               <p className={styles.lead}>
@@ -163,7 +166,7 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
         </div>
 
         <div className={styles.chapterOne}>
-          <ChapterLabels about="borrowing" chapter="01" />
+          <ChapterLabels about="borrowing" />
           <h2 className={`${styles.heading} ${styles.headingStagger} ${display.className}`}>
             <span>Post collateral.</span>
             <span>Borrow at the</span>
