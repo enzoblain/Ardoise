@@ -58,6 +58,8 @@
   padding: 1.25rem clamp(1.25rem, 3vw, 2.75rem);
   opacity: calc(1 - var(--fold) * 1.4);
   transform: translateY(calc(var(--fold) * -22vh));
+  /* Once faded it still covers the next chapter: only its Skip button takes clicks. */
+  pointer-events: none;
 }
 
 .title {
@@ -444,7 +446,11 @@
 }
 
 /* Skips the intro: quiet, in the colour of the slide it sits on. */
+/* The chapters over the pinned stage, and the faded header above them, ignore the pointer; the button must not. */
 .skip {
+  position: relative;
+  z-index: 10;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;

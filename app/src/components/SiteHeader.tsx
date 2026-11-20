@@ -1,21 +1,23 @@
 import Link from "next/link";
+import { HeaderWallet } from "@/components/HeaderWallet";
 import { LogoMark } from "@/components/LogoMark";
 
 /** A section of the app, as `/app?tab=`. */
-export type AppTab = "positions" | "new" | "markets";
+export type AppTab = "positions" | "new" | "pay" | "stress";
 
 /** The app's sections, in the order of the header. */
 export const APP_TABS: [AppTab, string][] = [
   ["positions", "My positions"],
   ["new", "New position"],
-  ["markets", "Markets"],
+  ["pay", "Pay someone"],
+  ["stress", "Stress test"],
 ];
 
 /**
  * The header shared by the main landing page and the app: the brand (back to
  * the intro), the app's sections on the left, and on the right the way back
- * to the intro, the Arc and Circle section of the landing page, and Connect
- * wallet.
+ * to the intro, the Arc and Circle section of the landing page, and the
+ * wallet: Connect wallet, or the connected wallet's address.
  *
  * @param props.current The app section being shown, if any, to mark it.
  */
@@ -27,7 +29,7 @@ export function SiteHeader({ current }: { current?: AppTab }) {
           <LogoMark size={28} />
           Ardoise
         </Link>
-        <nav className="flex items-center gap-1 text-sm" aria-label="App sections">
+        <nav className="flex flex-wrap items-center gap-1 text-sm" aria-label="App sections">
           {APP_TABS.map(([id, label]) => (
             <Link
               key={id}
@@ -46,15 +48,10 @@ export function SiteHeader({ current }: { current?: AppTab }) {
         <Link href="/?intro" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
           How it works
         </Link>
-        <Link href="/#stack" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
+        <Link href="/stack" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
           Arc / Circle
         </Link>
-        <Link
-          href="/app?connect=wallet"
-          className="rounded-full bg-[#fafafa] px-4 py-2 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85"
-        >
-          Connect wallet
-        </Link>
+        <HeaderWallet />
       </nav>
     </header>
   );
