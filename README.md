@@ -6,7 +6,7 @@ Each payment borrows exactly its amount against your cirBTC on Arc and delivers 
 
 Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, tracks *DeFi & Onchain Apps* and *Best use of Arc*. Running on **Arc mainnet** with real cirBTC collateral on Aave V4 and Morpho.
 
-**Trust assumptions, up front:** one project key is factory admin and guard owner (it lists lenders and can set the demo's simulated drop; it cannot withdraw collateral). The contracts got an internal security review and were redeployed with the fixes; they are not audited, so caps are 10 USDC per payment and 20 per day. Addresses, all Sourcify-verified: [Deployed contracts](#deployed-contracts).
+**Trust assumptions, up front:** one project key is factory admin and guard owner (it lists lenders and can set the demo's simulated drop; it cannot withdraw collateral). The contracts got an internal security review and were redeployed with the fixes; they are not audited, so caps are 10 USDC per payment and 20 per day. Addresses, all Sourcify-verified: [`ADDRESSES.md`](ADDRESSES.md).
 
 ## Demo
 
