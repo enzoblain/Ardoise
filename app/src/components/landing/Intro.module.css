@@ -444,7 +444,11 @@
 }
 
 /* Skips the intro: quiet, in the colour of the slide it sits on. */
+/* The chapters over the pinned stage ignore the pointer; the button must not. */
 .skip {
+  position: relative;
+  z-index: 10;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;

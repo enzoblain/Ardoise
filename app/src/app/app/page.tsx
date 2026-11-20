@@ -16,13 +16,13 @@ const chainId = memo(60 * 60_000, 24 * 60 * 60_000, () => arcClient.getChainId()
 
 /**
  * App page (`/app`): the account's sections (`?tab=positions`, the default,
- * `new`, `pay`, `markets` or `stress`), fed with live venue rates from Arc mainnet, and the
+ * `new`, `pay` or `stress`; `venue` picks the lender to borrow from), fed with live venue rates from Arc mainnet, and the
  * status of the Arc network the app is set to.
  *
  * @param props.searchParams The query; `tab` picks the section, `connect=wallet` opens the browser wallet.
  */
-export default async function AppPage({ searchParams }: { searchParams: Promise<{ tab?: string; connect?: string }> }) {
-  const { tab: asked, connect } = await searchParams;
+export default async function AppPage({ searchParams }: { searchParams: Promise<{ tab?: string; connect?: string; venue?: string }> }) {
+  const { tab: asked, connect, venue } = await searchParams;
   const tab: AppTab = APP_TABS.find(([id]) => id === asked)?.[0] ?? "positions";
   const [venues, block, chain] = await Promise.all([rates().catch(() => null), blockNumber().catch(() => null), chainId().catch(() => null)]);
   // ARC_RPC_URL is set by hand and may point at the other network.
@@ -48,7 +48,7 @@ export default async function AppPage({ searchParams }: { searchParams: Promise<
       </div>
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 pb-16">
         {venues ? (
-          <AccountScreen venues={venues} tab={tab} autoConnect={connect === "wallet"} />
+          <AccountScreen venues={venues} tab={tab} autoConnect={connect === "wallet"} initialVenue={venues.some((v) => v.id === venue) ? venue : undefined} />
         ) : (
           <p className="card text-danger">Could not read the lending rates from Arc mainnet. Try again in a moment.</p>
         )}

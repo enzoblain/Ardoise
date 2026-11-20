@@ -47,6 +47,8 @@ export function NewPosition(props: {
   onPaid: () => void;
   /** True while the account has accepted a venue the app does not expect: borrowing is locked. */
   locked?: boolean;
+  /** Lender to borrow from at first (picked in the Markets section of the main page). */
+  initialVenueId?: string;
 }) {
   const { wallet, account, deployment } = props;
   const [username, setUsername] = useState("");
@@ -76,6 +78,7 @@ export function NewPosition(props: {
                 account={props.live}
                 venues={props.venues}
                 toSelf={wallet.address}
+                initialVenueId={props.initialVenueId}
                 title="2 · Borrow to my wallet"
                 onPaid={props.onPaid}
               />

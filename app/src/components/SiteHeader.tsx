@@ -3,14 +3,13 @@ import { HeaderWallet } from "@/components/HeaderWallet";
 import { LogoMark } from "@/components/LogoMark";
 
 /** A section of the app, as `/app?tab=`. */
-export type AppTab = "positions" | "new" | "pay" | "markets" | "stress";
+export type AppTab = "positions" | "new" | "pay" | "stress";
 
 /** The app's sections, in the order of the header. */
 export const APP_TABS: [AppTab, string][] = [
   ["positions", "My positions"],
   ["new", "New position"],
   ["pay", "Pay someone"],
-  ["markets", "Markets"],
   ["stress", "Stress test"],
 ];
 
@@ -49,7 +48,7 @@ export function SiteHeader({ current }: { current?: AppTab }) {
         <Link href="/?intro" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
           How it works
         </Link>
-        <Link href="/#stack" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
+        <Link href="/stack" className="hidden text-[#a1a1a1] transition-colors hover:text-white sm:inline">
           Arc / Circle
         </Link>
         <HeaderWallet />

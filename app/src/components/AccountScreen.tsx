@@ -11,7 +11,6 @@ import { createMockArdoise } from "@/lib/mockArdoise";
 import { network } from "@/lib/network";
 import { browserGatewaySigner, passkeyGatewaySigner } from "@/lib/gatewaySigner";
 import { connectWallet, switchChain, type ConnectedWallet } from "@/lib/wallet";
-import { Markets } from "@/components/Markets";
 import { MyPositions } from "@/components/MyPositions";
 import { NewPosition } from "@/components/NewPosition";
 import { PayScreen } from "@/components/PayScreen";
@@ -23,13 +22,12 @@ import { WithdrawPanel } from "@/components/WithdrawPanel";
 import { useWalletState } from "@/lib/walletContext";
 
 /**
- * The account's views, sharing one account client, on five tabs:
+ * The account's views, sharing one account client, on four tabs:
  * - My positions: one card per lender (collateral, debt, margin, borrowings
  *   in progress) and the protection the keeper repays with, then the
  *   statement and the withdrawal;
  * - Pay someone: borrow and pay a third party on Arc or Base;
  * - Stress test: what a bitcoin fall would do;
- * - Markets: the lenders Ardoise borrows from, side by side, with a way to pay from one;
  * - New position: connecting a wallet (a browser wallet, or a passkey that
  *   owns a Circle smart account), the one-time setup, and the protection from
  *   Base (Gateway reserve): a browser wallet signs there itself, a passkey
@@ -44,8 +42,9 @@ import { useWalletState } from "@/lib/walletContext";
  * @param props.venues Venues with their live rates, read on the server.
  * @param props.tab The section to show.
  * @param props.autoConnect True when the page was opened with `?connect=wallet`.
+ * @param props.initialVenue Venue to borrow from at first, from `?venue=`.
  */
-export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; tab: AppTab; autoConnect: boolean }) {
+export function AccountScreen({ venues, tab, autoConnect, initialVenue }: { venues: Venue[]; tab: AppTab; autoConnect: boolean; initialVenue?: string }) {
   const router = useRouter();
   const setTab = useCallback((next: AppTab) => router.push(`/app?tab=${next}`), [router]);
   // Created once: the server sends fresh venue objects on every section
@@ -62,8 +61,8 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
   const [connectError, setConnectError] = useState<string>();
   const [payments, setPayments] = useState(0);
   const [unexpectedVenue, setUnexpectedVenue] = useState(false);
-  // Venue picked on the Markets tab, which the pay screen starts on.
-  const [pickedVenue, setPickedVenue] = useState<string>();
+  // Venue picked in the Markets section of the main page (`?venue=`), which the pay screens start on.
+  const [pickedVenue] = useState<string | undefined>(initialVenue);
 
   const live = useMemo<ArdoiseClient | undefined>(
     () =>
@@ -165,14 +164,7 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
           venues={venues}
           onPaid={() => setPayments((n) => n + 1)}
           locked={unexpectedVenue}
-        />
-      ) : tab === "markets" ? (
-        <Markets
-          venues={venues}
-          onPick={(venueId) => {
-            setPickedVenue(venueId);
-            setTab("pay");
-          }}
+          initialVenueId={pickedVenue}
         />
       ) : tab === "stress" ? (
         <section className="card" aria-label="Stress test">
@@ -212,6 +204,8 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
             version={payments}
             owner={live ? wallet?.address : undefined}
             accountAddress={live ? accountAddress : undefined}
+            wallet={live ? wallet : undefined}
+            onRepaid={() => setPayments((n) => n + 1)}
           />
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="card">

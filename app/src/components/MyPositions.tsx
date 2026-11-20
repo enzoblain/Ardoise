@@ -6,7 +6,9 @@ import type { Address } from "viem";
 import { marginFromHealth, NO_DEBT_HEALTH, WAD, type ArdoiseClient, type Caps, type Health, type Venue } from "@/lib/ardoise";
 import { DEMO_MANDATE, readMandate, type Mandate } from "@/lib/defense";
 import { formatBps, formatPercent, formatUsdc } from "@/lib/format";
+import { RepayAllButton, RepayButton } from "@/components/RepayButton";
 import { chainByDomain } from "@/lib/network";
+import type { ConnectedWallet } from "@/lib/wallet";
 import { demoReserve, readReserve, type ReserveRead } from "@/lib/reserve";
 import { buildStatement, type StatementLine } from "@/lib/statement";
 
@@ -45,9 +47,19 @@ interface Card {
  * @param props.version Bumped after each payment, to read again.
  * @param props.owner The owner's wallet on the live account; omitted on the demo account.
  * @param props.accountAddress The Ardoise account on the live account.
+ * @param props.wallet The connected wallet, which repays a borrowing from its USDC on Arc.
+ * @param props.onRepaid Called after a repayment, to read again.
  */
-export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; version: number; owner?: Address; accountAddress?: Address }) {
-  const { account, venues, version, owner, accountAddress } = props;
+export function MyPositions(props: {
+  account: ArdoiseClient;
+  venues: Venue[];
+  version: number;
+  owner?: Address;
+  accountAddress?: Address;
+  wallet?: ConnectedWallet;
+  onRepaid?: () => void;
+}) {
+  const { account, venues, version, owner, accountAddress, wallet } = props;
   const live = owner !== undefined && accountAddress !== undefined;
   const [cards, setCards] = useState<Card[]>();
   const [minHealth, setMinHealth] = useState<bigint | null>();
@@ -196,9 +208,14 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
                 </>
               ) : null}
               <div className="flex flex-col gap-2 border-t border-line pt-3">
-                <div className="flex items-baseline justify-between text-sm">
+                <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium">Borrowings in progress</span>
-                  <span className="font-mono text-muted">{formatUsdc(owed)} USDC owed</span>
+                  <span className="flex items-center gap-3">
+                    <span className="font-mono text-muted">{formatUsdc(owed)} USDC owed</span>
+                    {live && wallet && accountAddress && card.lines.length > 0 && (
+                      <RepayAllButton wallet={wallet} account={accountAddress} lines={card.lines} onRepaid={() => props.onRepaid?.()} />
+                    )}
+                  </span>
                 </div>
                 {card.lines.length === 0 ? (
                   <p className="text-xs text-faint">{linesError ? "Borrowings could not be read." : "No borrowing open on this lender."}</p>
@@ -216,6 +233,9 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
                             of {formatUsdc(line.borrowed)} · {new Date(line.paidAt * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                           </span>
                         </span>
+                        {live && wallet && accountAddress && (
+                          <RepayButton wallet={wallet} account={accountAddress} lineId={line.lineId} owed={line.owed} onRepaid={() => props.onRepaid?.()} />
+                        )}
                       </li>
                     ))}
                   </ul>

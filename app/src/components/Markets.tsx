@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Venue } from "@/lib/ardoise";
 import { formatBps, formatUsdcCompact } from "@/lib/format";
 import { network } from "@/lib/network";
@@ -22,9 +23,9 @@ const ABOUT: Record<string, { market: string; detail: string }> = {
  * given market. Rates are the ones every payment compares.
  *
  * @param props.venues Venues with their live rates, read on the server.
- * @param props.onPick Called with a venue id to open the pay screen on it.
+ * @param props.pickHref Link to the app's pay screen on a venue, by venue id.
  */
-export function Markets({ venues, onPick }: { venues: Venue[]; onPick: (venueId: string) => void }) {
+export function Markets({ venues, pickHref }: { venues: Venue[]; pickHref: (venueId: string) => string }) {
   const borrowable = venues.filter((v) => v.borrowable !== false);
   const cheapest = [...borrowable].sort((a, b) => a.rateBps - b.rateBps)[0];
   const explorer = network.arc.chain.blockExplorers?.default.url;
@@ -76,9 +77,9 @@ export function Markets({ venues, onPick }: { venues: Venue[]; onPick: (venueId:
                   </a>
                 )}
                 {canBorrow ? (
-                  <button type="button" className="btn-primary px-4 py-2 text-sm" onClick={() => onPick(venue.id)}>
-                    Pay with {venue.name}
-                  </button>
+                  <Link href={pickHref(venue.id)} className="btn-primary px-4 py-2 text-sm">
+                    Borrow on {venue.name}
+                  </Link>
                 ) : (
                   <span className="text-xs text-faint">Comparison only</span>
                 )}
