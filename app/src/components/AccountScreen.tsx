@@ -83,6 +83,10 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
     [wallet, accountAddress, venues],
   );
   const account = live ?? demo;
+  // A venue warning belongs to the live account: back on the demo account, Pay is usable again.
+  useEffect(() => {
+    if (!live) setUnexpectedVenue(false);
+  }, [live]);
   const gatewaySigner = useMemo(
     () => (wallet ? (wallet.kind === "browser" ? browserGatewaySigner(wallet.provider, wallet.address) : passkeyGatewaySigner(wallet)) : undefined),
     [wallet],

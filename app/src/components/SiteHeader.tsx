@@ -30,7 +30,7 @@ export function SiteHeader({ current }: { current?: AppTab }) {
           <LogoMark size={28} />
           Ardoise
         </Link>
-        <nav className="flex items-center gap-1 text-sm" aria-label="App sections">
+        <nav className="flex flex-wrap items-center gap-1 text-sm" aria-label="App sections">
           {APP_TABS.map(([id, label]) => (
             <Link
               key={id}
