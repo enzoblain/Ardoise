@@ -120,9 +120,7 @@ export function Intro({ rate, steps, links }: { rate: string | null; steps: Intr
               <ul className={styles.lines}>
                 <li>A guard refuses any payment that would leave your health factor under 1.25.</li>
                 <li>The bot can only repay your own account.</li>
-                <li>
-                  Other currencies for the reserve <span className={styles.soon}>Soon</span>
-                </li>
+                <li>Behind the reserve, your ETH on Base: a Circle-attested alarm sells it to repay, within your caps.</li>
                 <li>
                   Staking the reserve while it waits <span className={styles.soon}>Soon</span>
                 </li>
