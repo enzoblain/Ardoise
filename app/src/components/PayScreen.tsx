@@ -148,8 +148,10 @@ export function PayScreen({
       // its checks first: the user signs exactly what the screen displays.
       if (!account.simulated) {
         const latest = await fetchFeeSchedule(destination);
-        const fee = feeFor(latest, amount);
-        if (fee !== maxFee) {
+        // Only a fee above the one on screen stops the payment: the cap carries
+        // headroom, and what the forwarder does not take reaches the payee.
+        const fee = latest === null ? 0n : computeMaxFee(latest, amount);
+        if (fee > maxFee) {
           setSchedules((s) => ({ ...s, [destination.key]: latest }));
           setFeeNotice(`Circle's fee just changed to ${formatUsdc(fee)} USDC. Check the amounts and pay again.`);
           return;
@@ -390,9 +392,13 @@ function Receipt({ line, simulated, onNew }: { line: DebtLine; simulated: boolea
   );
 }
 
-// `null` is the Arc schedule: a plain transfer, no fee.
+// `null` is the Arc schedule: a plain transfer, no fee. Otherwise Circle's
+// current maximum plus 10%: the forwarder fee moves every few seconds, and
+// whatever `maxFee` does not use reaches the payee.
 function feeFor(schedule: IrisFee[] | null, amount: bigint): bigint {
-  return schedule === null ? 0n : computeMaxFee(schedule, amount);
+  if (schedule === null) return 0n;
+  const fee = computeMaxFee(schedule, amount);
+  return fee + (fee + 9n) / 10n;
 }
 
 function parseAmount(text: string): bigint | undefined {
