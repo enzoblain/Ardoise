@@ -185,8 +185,8 @@ export function PayScreen({
         simulated={account.simulated}
         onNew={() => {
           setReceipt(undefined);
-          setPayee("");
-          setMemo("");
+          setPayee(toSelf ?? "");
+          setMemo(toSelf ? "Borrow to my wallet" : "");
         }}
       />
     );
@@ -219,6 +219,13 @@ export function PayScreen({
           </div>
         </label>
 
+        {toSelf ? (
+          <p className="text-sm text-muted">
+            To your wallet <span className="font-mono text-foreground">{`${toSelf.slice(0, 6)}…${toSelf.slice(-4)}`}</span> on{" "}
+            {destination.label}.
+          </p>
+        ) : (
+        <>
         <div className="flex flex-col gap-2">
           <span className="eyebrow">Payee&apos;s chain</span>
           <div className="grid grid-cols-2 gap-1 rounded-full border border-line-strong bg-sunken p-1" role="radiogroup" aria-label="Payee's chain">
@@ -248,6 +255,8 @@ export function PayScreen({
           />
           {payee !== "" && !payeeValid && <span className="text-sm text-danger">Not a valid address.</span>}
         </label>
+        </>
+        )}
 
         <label className="flex flex-col gap-2">
           <span className="eyebrow">Memo · shown on the statement</span>
@@ -323,7 +332,7 @@ export function PayScreen({
         disabled={!payeeValid || !fresh || !!error || sending || unconfirmed !== undefined}
         className="btn-primary py-3.5 text-base"
       >
-        {sending ? "Paying…" : amount !== undefined ? `Pay ${formatUsdc(amount)} USDC` : "Pay"}
+        {sending ? (toSelf ? "Borrowing…" : "Paying…") : amount !== undefined ? `${toSelf ? "Borrow" : "Pay"} ${formatUsdc(amount)} USDC` : toSelf ? "Borrow" : "Pay"}
       </button>
     </form>
   );

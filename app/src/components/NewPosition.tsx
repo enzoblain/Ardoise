@@ -32,6 +32,7 @@ const passkeysEnabled = Boolean(process.env.NEXT_PUBLIC_CIRCLE_CLIENT_KEY);
  * @param props.live The on-chain account client once the setup is done.
  * @param props.venues Venues with their live rates.
  * @param props.onPaid Called after collateral is added or USDC borrowed, to read again.
+ * @param props.locked Locks borrowing while an unexpected venue is accepted.
  */
 export function NewPosition(props: {
   wallet?: ConnectedWallet;
@@ -44,6 +45,8 @@ export function NewPosition(props: {
   live?: ArdoiseClient;
   venues: Venue[];
   onPaid: () => void;
+  /** True while the account has accepted a venue the app does not expect: borrowing is locked. */
+  locked?: boolean;
 }) {
   const { wallet, account, deployment } = props;
   const [username, setUsername] = useState("");
@@ -66,7 +69,7 @@ export function NewPosition(props: {
             <p className="text-sm text-muted">Add cirBTC to your position on the lender you will borrow from.</p>
             <AddCollateral wallet={wallet} deployment={deployment} onDone={props.onPaid} />
           </section>
-          <section className="card flex flex-col gap-3" aria-label="Borrow">
+          <section className={`card flex flex-col gap-3 ${props.locked ? "opacity-50" : ""}`} aria-label="Borrow" inert={props.locked}>
             {props.live ? (
               <PayScreen
                 key={`borrow-${wallet.address}`}
@@ -80,11 +83,11 @@ export function NewPosition(props: {
               <p className="text-sm text-muted">Reading your account…</p>
             )}
           </section>
-          <section className="card flex flex-col gap-3" aria-label={`Protect it from ${network.base.label}`}>
+          <section className="card flex flex-col gap-3" aria-label="Reserve">
             <h2 className="text-lg font-semibold">3 · Set aside USDC to manage it</h2>
             <p className="text-sm text-muted">
-              A reserve on {network.base.label} and standing orders: when the margin runs low, the keeper brings it to Arc and
-              repays. It protects all your positions, the one closest to liquidation first.
+              A USDC reserve with Circle Gateway and standing orders: when the margin runs low, the keeper draws on it and repays.
+              It protects all your positions, the one closest to liquidation first.
             </p>
             {props.signer ? <ProtectionPanel signer={props.signer} account={account} /> : <p className="text-sm text-muted">Reading your account…</p>}
           </section>

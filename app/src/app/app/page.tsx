@@ -16,7 +16,7 @@ const chainId = memo(60 * 60_000, 24 * 60 * 60_000, () => arcClient.getChainId()
 
 /**
  * App page (`/app`): the account's sections (`?tab=positions`, the default,
- * `new`, `pay`, `markets`, `collateral` or `stress`), fed with live venue rates from Arc mainnet, and the
+ * `new`, `pay`, `markets` or `stress`), fed with live venue rates from Arc mainnet, and the
  * status of the Arc network the app is set to.
  *
  * @param props.searchParams The query; `tab` picks the section, `connect=wallet` opens the browser wallet.

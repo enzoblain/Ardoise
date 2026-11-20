@@ -157,7 +157,7 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
     <section className="flex flex-col gap-4" aria-labelledby="protection-title">
       <div>
         <h2 id="protection-title" className="text-xl font-semibold tracking-tight">
-          Protection from {network.base.label}
+          Your reserve
         </h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
           Keep USDC in Circle Gateway on {network.base.label}. If your margin falls under the guard&apos;s minimum, the
@@ -168,7 +168,7 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
 
       <div className="flex flex-col gap-3 rounded-2xl border border-line bg-sunken p-4">
         <div className="flex items-baseline justify-between">
-          <span className="eyebrow">Gateway reserve on {network.base.label}</span>
+          <span className="eyebrow">Gateway reserve</span>
           <span className="font-semibold tabular-nums">{balance === undefined ? "…" : `${formatUsdc(balance)} USDC`}</span>
         </div>
         <AmountAction
@@ -229,7 +229,7 @@ export function ProtectionPanel({ signer, account }: { signer: GatewaySigner; ac
       </div>
 
       <div className="flex flex-col gap-3 rounded-2xl border border-line bg-sunken p-4">
-        <span className="eyebrow">Repay now from {network.base.label}</span>
+        <span className="eyebrow">Repay now from the reserve</span>
         <AmountAction
           value={repayText}
           onChange={setRepayText}

@@ -16,7 +16,6 @@ import { MyPositions } from "@/components/MyPositions";
 import { NewPosition } from "@/components/NewPosition";
 import { PayScreen } from "@/components/PayScreen";
 import { VenueCheckNotice } from "@/components/VenueCheck";
-import { Positions } from "@/components/Positions";
 import type { AppTab } from "@/components/SiteHeader";
 import { Statement } from "@/components/Statement";
 import { StressTest } from "@/components/StressTest";
@@ -24,12 +23,11 @@ import { WithdrawPanel } from "@/components/WithdrawPanel";
 import { useWalletState } from "@/lib/walletContext";
 
 /**
- * The account's views, sharing one account client, on six tabs:
+ * The account's views, sharing one account client, on five tabs:
  * - My positions: one card per lender (collateral, debt, margin, borrowings
  *   in progress) and the protection the keeper repays with, then the
  *   statement and the withdrawal;
  * - Pay someone: borrow and pay a third party on Arc or Base;
- * - Collateral: the position on each lender and what can still be spent;
  * - Stress test: what a bitcoin fall would do;
  * - Markets: the lenders Ardoise borrows from, side by side, with a way to pay from one;
  * - New position: connecting a wallet (a browser wallet, or a passkey that
@@ -166,6 +164,7 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
           live={live}
           venues={venues}
           onPaid={() => setPayments((n) => n + 1)}
+          locked={unexpectedVenue}
         />
       ) : tab === "markets" ? (
         <Markets
@@ -175,10 +174,6 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
             setTab("pay");
           }}
         />
-      ) : tab === "collateral" ? (
-        <section className="card" aria-label="Collateral on each lender">
-          <Positions key={live ? "live-positions" : "demo-positions"} account={account} venues={venues} version={payments} />
-        </section>
       ) : tab === "stress" ? (
         <section className="card" aria-label="Stress test">
           <StressTest
@@ -193,7 +188,7 @@ export function AccountScreen({ venues, tab, autoConnect }: { venues: Venue[]; t
       ) : tab === "pay" ? (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
           <p className="text-sm text-muted">
-            Pay someone on Arc or on Base with money borrowed on your positions: the USDC goes straight to them, and the debt
+            Pay someone with money borrowed on your positions: the USDC goes straight to them, and the debt
             is added to the lender you pick (or the cheapest one the guard allows). Your collateral never moves. To borrow to
             your own wallet instead, use New position.
           </p>

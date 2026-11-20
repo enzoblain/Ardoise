@@ -20,16 +20,16 @@ const MINT_TX = "0x80d15046477b5332f3c55150b82dfeba38dbb97e15af9e70d792ffa266408
 
 const STEPS = [
   {
-    title: "Pick who you pay",
-    text: "An amount, a payee, their chain: Arc or Base. No sale, no swap, no bridge to set up.",
+    title: "Put up your bitcoin",
+    text: "Your cirBTC goes into your own position on Aave V4 or Morpho, on Arc. Ardoise never holds it and can never withdraw it.",
   },
   {
-    title: "Ardoise borrows exactly that",
-    text: "At the cheapest lender Ardoise uses on Arc (Aave V4 today), against the cirBTC in your own Aave position, after checking your margin.",
+    title: "Borrow, or pay someone directly",
+    text: "Borrow USDC to your wallet, or have Ardoise pay a payee straight away: it borrows exactly the amount at the cheapest lender, after checking your margin.",
   },
   {
-    title: "It lands, and goes on your tab",
-    text: "On Arc it is a direct transfer; to Base, Circle's CCTP delivers it in seconds. Your statement gets one new line.",
+    title: "Set aside a reserve, the keeper does the rest",
+    text: "If your margin runs low, the keeper repays your debt from the reserve you set aside, before any liquidation. Each borrowing is one line on your statement.",
   },
 ];
 
@@ -106,8 +106,8 @@ export default async function Landing() {
               <span className="text-[#6b6b6b]">Keep your bitcoin.</span>
             </h1>
             <p className="max-w-md text-lg leading-relaxed text-[#a1a1a1]">
-              Each payment borrows exactly its amount on Arc, at the best available rate, and delivers it on Arc or, through Circle&rsquo;s CCTP, on Base.
-              Your position is guarded against liquidation.
+              Borrow USDC against your bitcoin on Arc, at the best available rate, or pay someone with it directly. A reserve you set
+              aside and a keeper guard your position against liquidation.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Link href="/app" className="rounded-full bg-[#fafafa] px-6 py-3 font-medium text-[#0a0a0a] transition-opacity hover:opacity-85">

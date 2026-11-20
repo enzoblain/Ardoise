@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Address } from "viem";
-import { marginFromHealth, NO_DEBT_HEALTH, WAD, type ArdoiseClient, type Health, type Venue } from "@/lib/ardoise";
+import { marginFromHealth, NO_DEBT_HEALTH, WAD, type ArdoiseClient, type Caps, type Health, type Venue } from "@/lib/ardoise";
 import { DEMO_MANDATE, readMandate, type Mandate } from "@/lib/defense";
 import { formatBps, formatPercent, formatUsdc } from "@/lib/format";
 import { chainByDomain } from "@/lib/network";
@@ -32,11 +32,12 @@ interface Card {
 }
 
 /**
- * The owner's positions, one card per lender: collateral, debt, the margin
+ * The owner's positions, with the totals and limits (owed, caps, guard
+ * minimum), then one card per lender: collateral, debt, the margin
  * bar against the guard's minimum, and the borrowings still owed on that
  * lender. Below, the protection the keeper uses for all of them: USDC on the
  * account, the Gateway reserve and its standing orders, and the defense
- * mandate on Base. On the demo account, a third position with a tokenized
+ * mandate. On the demo account, a third position with a tokenized
  * real-world asset as collateral shows how another collateral would look.
  *
  * @param props.account Account client (demo or on-chain).
@@ -52,7 +53,9 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
   const [minHealth, setMinHealth] = useState<bigint | null>();
   const [reserve, setReserve] = useState<ReserveRead>();
   const [mandate, setMandate] = useState<Mandate | null>();
-  const [protectionError, setProtectionError] = useState<string>();
+  const [protectionErrors, setProtectionErrors] = useState<string[]>([]);
+  const [linesError, setLinesError] = useState<string>();
+  const [caps, setCaps] = useState<Caps>();
 
   useEffect(() => {
     let current = true;
@@ -60,11 +63,13 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
     void Promise.all([
       Promise.all(venues.map((v) => account.health(v.id).then((h) => ({ h }), (e: Error) => ({ e: e.message.split("\n")[0] })))),
       account.events().then(
-        (e) => buildStatement(e.account, e.logs, e.blockTimes, venues, now).lines.filter((l) => l.owed > 0n),
-        () => [] as StatementLine[],
+        (e) => ({ lines: buildStatement(e.account, e.logs, e.blockTimes, venues, now).lines.filter((l) => l.owed > 0n) }),
+        (e: Error) => ({ lines: [] as StatementLine[], error: e.message.split("\n")[0] }),
       ),
-    ]).then(([healths, lines]) => {
+    ]).then(([healths, read2]) => {
       if (!current) return;
+      const lines = read2.lines;
+      setLinesError("error" in read2 ? read2.error : undefined);
       const read: Card[] = venues.map((v, i) => ({
         key: v.id,
         lender: v.name,
@@ -77,6 +82,7 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
       setCards(read);
     });
     account.minHealthFactor().then((m) => current && setMinHealth(m), () => undefined);
+    account.caps().then((c) => current && setCaps(c), () => undefined);
     return () => {
       current = false;
     };
@@ -84,24 +90,27 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
 
   useEffect(() => {
     let current = true;
-    setProtectionError(undefined);
-    Promise.all([
+    setProtectionErrors([]);
+    void Promise.allSettled([
       live ? readReserve(owner, accountAddress) : demoReserve(),
       live ? readMandate(owner) : Promise.resolve(DEMO_MANDATE),
-    ]).then(
-      ([r, m]) => {
-        if (!current) return;
-        setReserve(r);
-        setMandate(m);
-      },
-      (e: Error) => current && setProtectionError(e.message.split("\n")[0]),
-    );
+    ]).then(([r, m]) => {
+      if (!current) return;
+      const errors: string[] = [];
+      if (r.status === "fulfilled") setReserve(r.value);
+      else errors.push(`reserve: ${(r.reason as Error).message.split("\n")[0]}`);
+      if (m.status === "fulfilled") setMandate(m.value);
+      else errors.push(`defense mandate: ${(m.reason as Error).message.split("\n")[0]}`);
+      setProtectionErrors(errors);
+    });
     return () => {
       current = false;
     };
   }, [live, owner, accountAddress, version]);
 
   const minMargin = minHealth ? marginFromHealth(minHealth) : undefined;
+  const leftToday = caps ? (caps.daily > caps.spentToday ? caps.daily - caps.spentToday : 0n) : undefined;
+  const totalOwed = cards?.reduce((sum, c) => sum + c.lines.reduce((s2, l) => s2 + l.owed, 0n), 0n);
   const reserveIn = (speed: string) => reserve?.assets.filter((a) => a.speed === speed).reduce((s, a) => s + a.valueUsd, 0) ?? 0;
 
   return (
@@ -115,6 +124,26 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
         </p>
       </div>
 
+      <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-line p-4 text-sm sm:grid-cols-4">
+        <div>
+          <dt className="text-xs text-muted">Owed on your borrowings</dt>
+          <dd className="font-mono">{totalOwed === undefined ? "…" : `${formatUsdc(totalOwed)} USDC`}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted">Left to borrow today</dt>
+          <dd className="font-mono">{leftToday === undefined ? "…" : `${formatUsdc(leftToday)} USDC`}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted">Per borrowing</dt>
+          <dd className="font-mono">{caps ? `${formatUsdc(caps.perPayment)} USDC` : "…"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted">Guard minimum</dt>
+          <dd className="font-mono">{minHealth === undefined ? "…" : minHealth === null ? "no guard" : formatHealth(minHealth)}</dd>
+        </div>
+      </dl>
+      {linesError && <p className="text-sm text-danger">Could not read your borrowings: {linesError}</p>}
+
       {!cards && <p className="text-sm text-muted">Reading your positions…</p>}
       <div className="grid gap-4 lg:grid-cols-2">
         {cards?.map((card) => {
@@ -126,7 +155,7 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
               <div className="flex items-baseline justify-between gap-3">
                 <h3 className="text-lg font-semibold">{card.lender}</h3>
                 <span className="text-xs text-muted">
-                  {card.collateral} → USDC{card.illustrative && " · illustration"}
+                  {card.collateral} → USDC{card.illustrative && " · demo only, not on chain"}
                 </span>
               </div>
               {card.error ? (
@@ -172,7 +201,7 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
                   <span className="font-mono text-muted">{formatUsdc(owed)} USDC owed</span>
                 </div>
                 {card.lines.length === 0 ? (
-                  <p className="text-xs text-faint">No borrowing open on this lender.</p>
+                  <p className="text-xs text-faint">{linesError ? "Borrowings could not be read." : "No borrowing open on this lender."}</p>
                 ) : (
                   <ul className="flex flex-col gap-1.5">
                     {card.lines.map((line) => (
@@ -181,7 +210,12 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
                           <span className="font-mono">#{line.lineId.toString()}</span> {line.memo || "Payment"} ·{" "}
                           {chainByDomain(line.destinationDomain)?.label ?? `domain ${line.destinationDomain}`} · {formatBps(line.rateBps)}
                         </span>
-                        <span className="shrink-0 font-mono">{formatUsdc(line.owed)}</span>
+                        <span className="shrink-0 text-right">
+                          <span className="font-mono">{formatUsdc(line.owed)}</span>
+                          <span className="block text-faint">
+                            of {formatUsdc(line.borrowed)} · {new Date(line.paidAt * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -206,7 +240,7 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
           The keeper holds no money of its own: it pays gas only. When a position falls under the guard&apos;s minimum it
           repays the debt from your funds, in this order, on the position closest to liquidation.
         </p>
-        {protectionError && <p className="text-sm text-danger">Could not read the protection: {protectionError}</p>}
+        {protectionErrors.length > 0 && <p className="text-sm text-danger">Could not read the {protectionErrors.join("; ")}</p>}
         <ol className="grid gap-3 sm:grid-cols-3">
           <li className="rounded-2xl border border-line p-4">
             <p className="text-xs text-muted">1 · USDC on the account (Arc)</p>
@@ -214,15 +248,15 @@ export function MyPositions(props: { account: ArdoiseClient; venues: Venue[]; ve
             <p className="mt-1 text-xs text-faint">Repaid at once with the public sweep().</p>
           </li>
           <li className="rounded-2xl border border-line p-4">
-            <p className="text-xs text-muted">2 · Gateway reserve on Base</p>
+            <p className="text-xs text-muted">2 · Gateway reserve</p>
             <p className="mt-1 font-mono text-lg">{reserve ? usd(reserveIn("automatic")) : "…"}</p>
             <p className="mt-1 text-xs text-faint">
-              Covered by signed standing orders, brought to Arc in seconds.
+              Covered by signed standing orders, brought to your account in seconds.
               {reserve && reserveIn("manual") > 0 && <> {usd(reserveIn("manual"))} more without an order (wallet or Gateway), moved by you.</>}
             </p>
           </li>
           <li className="rounded-2xl border border-line p-4">
-            <p className="text-xs text-muted">3 · Defense mandate on Base (CCTP alarm)</p>
+            <p className="text-xs text-muted">3 · Defense mandate (CCTP alarm)</p>
             {mandate === undefined ? (
               <p className="mt-1 font-mono text-lg">…</p>
             ) : mandate === null ? (

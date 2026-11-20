@@ -5,6 +5,7 @@ import { formatUnits, type Address } from "viem";
 import { arcClient } from "@/lib/arc";
 import { addCollateralCalls, morphoAuthorized, parseCirBtc, sendCalls, type CollateralLender } from "@/lib/collateral";
 import { erc20Abi, type Deployment } from "@/lib/contracts/deployments";
+import { network, txUrl } from "@/lib/network";
 import type { ConnectedWallet } from "@/lib/wallet";
 
 /**
@@ -109,7 +110,7 @@ export function AddCollateral({ wallet, deployment, onDone }: { wallet: Connecte
       {done && (
         <p className="text-sm text-muted">
           Added.{" "}
-          <a className="underline" href={`https://explorer.arc.io/tx/${done}`} target="_blank" rel="noreferrer">
+          <a className="underline" href={txUrl(network.arc, done as `0x${string}`)} target="_blank" rel="noreferrer">
             Transaction
           </a>
         </p>
