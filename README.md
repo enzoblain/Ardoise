@@ -4,7 +4,7 @@
 
 Each payment borrows exactly its amount against your cirBTC on Arc and delivers it on Arc or on Base. When bitcoin falls, a guard refuses risky payments and a keeper repays from your reserve: on Arc mainnet it repaid 29 seconds after a simulated drop (block timestamps), drawing the USDC from Base through Circle Gateway.
 
-Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)**, tracks *DeFi & Onchain Apps* and *Best use of Arc*. Running on **Arc mainnet** with real cirBTC collateral on Aave V4 and Morpho.
+Built for **UBC Hackathon 2026 (University Blockchain Conference, UT Austin)** in the *DeFi & Onchain Apps* track, where it **won the Best use of Arc prize** (one of 16 finalist teams). Running on **Arc mainnet** with real cirBTC collateral on Aave V4 and Morpho.
 
 **Trust assumptions, up front:** one project key is factory admin and guard owner (it lists lenders and can set the demo's simulated drop; it cannot withdraw collateral). The contracts got an internal security review and were redeployed with the fixes; they are not audited, so caps are 10 USDC per payment and 20 per day. Addresses, all Sourcify-verified: [`ADDRESSES.md`](ADDRESSES.md).
 
